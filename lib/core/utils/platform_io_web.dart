@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 class PlatformIo {
   static bool get isAndroid => false;
   static bool get isIOS => false;
@@ -15,7 +17,7 @@ class PlatformFile {
   void createSync({bool recursive = false}) {}
   String get path => '';
   Future<void> writeAsBytes(List<int> bytes) async {}
-  Future<List<int>> readAsBytes() async => [];
+  Future<Uint8List> readAsBytes() async => Uint8List(0);
 }
 
 class PlatformDirectory {
