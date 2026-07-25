@@ -7,6 +7,14 @@ class PlatformIo {
   static bool get isMacOS => false;
   static bool get isLinux => false;
   static String? get userProfile => null;
+
+  static Future<String> getApplicationSupportDirectoryPath() async {
+    return '';
+  }
+
+  static Future<String> getApplicationDocumentsDirectoryPath() async {
+    return '';
+  }
 }
 
 class PlatformFile {

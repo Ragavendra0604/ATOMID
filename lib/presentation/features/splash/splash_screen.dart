@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:atomid/presentation/widgets/app_shell.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:atomid/presentation/providers/app_providers.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:atomid/firebase_options.dart';
 
-class SplashScreen extends StatefulWidget {
+class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
 
   @override
-  State<SplashScreen> createState() => _SplashScreenState();
+  ConsumerState<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen>
+class _SplashScreenState extends ConsumerState<SplashScreen>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _scaleAnimation;
@@ -31,14 +35,53 @@ class _SplashScreenState extends State<SplashScreen>
     ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeIn));
 
     _controller.forward();
+    _initializeApp();
+  }
 
-    Future.delayed(const Duration(seconds: 3), () {
+  String _initStatus = 'Initializing...';
+  String _errorMessage = '';
+
+  Future<void> _initializeApp() async {
+    try {
+      debugPrint('Initializing Firebase...');
+      setState(() => _initStatus = 'Initializing Firebase...');
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+      debugPrint('Firebase Initialized');
+
+      debugPrint('Initializing Storage...');
+      setState(() => _initStatus = 'Initializing Storage...');
+      await ref.read(storageRepositoryProvider).init();
+      debugPrint('Storage Initialized');
+
+      debugPrint('Initializing Session...');
+      setState(() => _initStatus = 'Initializing Session...');
+      await ref.read(sessionServiceProvider).init();
+      debugPrint('Session Initialized');
+
+      debugPrint('Starting Sync...');
+      setState(() => _initStatus = 'Starting Sync...');
+      ref.read(syncServiceProvider).start();
+      debugPrint('Sync Started');
+
+      // Add a small delay for the animation to play
+      await Future.delayed(const Duration(milliseconds: 500));
+
       if (mounted) {
         Navigator.of(
           context,
         ).pushReplacement(MaterialPageRoute(builder: (_) => const AppShell()));
       }
-    });
+    } catch (e, stack) {
+      debugPrint('Startup Error: $e\n$stack');
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString();
+          _initStatus = 'Error occurred during startup';
+        });
+      }
+    }
   }
 
   @override
@@ -71,6 +114,26 @@ class _SplashScreenState extends State<SplashScreen>
                         color: Colors.amber,
                       ),
                     ),
+                    if (_errorMessage.isNotEmpty) ...[
+                      const SizedBox(height: 16),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: Text(
+                          _errorMessage,
+                          style: const TextStyle(color: Colors.red, fontSize: 14),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ] else ...[
+                      const SizedBox(height: 16),
+                      Text(
+                        _initStatus,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),

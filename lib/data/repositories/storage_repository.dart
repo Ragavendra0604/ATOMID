@@ -1,7 +1,6 @@
 import 'package:atomid/core/utils/platform_io.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:hive_ce_flutter/hive_flutter.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:atomid/data/models/product_model.dart';
 import 'package:atomid/data/models/action_history_model.dart';
 import 'package:atomid/data/models/settings_model.dart';
@@ -75,11 +74,11 @@ class StorageRepository {
     } else {
       PlatformDirectory dir;
       try {
-        final docs = await getApplicationSupportDirectory();
-        dir = PlatformDirectory(docs.path);
+        final path = await PlatformIo.getApplicationSupportDirectoryPath();
+        dir = PlatformDirectory(path);
       } catch (_) {
-        final docs = await getApplicationDocumentsDirectory();
-        dir = PlatformDirectory(docs.path);
+        final path = await PlatformIo.getApplicationDocumentsDirectoryPath();
+        dir = PlatformDirectory(path);
       }
 
       // If the support directory somehow maps to OneDrive, force a local path

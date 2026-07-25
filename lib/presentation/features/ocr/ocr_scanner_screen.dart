@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:atomid/presentation/features/products/product_form_screen.dart';
-
 class OcrScannerScreen extends ConsumerStatefulWidget {
   const OcrScannerScreen({super.key});
 
@@ -12,10 +12,17 @@ class OcrScannerScreen extends ConsumerStatefulWidget {
 }
 
 class _OcrScannerScreenState extends ConsumerState<OcrScannerScreen> {
-  final ImagePicker _picker = ImagePicker();
-  final TextRecognizer _textRecognizer = TextRecognizer(
-    script: TextRecognitionScript.latin,
-  );
+  ImagePicker? _picker;
+  TextRecognizer? _textRecognizer;
+
+  @override
+  void initState() {
+    super.initState();
+    _picker = ImagePicker();
+    if (!kIsWeb) {
+      _textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
+    }
+  }
 
   bool _isProcessing = false;
   String _extractedText = '';
@@ -26,13 +33,14 @@ class _OcrScannerScreenState extends ConsumerState<OcrScannerScreen> {
 
   @override
   void dispose() {
-    _textRecognizer.close();
+    _textRecognizer?.close();
     super.dispose();
   }
 
   Future<void> _scanTag(ImageSource source) async {
     try {
-      final XFile? image = await _picker.pickImage(source: source);
+      if (_picker == null) return;
+      final XFile? image = await _picker!.pickImage(source: source);
       if (image == null) return;
 
       setState(() {
@@ -43,8 +51,12 @@ class _OcrScannerScreenState extends ConsumerState<OcrScannerScreen> {
         _parsedSize = null;
       });
 
+      if (kIsWeb || _textRecognizer == null) {
+        throw Exception('OCR is not supported on Web');
+      }
+
       final inputImage = InputImage.fromFilePath(image.path);
-      final RecognizedText recognizedText = await _textRecognizer.processImage(
+      final RecognizedText recognizedText = await _textRecognizer!.processImage(
         inputImage,
       );
 

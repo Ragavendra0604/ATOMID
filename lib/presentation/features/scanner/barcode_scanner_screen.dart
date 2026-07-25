@@ -15,12 +15,18 @@ class BarcodeScannerScreen extends ConsumerStatefulWidget {
 }
 
 class _BarcodeScannerScreenState extends ConsumerState<BarcodeScannerScreen> {
-  final MobileScannerController _scannerController = MobileScannerController();
+  MobileScannerController? _scannerController;
   bool _isScanning = true;
 
   @override
+  void initState() {
+    super.initState();
+    _scannerController = MobileScannerController();
+  }
+
+  @override
   void dispose() {
-    _scannerController.dispose();
+    _scannerController?.dispose();
     super.dispose();
   }
 
@@ -91,15 +97,18 @@ class _BarcodeScannerScreenState extends ConsumerState<BarcodeScannerScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.flash_on, color: Colors.yellow),
-            onPressed: () => _scannerController.toggleTorch(),
+            onPressed: () => _scannerController!.toggleTorch(),
           ),
           IconButton(
             icon: const Icon(Icons.cameraswitch),
-            onPressed: () => _scannerController.switchCamera(),
+            onPressed: () => _scannerController!.switchCamera(),
           ),
         ],
       ),
-      body: MobileScanner(controller: _scannerController, onDetect: _onDetect),
+      body: MobileScanner(
+        controller: _scannerController!,
+        onDetect: _onDetect,
+      ),
     );
   }
 }

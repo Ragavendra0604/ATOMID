@@ -18,15 +18,21 @@ class PosScreen extends ConsumerStatefulWidget {
 
 class _PosScreenState extends ConsumerState<PosScreen> {
   final _searchController = TextEditingController();
-  final MobileScannerController _scannerController = MobileScannerController(
-    detectionSpeed: DetectionSpeed.noDuplicates,
-  );
+  MobileScannerController? _scannerController;
   bool _isScanning = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scannerController = MobileScannerController(
+      detectionSpeed: DetectionSpeed.noDuplicates,
+    );
+  }
 
   @override
   void dispose() {
     _searchController.dispose();
-    _scannerController.dispose();
+    _scannerController?.dispose();
     super.dispose();
   }
 
@@ -408,7 +414,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
     return SizedBox(
       height: 200,
       child: MobileScanner(
-        controller: _scannerController,
+        controller: _scannerController!,
         onDetect: _handleBarcodeFound,
       ),
     );
