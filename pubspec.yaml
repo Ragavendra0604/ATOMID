@@ -65,6 +65,7 @@ dev_dependencies:
   hive_ce_generator: ^1.11.2
   mocktail: ^1.0.5
   flutter_launcher_icons: ^0.14.4
+  msix: ^3.18.0
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -121,3 +122,11 @@ flutter_launcher_icons:
     theme_color: "#ffffff"
   image_path: "assets/images/app_icon.png"
   min_sdk_android: 21
+
+msix_config:
+  display_name: "Atomid Store"
+  publisher_display_name: "Atomid"
+  identity_name: "atomid.store.app"
+  publisher: "CN=Atomid"
+  msix_version: "1.0.0.0"
+  logo_path: "assets/images/app_icon.png"
