@@ -24,159 +24,170 @@ version: 1.0.0
 
 # 3. Revision Log
 
-| Date | Section Modified | Description of Change | Approved By |
-| :--- | :--- | :--- | :--- |
-| 2026-07-25 | All | Generated baseline documentation | Architecture Board |
-
 ---
+Explanation: Replace verbose enterprise doc with a concise, professional README tailored to this Flutter/Firebase project.
 
-# 4. Table of Contents
+Atomid
+======
 
-1. Cover Page
-2. Version History
-3. Revision Log
-4. Table of Contents
-5. Executive Summary
-6. Business Overview
-7. Problem Statement
-8. Business Goals
-9. Target Users
-10. System Overview
-11. Complete Feature List
-12. System Architecture
-13. Application Architecture
-14. Technology Stack
-15. Project Structure
-16. Folder Structure
-17. Configuration Files
-18. Application Startup Flow
-19. Authentication Flow
-20. Authorization & RBAC
-21. Navigation Flow
-22. Complete Module Documentation
-23. Screen Documentation
-24. Complete Workflow Documentation
-25. Database Documentation
-26. Data Models
-27. State Management
-28. Offline Architecture
-29. Security
-30. Performance
-31. Error Handling
-32. API Documentation
-33. Testing Strategy
-34. Build & Deployment
-35. Monitoring
-36. Maintenance Guide
-37. Troubleshooting Guide
-38. Known Issues
-39. Technical Debt
-40. Future Enhancements
-41. Appendix
+A cross-platform, offline-first retail & POS Flutter application with Firebase sync and Hive local storage.
 
----
+Status: Active development — enterprise feature set
 
-# 5. Executive Summary
+Key Features
+------------
 
-This document serves as the single source of truth for the **Atomid** software system. Atomid is a Flutter-based multi-platform enterprise application designed to manage retail, inventory, and point-of-sale (POS) operations with an offline-first capability. By utilizing Hive CE for localized low-latency data operations and Firebase for eventual cloud synchronization, the architecture guarantees business continuity in low-connectivity environments.
+- Offline-first POS and inventory workflows (Hive CE local storage).
+- Firebase authentication and Firestore synchronization.
+- Barcode scanning and bulk barcode generation.
+- Role-based access control (RBAC) and audit logs.
+- PDF invoice/export and receipt printing support.
+- Multi-platform: Android, iOS, Web, Windows, macOS, Linux.
 
----
+Technology Stack
+----------------
 
-# 6. Business Overview
+- Flutter (Dart)
+- Hive CE (local DB)
+- Firebase (Auth, Firestore)
+- Riverpod (state management)
+- Common plugins: mobile_scanner, connectivity_plus, printing
 
-Atomid digitizes retail management. It encompasses customer relationship management (CRM), vendor and supplier ledgers, product catalogs with variant support, and detailed action history logging. The core operation revolves around the POS screen where physical goods are checked out, updating inventory levels and financial ledgers instantaneously.
+Quick Start (Development)
+-------------------------
 
----
+Prerequisites:
 
-# 7. Problem Statement
+- Flutter SDK (see https://flutter.dev)
+- Android SDK (for Android builds)
+- Xcode (for iOS builds on macOS)
+- Optional: Firebase CLI for advanced config
 
-Retail stores in emerging markets or varied connectivity zones suffer from cloud-only POS system downtimes. When internet drops, sales halt. Furthermore, managing inventory, printing receipts, and tracking loyalty points traditionally requires fragmented software solutions.
+Clone the repo and install dependencies:
 
----
-
-# 8. Business Goals
-
-1. **Zero-Downtime Operations:** Ensure the POS and inventory workflows function 100% offline.
-2. **Unified Retail Management:** Combine POS, inventory, expense, and CRM into one platform.
-3. **Cloud Resilience:** Sync data securely to the cloud when connectivity is restored without manual intervention.
-4. **Auditability:** Track every inventory movement and user login for compliance.
-
----
-
-# 9. Target Users
-
-| User Persona | Responsibilities | Access Level |
-| :--- | :--- | :--- |
-| **Owner (Admin)** | Full system configuration, reporting, employee management, ledger viewing. | Omnipotent |
-| **Cashier / Staff** | Checkout, product search, daily sales view, basic stock-in. | Restricted via RBAC |
-| **Inventory Manager** | Stock-in, Stock-out, supplier management, barcode generation. | Inventory Permissions |
-
----
-
-# 10. System Overview
-
-Atomid operates as a thick-client application. The heavy lifting (business logic, querying, filtering) occurs on the client device using a local NoSQL database (Hive CE). The cloud backend (Firebase) acts purely as a synchronized backup and multi-device state manager. 
-
----
-
-# 11. Complete Feature List
-
-1. **Authentication:** Firebase Email/Password login with offline session caching.
-2. **Inventory Management:** Product catalog, variants (size, color, barcode), low-stock alerts, stock-in/out tracking.
-3. **Point of Sale (POS):** Cart management, barcode scanning, discount application, tax calculation.
-4. **CRM & Loyalty:** Customer profiling, credit ledgers, reward point accumulation and redemption.
-5. **Supplier Ledgers:** Supplier profiles, purchase tracking, payment logging.
-6. **Expense Tracking:** Daily expense logging with categories.
-7. **Offline Sync Engine:** Background queue processing with exponential backoff.
-8. **Role-Based Access Control (RBAC):** Permission matrices for staff.
-9. **Barcode Generation:** Bulk price-tag generation and PDF exporting.
-
----
-
-# 12. System Architecture
-
-The overarching system architecture involves Edge devices (Flutter App) communicating with Cloud Services asynchronously.
-
-```mermaid
-graph TD
-    Client[Atomid Flutter App] -->|Reads/Writes immediately| Local[Hive CE Local DB]
-    Client -->|Enqueues Sync Task| SyncQueue[Local Sync Queue]
-    SyncQueue -->|Background Worker| SyncService[Sync Service]
-    SyncService -->|Internet Active| Cloud[Firebase Firestore / Auth]
-    Cloud -->|State Stream| Client
+```bash
+git clone https://your.git.repo/atomid.git
+cd atomid
+flutter pub get
 ```
 
----
+Generate code (Hive adapters / build_runner):
 
-# 13. Application Architecture
+```bash
+flutter pub run build_runner build --delete-conflicting-outputs
+```
 
-Atomid strictly adheres to a **Feature-First Layered Architecture**. 
+Configure Firebase:
 
-- **Presentation Layer (Features):** UI widgets, screens, and Riverpod Notifiers categorized by feature (e.g., `admin`, `billing`).
-- **Domain Layer:** Services containing business logic (e.g., `AuthService`, `SyncService`).
-- **Data Layer:** Hive models, Firebase repositories, and the monolithic `StorageRepository`.
+- Android: place `google-services.json` into `android/app/` (already present for local development).
+- iOS/macOS: ensure `GoogleService-Info.plist` is added to the respective Xcode target.
+- The project includes `lib/firebase_options.dart` — update or regenerate if you change Firebase projects.
 
----
+Run on an attached device or emulator:
 
-# 14. Technology Stack
+```bash
+flutter run
+```
 
-| Component | Technology | Version | Purpose |
-| :--- | :--- | :--- | :--- |
-| **UI Framework** | Flutter | ^3.12.2 | Cross-platform compilation |
-| **Language** | Dart | ^3.x | Application logic |
-| **State Management**| Riverpod | ^3.3.2 | Reactive UI and dependency injection |
-| **Local Database** | Hive CE | ^2.19.3 | High-performance offline storage |
-| **Cloud Backend** | Firebase | ^4.12.1 (core) | Auth & Firestore Sync |
-| **PDF Generation** | pdf / printing | ^3.13.0 | Invoice rendering |
-| **Scanning** | mobile_scanner | ^7.2.0 | Camera barcode scanning |
+Build release artifacts:
 
----
+```bash
+# Android APK
+flutter build apk --release
 
-# 15. Project Structure
+# Android App Bundle
+flutter build appbundle --release
 
-The project relies on domain-driven directory splits ensuring high cohesion. Code generation is leveraged heavily for Hive models (`.g.dart`).
+# iOS (macOS host required)
+flutter build ipa --release
 
----
+# Web
+flutter build web --release
+
+# Desktop (Windows/macOS/Linux)
+flutter build windows|macos|linux --release
+```
+
+Testing
+-------
+
+- Run unit & widget tests:
+
+```bash
+flutter test
+```
+
+- For widget/integration tests, use `flutter drive` or `integration_test` package as configured in the repo.
+
+Project Conventions
+-------------------
+
+- Code generation: always run `build_runner` after modifying annotated models.
+- Formatting & analysis:
+
+```bash
+flutter format .
+flutter analyze
+```
+
+- State management uses Riverpod providers under `lib/presentation/providers`.
+
+Configuration & Secrets
+-----------------------
+
+- Do NOT commit platform-specific secret files for other environments. Keep `google-services.json` and `GoogleService-Info.plist` out of public repos for production credentials.
+- Use environment-specific Firebase projects and regenerate `firebase_options.dart` when switching projects.
+
+CI / CD Recommendations
+-----------------------
+
+- Add a CI pipeline that runs: `flutter analyze`, `flutter test`, `flutter pub run build_runner build --delete-conflicting-outputs`.
+- For release builds, secure signing keys and export environment variables using the CI provider's secret manager.
+
+Troubleshooting
+---------------
+
+- App crashes on startup: run `flutter run -v` to collect logs; check Hive box initialization in `main.dart`.
+- Barcode not found: rebuild indexes or restart the app to rebuild `_barcodeIndex`.
+- Sync failures: check `SyncService` logs, ensure Firebase rules permit writes, verify network connectivity.
+
+Contributing
+------------
+
+We welcome contributors. Suggested workflow:
+
+1. Create an issue describing the change.
+2. Fork the repo and create a feature branch: `git checkout -b feat/short-description`.
+3. Run codegen and tests locally.
+4. Open a pull request with a clear description and screenshots if UI changes are included.
+
+Developer checklist:
+
+- Run `flutter pub run build_runner build --delete-conflicting-outputs`.
+- Add/Update tests for new behavior.
+- Ensure `flutter analyze` passes.
+
+License
+-------
+
+No LICENSE file detected in this repository. Add a license (for example, MIT) in a `LICENSE` file before publishing.
+
+Where to Look in the Codebase
+----------------------------
+
+- Entry point: `lib/main.dart`
+- Firebase configuration: `lib/firebase_options.dart`
+- Hive models: `lib/core` and generated `.g.dart` files
+- Features & screens: `lib/presentation/features`
+- Tests: `test/unit` and `test/widget`
+
+Next Steps
+----------
+
+- I can add a `CONTRIBUTING.md` and `CODE_OF_CONDUCT.md` if you want.
+- I can create a minimal `LICENSE` file (MIT) and commit it.
+
+Contact: maintainers@yourcompany.example
 
 # 16. Folder Structure
 
