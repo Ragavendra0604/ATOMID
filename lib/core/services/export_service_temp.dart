@@ -221,7 +221,10 @@ class ExportService {
     return pdf;
   }
 
-  static Future<PlatformFile> exportPdf(pw.Document pdf, String fileName) async {
+  static Future<PlatformFile> exportPdf(
+    pw.Document pdf,
+    String fileName,
+  ) async {
     if (kIsWeb) throw UnsupportedError('File export is not supported on Web');
     final dir = await _getExportDirectory('PDF');
     final file = PlatformFile('${dir.path}/$fileName.pdf');
@@ -255,20 +258,27 @@ class ExportService {
   }
 
   static Future<PlatformDirectory> _getExportDirectory(String subFolder) async {
-    if (kIsWeb) throw UnsupportedError('Directory access is not supported on Web');
+    if (kIsWeb)
+      throw UnsupportedError('Directory access is not supported on Web');
     PlatformDirectory? baseDir;
     if (PlatformIo.isAndroid) {
       final extDir = await getExternalStorageDirectory();
       if (extDir != null) {
         baseDir = PlatformDirectory('${extDir.path}/Atomid Store/$subFolder');
       } else {
-        baseDir = PlatformDirectory('${(await getApplicationDocumentsDirectory()).path}/Atomid Store/$subFolder');
+        baseDir = PlatformDirectory(
+          '${(await getApplicationDocumentsDirectory()).path}/Atomid Store/$subFolder',
+        );
       }
     } else if (PlatformIo.isIOS) {
-      baseDir = PlatformDirectory('${(await getApplicationDocumentsDirectory()).path}/Atomid Store/$subFolder');
+      baseDir = PlatformDirectory(
+        '${(await getApplicationDocumentsDirectory()).path}/Atomid Store/$subFolder',
+      );
     } else {
       // Windows / Desktop
-      baseDir = PlatformDirectory('${(await getApplicationDocumentsDirectory()).path}/Atomid Store/$subFolder');
+      baseDir = PlatformDirectory(
+        '${(await getApplicationDocumentsDirectory()).path}/Atomid Store/$subFolder',
+      );
     }
 
     if (!await baseDir.exists()) {
