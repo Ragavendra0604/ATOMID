@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "973739607499",
+    "project_id": "atomid-erp",
+    "storage_bucket": "atomid-erp.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:973739607499:android:99eded40099858cc03224e",
+        "android_client_info": {
+          "package_name": "com.example.atomid"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCbPHQC_x_lrm2v47RxKyv9zcqTvG2RNCE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

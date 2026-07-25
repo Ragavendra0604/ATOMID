@@ -1,0 +1,77 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Helper function to check if the current user has the 'Owner' role
+    function isOwner() {
+      return isAuthenticated() && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Owner';
+    }
+
+    // Users collection: users can read and write their own profile
+    match /users/{userId} {
+      allow read, write: if isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Core ERP Data Collections
+    match /customers/{document=**} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner();
+    }
+    
+    match /products/{document=**} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner();
+    }
+
+    match /sales/{document=**} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner();
+    }
+
+    match /purchases/{document=**} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner();
+    }
+
+    match /suppliers/{document=**} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner();
+    }
+
+    match /loyaltyTransactions/{document=**} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner();
+    }
+
+    match /settings/{document=**} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner();
+    }
+
+    match /expenses/{document=**} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner();
+    }
+
+    match /expenseCategories/{document=**} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner();
+    }
+
+    match /inventoryMovements/{document=**} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner();
+    }
+
+    match /company/{document=**} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner();
+    }
+  }
+}
