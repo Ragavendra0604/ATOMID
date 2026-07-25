@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:atomid/data/models/product_model.dart';
@@ -69,30 +70,34 @@ class StorageRepository {
   final Map<String, Product> _barcodeIndex = {};
 
   Future<void> init() async {
-    Directory dir;
-    try {
-      dir = await getApplicationSupportDirectory();
-    } catch (_) {
-      dir = await getApplicationDocumentsDirectory();
-    }
-
-    // If the support directory somehow maps to OneDrive, force a local path
-    String dbPath = dir.path;
-    if (dbPath.contains('OneDrive')) {
-      final userProfile = Platform.environment['USERPROFILE'];
-      if (userProfile != null) {
-        dbPath = '$userProfile\\AppData\\Local\\atomid\\db';
-      }
+    if (kIsWeb) {
+      await Hive.initFlutter();
     } else {
-      dbPath = '$dbPath\\db';
-    }
+      Directory dir;
+      try {
+        dir = await getApplicationSupportDirectory();
+      } catch (_) {
+        dir = await getApplicationDocumentsDirectory();
+      }
 
-    final dbDir = Directory(dbPath);
-    if (!dbDir.existsSync()) {
-      dbDir.createSync(recursive: true);
-    }
+      // If the support directory somehow maps to OneDrive, force a local path
+      String dbPath = dir.path;
+      if (dbPath.contains('OneDrive')) {
+        final userProfile = Platform.environment['USERPROFILE'];
+        if (userProfile != null) {
+          dbPath = '$userProfile\\AppData\\Local\\atomid\\db';
+        }
+      } else {
+        dbPath = '$dbPath\\db';
+      }
 
-    Hive.init(dbPath);
+      final dbDir = Directory(dbPath);
+      if (!dbDir.existsSync()) {
+        dbDir.createSync(recursive: true);
+      }
+
+      Hive.init(dbPath);
+    }
 
     // Register Adapters
     // In hive_ce we can use the generated adapters via extension

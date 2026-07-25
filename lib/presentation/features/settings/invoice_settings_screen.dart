@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
@@ -174,7 +175,7 @@ class _InvoiceSettingsScreenState extends ConsumerState<InvoiceSettingsScreen> {
                           border: Border.all(color: Colors.grey),
                           borderRadius: BorderRadius.circular(8),
                           image: DecorationImage(
-                            image: FileImage(File(_upiQrImagePath)),
+                            image: kIsWeb ? NetworkImage(_upiQrImagePath) : FileImage(File(_upiQrImagePath)) as ImageProvider,
                             fit: BoxFit.cover,
                           ),
                         ),

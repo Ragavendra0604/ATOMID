@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
@@ -22,7 +23,7 @@ class ExportService {
   static bool _resourcesLoaded = false;
 
   static Future<pw.MemoryImage?> _getCompanyLogo(CompanyModel company) async {
-    if (company.logoPath.isNotEmpty) {
+    if (company.logoPath.isNotEmpty && !kIsWeb) {
       try {
         final file = File(company.logoPath);
         if (await file.exists()) {
@@ -34,7 +35,7 @@ class ExportService {
   }
 
   static Future<pw.MemoryImage?> _getImage(String path) async {
-    if (path.isNotEmpty) {
+    if (path.isNotEmpty && !kIsWeb) {
       try {
         final file = File(path);
         if (await file.exists()) {
@@ -307,6 +308,7 @@ class ExportService {
   }
 
   static Future<File> exportPdf(pw.Document pdf, String fileName) async {
+    if (kIsWeb) throw UnsupportedError('File export is not supported on Web');
     final dir = await _getExportDirectory('PDF');
     final file = File('${dir.path}/$fileName.pdf');
     await file.writeAsBytes(await pdf.save());
@@ -318,6 +320,7 @@ class ExportService {
     String fileName, {
     double dpi = 300.0,
   }) async {
+    if (kIsWeb) throw UnsupportedError('File export is not supported on Web');
     final dir = await _getExportDirectory('Images');
     final file = File('${dir.path}/$fileName.png');
 
@@ -331,24 +334,30 @@ class ExportService {
   }
 
   static Future<void> shareFile(File file, String text) async {
+    if (kIsWeb) return;
     await SharePlus.instance.share(
       ShareParams(files: [XFile(file.path)], text: text),
     );
   }
 
   static Future<Directory> _getExportDirectory(String subFolder) async {
+    if (kIsWeb) throw UnsupportedError('Directory access is not supported on Web');
     Directory? baseDir;
     if (Platform.isAndroid) {
       final extDir = await getExternalStorageDirectory();
       if (extDir != null) {
         baseDir = Directory('${extDir.path}/Atomid Store/$subFolder');
       } else {
-        final docs = await getApplicationDocumentsDirectory();
-        baseDir = Directory('${docs.path}/Atomid Store/$subFolder');
+        baseDir = await getApplicationDocumentsDirectory();
+        baseDir = Directory('${baseDir.path}/Atomid Store/$subFolder');
       }
+    } else if (Platform.isIOS) {
+      baseDir = await getApplicationDocumentsDirectory();
+      baseDir = Directory('${baseDir.path}/Atomid Store/$subFolder');
     } else {
-      final docs = await getApplicationDocumentsDirectory();
-      baseDir = Directory('${docs.path}/Atomid Store/$subFolder');
+      // Windows / Desktop
+      baseDir = await getApplicationDocumentsDirectory();
+      baseDir = Directory('${baseDir.path}/Atomid Store/$subFolder');
     }
 
     if (!await baseDir.exists()) {
