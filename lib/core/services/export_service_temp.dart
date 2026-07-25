@@ -258,8 +258,9 @@ class ExportService {
   }
 
   static Future<PlatformDirectory> _getExportDirectory(String subFolder) async {
-    if (kIsWeb)
+    if (kIsWeb) {
       throw UnsupportedError('Directory access is not supported on Web');
+    }
     PlatformDirectory? baseDir;
     if (PlatformIo.isAndroid) {
       final extDir = await getExternalStorageDirectory();
