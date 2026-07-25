@@ -68,6 +68,9 @@ class StorageRepository {
   // Fast index for barcode -> Product
   final Map<String, Product> _barcodeIndex = {};
 
+  bool _isInitialized = false;
+  bool get isInitialized => _isInitialized;
+
   Future<void> init() async {
     if (kIsWeb) {
       await Hive.initFlutter();
@@ -127,6 +130,7 @@ class StorageRepository {
     _loginHistoryBox = await Hive.openBox<LoginHistoryModel>(loginHistoryBoxName);
     _activityLogBox = await Hive.openBox<ActivityLogModel>(activityLogBoxName);
     _rebuildBarcodeIndex();
+    _isInitialized = true;
   }
 
   void _rebuildBarcodeIndex() {
@@ -631,6 +635,16 @@ class StorageRepository {
 
   // --- SETTINGS ---
   SettingsModel getSettings() {
+    if (!_isInitialized) {
+      return SettingsModel(
+        isDarkMode: true,
+        companyName: 'ATOMID STORE',
+        currencySymbol: '₹',
+        pdfPageSize: 'A4',
+        taxMode: 'inclusive',
+        taxRate: 0,
+      );
+    }
     return _settingsBox.get('app_settings') ??
         SettingsModel(
           isDarkMode: true, // Default to dark premium
