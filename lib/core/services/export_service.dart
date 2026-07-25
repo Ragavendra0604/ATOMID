@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'package:atomid/core/utils/platform_io.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
@@ -25,7 +25,7 @@ class ExportService {
   static Future<pw.MemoryImage?> _getCompanyLogo(CompanyModel company) async {
     if (company.logoPath.isNotEmpty && !kIsWeb) {
       try {
-        final file = File(company.logoPath);
+        final file = PlatformFile(company.logoPath);
         if (await file.exists()) {
           return pw.MemoryImage(await file.readAsBytes());
         }
@@ -37,7 +37,7 @@ class ExportService {
   static Future<pw.MemoryImage?> _getImage(String path) async {
     if (path.isNotEmpty && !kIsWeb) {
       try {
-        final file = File(path);
+        final file = PlatformFile(path);
         if (await file.exists()) {
           return pw.MemoryImage(await file.readAsBytes());
         }
@@ -307,22 +307,22 @@ class ExportService {
     return pdf;
   }
 
-  static Future<File> exportPdf(pw.Document pdf, String fileName) async {
+  static Future<PlatformFile> exportPdf(pw.Document pdf, String fileName) async {
     if (kIsWeb) throw UnsupportedError('File export is not supported on Web');
     final dir = await _getExportDirectory('PDF');
-    final file = File('${dir.path}/$fileName.pdf');
+    final file = PlatformFile('${dir.path}/$fileName.pdf');
     await file.writeAsBytes(await pdf.save());
     return file;
   }
 
-  static Future<File> exportPng(
+  static Future<PlatformFile> exportPng(
     pw.Document pdf,
     String fileName, {
     double dpi = 300.0,
   }) async {
     if (kIsWeb) throw UnsupportedError('File export is not supported on Web');
     final dir = await _getExportDirectory('Images');
-    final file = File('${dir.path}/$fileName.png');
+    final file = PlatformFile('${dir.path}/$fileName.png');
 
     await for (var page in Printing.raster(await pdf.save(), dpi: dpi)) {
       final pngData = await page.toPng();
@@ -333,31 +333,28 @@ class ExportService {
     return file;
   }
 
-  static Future<void> shareFile(File file, String text) async {
+  static Future<void> shareFile(PlatformFile file, String text) async {
     if (kIsWeb) return;
     await SharePlus.instance.share(
       ShareParams(files: [XFile(file.path)], text: text),
     );
   }
 
-  static Future<Directory> _getExportDirectory(String subFolder) async {
+  static Future<PlatformDirectory> _getExportDirectory(String subFolder) async {
     if (kIsWeb) throw UnsupportedError('Directory access is not supported on Web');
-    Directory? baseDir;
-    if (Platform.isAndroid) {
+    PlatformDirectory? baseDir;
+    if (PlatformIo.isAndroid) {
       final extDir = await getExternalStorageDirectory();
       if (extDir != null) {
-        baseDir = Directory('${extDir.path}/Atomid Store/$subFolder');
+        baseDir = PlatformDirectory('${extDir.path}/Atomid Store/$subFolder');
       } else {
-        baseDir = await getApplicationDocumentsDirectory();
-        baseDir = Directory('${baseDir.path}/Atomid Store/$subFolder');
+        baseDir = PlatformDirectory('${(await getApplicationDocumentsDirectory()).path}/Atomid Store/$subFolder');
       }
-    } else if (Platform.isIOS) {
-      baseDir = await getApplicationDocumentsDirectory();
-      baseDir = Directory('${baseDir.path}/Atomid Store/$subFolder');
+    } else if (PlatformIo.isIOS) {
+      baseDir = PlatformDirectory('${(await getApplicationDocumentsDirectory()).path}/Atomid Store/$subFolder');
     } else {
       // Windows / Desktop
-      baseDir = await getApplicationDocumentsDirectory();
-      baseDir = Directory('${baseDir.path}/Atomid Store/$subFolder');
+      baseDir = PlatformDirectory('${(await getApplicationDocumentsDirectory()).path}/Atomid Store/$subFolder');
     }
 
     if (!await baseDir.exists()) {

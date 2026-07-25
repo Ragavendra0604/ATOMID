@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'package:atomid/core/utils/platform_io.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'package:path_provider/path_provider.dart';
@@ -73,17 +73,19 @@ class StorageRepository {
     if (kIsWeb) {
       await Hive.initFlutter();
     } else {
-      Directory dir;
+      PlatformDirectory dir;
       try {
-        dir = await getApplicationSupportDirectory();
+        final docs = await getApplicationSupportDirectory();
+        dir = PlatformDirectory(docs.path);
       } catch (_) {
-        dir = await getApplicationDocumentsDirectory();
+        final docs = await getApplicationDocumentsDirectory();
+        dir = PlatformDirectory(docs.path);
       }
 
       // If the support directory somehow maps to OneDrive, force a local path
       String dbPath = dir.path;
       if (dbPath.contains('OneDrive')) {
-        final userProfile = Platform.environment['USERPROFILE'];
+        final userProfile = PlatformIo.userProfile;
         if (userProfile != null) {
           dbPath = '$userProfile\\AppData\\Local\\atomid\\db';
         }
@@ -91,7 +93,7 @@ class StorageRepository {
         dbPath = '$dbPath\\db';
       }
 
-      final dbDir = Directory(dbPath);
+      final dbDir = PlatformDirectory(dbPath);
       if (!dbDir.existsSync()) {
         dbDir.createSync(recursive: true);
       }
