@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:atomid/data/models/supplier_model.dart';
 import 'package:atomid/presentation/providers/app_providers.dart';
-import 'package:atomid/presentation/providers/provider_refresh_helper.dart';
 import 'package:uuid/uuid.dart';
 import 'package:atomid/core/utils/responsive.dart';
 
@@ -26,7 +25,7 @@ class _SupplierFormScreenState extends ConsumerState<SupplierFormScreen> {
   late TextEditingController _contactPersonCtrl;
   late TextEditingController _notesCtrl;
   late TextEditingController _openingBalanceCtrl;
-  
+
   String _supplierCategory = 'General';
   String _paymentTerms = 'Net 30';
   double _rating = 0.0;
@@ -44,7 +43,7 @@ class _SupplierFormScreenState extends ConsumerState<SupplierFormScreen> {
     _contactPersonCtrl = TextEditingController(text: s?.contactPerson ?? '');
     _notesCtrl = TextEditingController(text: s?.notes ?? '');
     _openingBalanceCtrl = TextEditingController(text: '0');
-    
+
     _supplierCategory = s?.supplierCategory ?? 'General';
     _paymentTerms = s?.paymentTerms ?? 'Net 30';
     _rating = s?.rating ?? 0.0;
@@ -77,7 +76,7 @@ class _SupplierFormScreenState extends ConsumerState<SupplierFormScreen> {
     final service = ref.read(supplierServiceProvider);
     final openingBalance = double.tryParse(_openingBalanceCtrl.text) ?? 0.0;
     final code = _codeCtrl.text.trim();
-    
+
     if (service.isDuplicate(code, excludeId: widget.existingSupplier?.id)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Supplier code already exists')),
@@ -101,12 +100,16 @@ class _SupplierFormScreenState extends ConsumerState<SupplierFormScreen> {
       supplierCategory: _supplierCategory,
       paymentTerms: _paymentTerms,
       rating: _rating,
-      currentBalance: isNew ? openingBalance : widget.existingSupplier!.currentBalance,
+      currentBalance: isNew
+          ? openingBalance
+          : widget.existingSupplier!.currentBalance,
     );
 
-    await service.saveSupplier(supplier, isNew: isNew, openingBalance: openingBalance);
-
-    ProviderRefreshHelper.invalidateSupplierProviders(ref);
+    await service.saveSupplier(
+      supplier,
+      isNew: isNew,
+      openingBalance: openingBalance,
+    );
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -127,7 +130,13 @@ class _SupplierFormScreenState extends ConsumerState<SupplierFormScreen> {
         title: Text(
           widget.existingSupplier != null ? 'Edit Supplier' : 'Add Supplier',
         ),
-        actions: [IconButton(icon: const Icon(Icons.save), tooltip: 'Save Supplier', onPressed: _save)],
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.save),
+            tooltip: 'Save Supplier',
+            onPressed: _save,
+          ),
+        ],
       ),
       body: Form(
         key: _formKey,
@@ -184,14 +193,30 @@ class _SupplierFormScreenState extends ConsumerState<SupplierFormScreen> {
                           const SizedBox(height: 16),
                           DropdownButtonFormField<String>(
                             initialValue: _supplierCategory,
-                            decoration: const InputDecoration(labelText: 'Category', prefixIcon: Icon(Icons.category)),
+                            decoration: const InputDecoration(
+                              labelText: 'Category',
+                              prefixIcon: Icon(Icons.category),
+                            ),
                             items: const [
-                              DropdownMenuItem(value: 'General', child: Text('General')),
-                              DropdownMenuItem(value: 'Electronics', child: Text('Electronics')),
-                              DropdownMenuItem(value: 'Hardware', child: Text('Hardware')),
-                              DropdownMenuItem(value: 'Services', child: Text('Services')),
+                              DropdownMenuItem(
+                                value: 'General',
+                                child: Text('General'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'Electronics',
+                                child: Text('Electronics'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'Hardware',
+                                child: Text('Hardware'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'Services',
+                                child: Text('Services'),
+                              ),
                             ],
-                            onChanged: (v) => setState(() => _supplierCategory = v!),
+                            onChanged: (v) =>
+                                setState(() => _supplierCategory = v!),
                           ),
                         ],
                       ),
@@ -296,21 +321,43 @@ class _SupplierFormScreenState extends ConsumerState<SupplierFormScreen> {
                           const SizedBox(height: 16),
                           DropdownButtonFormField<String>(
                             initialValue: _paymentTerms,
-                            decoration: const InputDecoration(labelText: 'Payment Terms', prefixIcon: Icon(Icons.payment)),
+                            decoration: const InputDecoration(
+                              labelText: 'Payment Terms',
+                              prefixIcon: Icon(Icons.payment),
+                            ),
                             items: const [
-                              DropdownMenuItem(value: 'Advance', child: Text('Advance')),
-                              DropdownMenuItem(value: 'Due on Receipt', child: Text('Due on Receipt')),
-                              DropdownMenuItem(value: 'Net 15', child: Text('Net 15')),
-                              DropdownMenuItem(value: 'Net 30', child: Text('Net 30')),
-                              DropdownMenuItem(value: 'Net 60', child: Text('Net 60')),
+                              DropdownMenuItem(
+                                value: 'Advance',
+                                child: Text('Advance'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'Due on Receipt',
+                                child: Text('Due on Receipt'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'Net 15',
+                                child: Text('Net 15'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'Net 30',
+                                child: Text('Net 30'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'Net 60',
+                                child: Text('Net 60'),
+                              ),
                             ],
-                            onChanged: (v) => setState(() => _paymentTerms = v!),
+                            onChanged: (v) =>
+                                setState(() => _paymentTerms = v!),
                           ),
                           if (widget.existingSupplier == null) ...[
                             const SizedBox(height: 16),
                             TextFormField(
                               controller: _openingBalanceCtrl,
-                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
                               decoration: const InputDecoration(
                                 labelText: 'Opening Balance (Owed to Supplier)',
                                 prefixIcon: Icon(Icons.account_balance_wallet),
@@ -322,7 +369,10 @@ class _SupplierFormScreenState extends ConsumerState<SupplierFormScreen> {
                             children: [
                               const Icon(Icons.star, color: Colors.grey),
                               const SizedBox(width: 12),
-                              const Text('Rating', style: TextStyle(fontSize: 16)),
+                              const Text(
+                                'Rating',
+                                style: TextStyle(fontSize: 16),
+                              ),
                               const Spacer(),
                               Slider(
                                 value: _rating,

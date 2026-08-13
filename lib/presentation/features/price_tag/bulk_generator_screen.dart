@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:atomid/presentation/providers/app_providers.dart';
 import 'package:atomid/data/models/product_model.dart';
 import 'package:atomid/core/services/export_service.dart';
+import 'package:atomid/domain/price_tag_size.dart';
 import 'package:printing/printing.dart';
 import 'package:atomid/core/utils/responsive.dart';
 import 'dart:typed_data';
@@ -19,6 +20,7 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
   Product? _selectedProduct;
   final Map<ProductVariant, TextEditingController> _qtyControllers = {};
   bool _isLoading = false;
+  PriceTagSize _tagSize = PriceTagSize.medium;
 
   @override
   void dispose() {
@@ -59,6 +61,7 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
       variantsToPrint,
       settings,
       company,
+      tagSize: _tagSize,
     );
     return pdf.save();
   }
@@ -108,6 +111,7 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
         variantsToPrint,
         settings,
         company,
+        tagSize: _tagSize,
       );
 
       // Preview and Print using printing package
@@ -217,6 +221,36 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
         ),
         const SizedBox(height: 24),
         if (_selectedProduct != null) ...[
+          const Text(
+            'Tag Size',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          SegmentedButton<PriceTagSize>(
+            segments: PriceTagSize.values
+                .map(
+                  (size) => ButtonSegment(
+                    value: size,
+                    label: Text(size.label),
+                  ),
+                )
+                .toList(),
+            selected: {_tagSize},
+            showSelectedIcon: false,
+            // The preview rebuilds from _tagSize, so the sheet on screen is
+            // always the sheet that will print.
+            onSelectionChanged: (values) =>
+                setState(() => _tagSize = values.first),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '${_tagSize.description} · ${_tagSize.columns} across × '
+            '${_tagSize.rows} down',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 24),
           const Text(
             'Select Quantities to Print',
             style: TextStyle(fontWeight: FontWeight.bold),

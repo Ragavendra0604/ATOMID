@@ -14,11 +14,15 @@ class SupplierService {
     return _repository.isSupplierCodeDuplicate(code, excludeId: excludeId);
   }
 
-  Future<void> saveSupplier(Supplier supplier, {bool isNew = false, double openingBalance = 0}) async {
+  Future<void> saveSupplier(
+    Supplier supplier, {
+    bool isNew = false,
+    double openingBalance = 0,
+  }) async {
     final now = DateTime.now();
-    
+
     await _repository.saveSupplier(supplier);
-    
+
     await _repository.saveHistory(
       ActionHistory(
         id: _uuid.v4(),
@@ -34,7 +38,8 @@ class SupplierService {
         supplierId: supplier.id,
         date: now,
         transactionType: 'Opening Balance',
-        referenceId: 'OPENING-${now.millisecondsSinceEpoch.toString().substring(5)}',
+        referenceId:
+            'OPENING-${now.millisecondsSinceEpoch.toString().substring(5)}',
         credit: openingBalance, // We owe them money from start
         notes: 'Initial account balance',
       );

@@ -36,13 +36,25 @@ class ExpenseService {
     if (existing.isEmpty) {
       final defaultCategories = [
         ExpenseCategory(id: 'cat_rent', name: 'Rent', iconName: 'home'),
-        ExpenseCategory(id: 'cat_utilities', name: 'Utilities', iconName: 'electric_bolt'),
+        ExpenseCategory(
+          id: 'cat_utilities',
+          name: 'Utilities',
+          iconName: 'electric_bolt',
+        ),
         ExpenseCategory(id: 'cat_salary', name: 'Salary', iconName: 'people'),
-        ExpenseCategory(id: 'cat_maintenance', name: 'Maintenance', iconName: 'build'),
-        ExpenseCategory(id: 'cat_marketing', name: 'Marketing', iconName: 'campaign'),
+        ExpenseCategory(
+          id: 'cat_maintenance',
+          name: 'Maintenance',
+          iconName: 'build',
+        ),
+        ExpenseCategory(
+          id: 'cat_marketing',
+          name: 'Marketing',
+          iconName: 'campaign',
+        ),
         ExpenseCategory(id: 'cat_other', name: 'Other', iconName: 'receipt'),
       ];
-      
+
       for (var cat in defaultCategories) {
         await saveExpenseCategory(cat);
       }

@@ -43,3 +43,19 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Node tooling (not part of the Flutter build)
+node_modules/
+
+# Local analysis output
+flutter_analyze_output.txt
+
+# Android release signing.
+#
+# The keystore is the only thing that proves an update comes from you: Play
+# refuses an upload signed with a different key, and there is no recovery if it
+# is lost. Committing either of these hands that ability to anyone with the
+# repo, so they stay out of version control and get backed up separately.
+android/key.properties
+*.jks
+*.keystore

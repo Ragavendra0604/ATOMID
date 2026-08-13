@@ -1,5 +1,7 @@
+import 'dart:async';
+
 import 'package:atomid/core/utils/platform_io.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
 import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'package:atomid/data/models/product_model.dart';
 import 'package:atomid/data/models/action_history_model.dart';
@@ -11,6 +13,7 @@ import 'package:atomid/data/models/supplier_model.dart';
 import 'package:atomid/data/models/purchase_model.dart';
 import 'package:atomid/data/models/company_model.dart';
 import 'package:atomid/data/models/customer_model.dart';
+import 'package:atomid/data/models/customer_stats.dart';
 import 'package:atomid/data/models/customer_ledger_model.dart';
 import 'package:atomid/data/models/supplier_ledger_model.dart';
 import 'package:atomid/data/models/loyalty_transaction_model.dart';
@@ -18,10 +21,77 @@ import 'package:atomid/data/models/loyalty_settings_model.dart';
 import 'package:atomid/data/models/sync_queue_model.dart';
 import 'package:atomid/data/models/sync_log_model.dart';
 import 'package:atomid/data/models/expense_model.dart';
-import 'package:atomid/data/models/employee_model.dart';
-import 'package:atomid/data/models/login_history_model.dart';
-import 'package:atomid/data/models/activity_log_model.dart';
 import 'package:atomid/hive_registrar.g.dart';
+import 'package:atomid/data/sync/entity_codec.dart';
+import 'package:atomid/core/utils/app_error.dart';
+import 'package:atomid/core/utils/formatters.dart';
+import 'package:atomid/core/utils/ids.dart';
+
+/// Areas of the store that the UI subscribes to.
+///
+/// Read providers watch a topic instead of relying on each screen remembering
+/// to invalidate after a write — the previous arrangement, where a missed
+/// invalidation silently showed stale numbers.
+class DataTopic {
+  static const products = 'products';
+  static const inventory = 'inventory';
+  static const sales = 'sales';
+  static const customers = 'customers';
+  static const suppliers = 'suppliers';
+  static const purchases = 'purchases';
+  static const expenses = 'expenses';
+  static const settings = 'settings';
+  static const history = 'history';
+  static const loyalty = 'loyalty';
+  static const sync = 'sync';
+
+  static const all = [
+    products,
+    inventory,
+    sales,
+    customers,
+    suppliers,
+    purchases,
+    expenses,
+    settings,
+    history,
+    loyalty,
+    sync,
+  ];
+}
+
+/// Lifecycle states for a queued sync item.
+class SyncState {
+  static const pending = 'PENDING';
+  static const syncing = 'SYNCING';
+  static const failed = 'FAILED';
+
+  /// Terminal state: retries exhausted. Kept for reporting, never retried.
+  static const dead = 'DEAD';
+
+  static const maxRetries = 5;
+}
+
+/// Today's sales figures, derived together and held until a sale changes.
+class _TodayTotals {
+  final DateTime day;
+  final List<Sale> sales;
+  final double revenue;
+  final int units;
+
+  const _TodayTotals({
+    required this.day,
+    required this.sales,
+    required this.revenue,
+    required this.units,
+  });
+
+  /// Guards against a till left open across midnight still reporting
+  /// yesterday's takings as today's.
+  bool isFor(DateTime now) =>
+      day.year == now.year && day.month == now.month && day.day == now.day;
+}
+
 class StorageRepository {
   static const String productsBoxName = 'products';
   static const String historyBoxName = 'history';
@@ -40,9 +110,6 @@ class StorageRepository {
   static const String syncLogBoxName = 'sync_logs';
   static const String expensesBoxName = 'expenses';
   static const String expenseCategoriesBoxName = 'expense_categories';
-  static const String employeesBoxName = 'employees';
-  static const String loginHistoryBoxName = 'login_history';
-  static const String activityLogBoxName = 'activity_logs';
   late Box<Product> _productsBox;
   late Box<ActionHistory> _historyBox;
   late Box<SettingsModel> _settingsBox;
@@ -61,18 +128,64 @@ class StorageRepository {
   late Box<SyncLogModel> _syncLogBox;
   late Box<Expense> _expensesBox;
   late Box<ExpenseCategory> _expenseCategoriesBox;
-  late Box<EmployeeModel> _employeesBox;
-  late Box<LoginHistoryModel> _loginHistoryBox;
-  late Box<ActivityLogModel> _activityLogBox;
 
   // Fast index for barcode -> Product
   final Map<String, Product> _barcodeIndex = {};
 
+  // Mobile number -> Customer. The till identifies people by phone, so this
+  // has to be O(1) rather than a scan on every keystroke.
+  final Map<String, Customer> _mobileIndex = {};
+
+  // Customer id -> the number they are currently indexed under.
+  //
+  // Needed because Hive hands back the same instance the caller just mutated,
+  // so re-reading the box cannot tell us what the number used to be.
+  final Map<String, String> _indexedMobile = {};
+
+  // Customer -> their sales, so visit counts do not rescan the sales box.
+  final Map<String, List<Sale>> _salesByCustomer = {};
+
+  // Ledger running balances, kept in memory so appending an entry does not
+  // require rewriting every historical row for that party.
+  final Map<String, double> _customerBalances = {};
+  final Map<String, double> _supplierBalances = {};
+
+  static bool _adaptersRegistered = false;
+
   bool _isInitialized = false;
   bool get isInitialized => _isInitialized;
 
-  Future<void> init() async {
-    if (kIsWeb) {
+  /// Boxes that could not be opened and had to be rebuilt during [init].
+  /// Surfaced on the splash screen so data loss is never silent.
+  final List<String> recoveredBoxes = [];
+
+  final StreamController<String> _changes = StreamController.broadcast();
+
+  /// Emits a [DataTopic] whenever stored data changes.
+  Stream<String> get changes => _changes.stream;
+
+  void _notify(String topic) {
+    // Derived totals are dropped here rather than at each write site. Every
+    // path that changes sales has to announce it or the UI would not refresh
+    // either, so hanging invalidation off the same signal means the cache
+    // cannot outlive the data it summarises.
+    if (topic == DataTopic.sales) _todayCache = null;
+    if (!_changes.isClosed) _changes.add(topic);
+  }
+
+  Future<void> dispose() async {
+    await _changes.close();
+  }
+
+  /// Opens every box.
+  ///
+  /// [storagePath] bypasses platform directory lookup — tests supply a
+  /// temporary folder so the repository can be exercised for real without a
+  /// path_provider plugin implementation.
+  Future<void> init({String? storagePath}) async {
+    if (storagePath != null) {
+      Hive.init(storagePath);
+    } else if (kIsWeb) {
       await Hive.initFlutter();
     } else {
       PlatformDirectory dir;
@@ -103,34 +216,139 @@ class StorageRepository {
       Hive.init(dbPath);
     }
 
-    // Register Adapters
-    // In hive_ce we can use the generated adapters via extension
-    Hive.registerAdapters();
+    // Type adapters are registered per isolate, not per repository, and
+    // registering twice throws. Guarding here keeps a second init — a startup
+    // retry, or a fresh store in a test — from failing.
+    if (!_adaptersRegistered) {
+      Hive.registerAdapters();
+      _adaptersRegistered = true;
+    }
 
-    // Open boxes
-    _productsBox = await Hive.openBox<Product>(productsBoxName);
-    _historyBox = await Hive.openBox<ActionHistory>(historyBoxName);
-    _settingsBox = await Hive.openBox<SettingsModel>(settingsBoxName);
-    _invoiceSettingsBox = await Hive.openBox<InvoiceSettingsModel>(invoiceSettingsBoxName);
-    _movementsBox = await Hive.openBox<InventoryMovement>(movementsBoxName);
-    _salesBox = await Hive.openBox<Sale>(salesBoxName);
-    _suppliersBox = await Hive.openBox<Supplier>(suppliersBoxName);
-    _purchasesBox = await Hive.openBox<Purchase>(purchasesBoxName);
-    _companyBox = await Hive.openBox<CompanyModel>('company');
-    _customersBox = await Hive.openBox<Customer>(customersBoxName);
-    _customerLedgersBox = await Hive.openBox<CustomerLedger>(customerLedgersBoxName);
-    _supplierLedgersBox = await Hive.openBox<SupplierLedger>(supplierLedgersBoxName);
-    _loyaltyTransactionsBox = await Hive.openBox<LoyaltyTransaction>(loyaltyTransactionsBoxName);
-    _loyaltySettingsBox = await Hive.openBox<LoyaltySettingsModel>(loyaltySettingsBoxName);
-    _syncQueueBox = await Hive.openBox<SyncQueueItem>(syncQueueBoxName);
-    _syncLogBox = await Hive.openBox<SyncLogModel>(syncLogBoxName);
-    _expensesBox = await Hive.openBox<Expense>(expensesBoxName);
-    _expenseCategoriesBox = await Hive.openBox<ExpenseCategory>(expenseCategoriesBoxName);
-    _employeesBox = await Hive.openBox<EmployeeModel>(employeesBoxName);
-    _loginHistoryBox = await Hive.openBox<LoginHistoryModel>(loginHistoryBoxName);
-    _activityLogBox = await Hive.openBox<ActivityLogModel>(activityLogBoxName);
+    // Open boxes with safe auto-recovery.
+    //
+    // Every open is started before anything is awaited, so twenty-one disk
+    // reads overlap instead of running end to end. Awaited sequentially they
+    // held the first frame for seconds on a cold start — the splash was up but
+    // the isolate was too busy to draw it. The boxes are independent and
+    // [_safeOpenBox] recovers each one on its own, so there is no ordering
+    // between them to preserve.
+    final productsOpen = _safeOpenBox<Product>(productsBoxName);
+    final historyOpen = _safeOpenBox<ActionHistory>(historyBoxName);
+    final settingsOpen = _safeOpenBox<SettingsModel>(settingsBoxName);
+    final invoiceSettingsOpen = _safeOpenBox<InvoiceSettingsModel>(
+      invoiceSettingsBoxName,
+    );
+    final movementsOpen = _safeOpenBox<InventoryMovement>(movementsBoxName);
+    final salesOpen = _safeOpenBox<Sale>(salesBoxName);
+    final suppliersOpen = _safeOpenBox<Supplier>(suppliersBoxName);
+    final purchasesOpen = _safeOpenBox<Purchase>(purchasesBoxName);
+    final companyOpen = _safeOpenBox<CompanyModel>('company');
+    final customersOpen = _safeOpenBox<Customer>(customersBoxName);
+    final customerLedgersOpen = _safeOpenBox<CustomerLedger>(
+      customerLedgersBoxName,
+    );
+    final supplierLedgersOpen = _safeOpenBox<SupplierLedger>(
+      supplierLedgersBoxName,
+    );
+    final loyaltyTransactionsOpen = _safeOpenBox<LoyaltyTransaction>(
+      loyaltyTransactionsBoxName,
+    );
+    final loyaltySettingsOpen = _safeOpenBox<LoyaltySettingsModel>(
+      loyaltySettingsBoxName,
+    );
+    final syncQueueOpen = _safeOpenBox<SyncQueueItem>(syncQueueBoxName);
+    final syncLogOpen = _safeOpenBox<SyncLogModel>(syncLogBoxName);
+    final expensesOpen = _safeOpenBox<Expense>(expensesBoxName);
+    final expenseCategoriesOpen = _safeOpenBox<ExpenseCategory>(
+      expenseCategoriesBoxName,
+    );
+
+    _productsBox = await productsOpen;
+    _historyBox = await historyOpen;
+    _settingsBox = await settingsOpen;
+    _invoiceSettingsBox = await invoiceSettingsOpen;
+    _movementsBox = await movementsOpen;
+    _salesBox = await salesOpen;
+    _suppliersBox = await suppliersOpen;
+    _purchasesBox = await purchasesOpen;
+    _companyBox = await companyOpen;
+    _customersBox = await customersOpen;
+    _customerLedgersBox = await customerLedgersOpen;
+    _supplierLedgersBox = await supplierLedgersOpen;
+    _loyaltyTransactionsBox = await loyaltyTransactionsOpen;
+    _loyaltySettingsBox = await loyaltySettingsOpen;
+    _syncQueueBox = await syncQueueOpen;
+    _syncLogBox = await syncLogOpen;
+    _expensesBox = await expensesOpen;
+    _expenseCategoriesBox = await expenseCategoriesOpen;
+
     _rebuildBarcodeIndex();
+    _rebuildCustomerIndexes();
+    _rebuildLedgerBalances();
+    await resetStuckSyncItems();
     _isInitialized = true;
+  }
+
+  /// Opens a box, escalating through recovery steps rather than destroying
+  /// data on the first error.
+  ///
+  /// A locked file or a transient IO error is retried; only a box that still
+  /// refuses to open after crash recovery is rebuilt, and the loss is recorded
+  /// in [recoveredBoxes] so the user is told.
+  /// Reclaims disk once a box is more deleted-and-overwritten than live.
+  ///
+  /// Hive appends: every save of a record leaves the previous copy on disk as
+  /// a dead frame, and nothing removes them on its own. A till that edits
+  /// stock all day grows its file without its data growing at all — the frames
+  /// are read and skipped on every open, so it costs startup time as well as
+  /// space. Compacting at "half the frames are dead, and there are at least
+  /// 60 of them" keeps small boxes from churning while stopping a busy one
+  /// from running away.
+  static bool _shouldCompact(int deletedEntries, int totalEntries) =>
+      totalEntries > 60 && deletedEntries > totalEntries * 0.5;
+
+  Future<Box<T>> _safeOpenBox<T>(String boxName) async {
+    try {
+      return await Hive.openBox<T>(
+        boxName,
+        compactionStrategy: _shouldCompact,
+      );
+    } catch (e) {
+      debugPrint('Box $boxName failed to open ($e). Attempting recovery...');
+    }
+
+    // Step 1: retry once — most failures here are a transient file lock.
+    try {
+      await Future.delayed(const Duration(milliseconds: 250));
+      return await Hive.openBox<T>(
+        boxName,
+        compactionStrategy: _shouldCompact,
+      );
+    } catch (e) {
+      debugPrint(
+        'Box $boxName retry failed ($e). Attempting crash recovery...',
+      );
+    }
+
+    // Step 2: crash recovery salvages everything up to the corrupt frame.
+    try {
+      return await Hive.openBox<T>(
+        boxName,
+        crashRecovery: true,
+        compactionStrategy: _shouldCompact,
+      );
+    } catch (e) {
+      debugPrint('Box $boxName crash recovery failed ($e). Rebuilding...');
+    }
+
+    // Step 3: unrecoverable. Rebuild, and record that data was lost.
+    recoveredBoxes.add(boxName);
+    try {
+      await Hive.deleteBoxFromDisk(boxName);
+    } catch (_) {
+      // Filesystem is locked, or we are on Web where the box is in IndexedDB.
+    }
+    return await Hive.openBox<T>(boxName);
   }
 
   void _rebuildBarcodeIndex() {
@@ -144,19 +362,163 @@ class StorageRepository {
     }
   }
 
+  void _rebuildCustomerIndexes() {
+    _mobileIndex.clear();
+    _indexedMobile.clear();
+    for (final customer in _customersBox.values) {
+      if (customer.isDeleted) continue;
+      _indexCustomerMobile(customer);
+    }
+
+    _salesByCustomer.clear();
+    for (final sale in _salesBox.values) {
+      if (sale.customerId.isEmpty || sale.isDeleted) continue;
+      _salesByCustomer.putIfAbsent(sale.customerId, () => []).add(sale);
+    }
+  }
+
+  void _indexCustomerMobile(Customer customer) {
+    final previousKey = _indexedMobile[customer.id];
+    if (previousKey != null && _mobileIndex[previousKey]?.id == customer.id) {
+      _mobileIndex.remove(previousKey);
+      _indexedMobile.remove(customer.id);
+    }
+
+    if (customer.isDeleted) return;
+
+    final key = normaliseMobile(customer.mobile);
+    if (key.isEmpty) return;
+    _mobileIndex[key] = customer;
+    _indexedMobile[customer.id] = key;
+  }
+
+  /// Strips spacing, punctuation and a country code so `+91 98765 43210`,
+  /// `098765 43210` and `9876543210` all find the same person.
+  static String normaliseMobile(String input) {
+    var digits = input.replaceAll(RegExp(r'\D'), '');
+    if (digits.length > 10) {
+      digits = digits.substring(digits.length - 10);
+    }
+    return digits;
+  }
+
+  /// Finds a customer by phone number. The till's primary lookup.
+  Customer? getCustomerByMobile(String mobile) {
+    final key = normaliseMobile(mobile);
+    if (key.length < 10) return null;
+    return _mobileIndex[key];
+  }
+
+  /// Purchase history summary, for deciding what to offer a returning face.
+  CustomerVisitStats getCustomerStats(String customerId) {
+    final sales = _salesByCustomer[customerId];
+    if (sales == null || sales.isEmpty) return CustomerVisitStats.none;
+
+    var total = 0.0;
+    DateTime? first;
+    DateTime? last;
+
+    for (final sale in sales) {
+      total += sale.grandTotal;
+      if (first == null || sale.date.isBefore(first)) first = sale.date;
+      if (last == null || sale.date.isAfter(last)) last = sale.date;
+    }
+
+    return CustomerVisitStats(
+      visits: sales.length,
+      totalSpend: Fmt.round2(total),
+      firstVisit: first,
+      lastVisit: last,
+    );
+  }
+
+  /// Sales for one customer, newest first.
+  List<Sale> getSalesForCustomer(String customerId) {
+    final sales = [...?_salesByCustomer[customerId]];
+    sales.sort((a, b) => b.date.compareTo(a.date));
+    return sales;
+  }
+
+  void _rebuildLedgerBalances() {
+    _customerBalances.clear();
+    for (final customer in _customersBox.values) {
+      _customerBalances[customer.id] = customer.currentBalance;
+    }
+    _supplierBalances.clear();
+    for (final supplier in _suppliersBox.values) {
+      _supplierBalances[supplier.id] = supplier.currentBalance;
+    }
+  }
+
   // --- SYNC QUEUE ---
+
+  /// Entity types the sync engine knows how to serialise.
+  ///
+  /// Enqueuing anything outside this set produces an item that can never be
+  /// sent and never be removed, so the queue is guarded at the entry point.
+  static const Set<String> syncableEntities = {
+    'Product',
+    'Customer',
+    'Sale',
+    'Supplier',
+    'Purchase',
+    'Expense',
+    'ExpenseCategory',
+    'InventoryMovement',
+    'LoyaltyTransaction',
+    'CustomerLedger',
+    'SupplierLedger',
+    'SettingsModel',
+    'CompanyModel',
+    'InvoiceSettingsModel',
+    'LoyaltySettingsModel',
+  };
+
   Future<void> enqueueSync({
     required String entityType,
     required String entityId,
     required String action,
     int priority = 10,
   }) async {
+    assert(
+      syncableEntities.contains(entityType),
+      'No sync serialiser exists for "$entityType" — add one to '
+      'getEntityJson and syncableEntities, or do not enqueue it.',
+    );
+    if (!syncableEntities.contains(entityType)) return;
+
+    // Every meaningful mutation funnels through here, so this is the single
+    // place that tells the UI something changed.
+    for (final topic in _topicsFor(entityType)) {
+      _notify(topic);
+    }
+    _notify(DataTopic.sync);
+
+    // Collapse duplicates: a pending write for the same record is replaced
+    // rather than stacked, so rapid edits produce one upload, not twenty.
+    final existing = _syncQueueBox.values.firstWhere(
+      (item) =>
+          item.entityType == entityType &&
+          item.entityId == entityId &&
+          (item.status == SyncState.pending || item.status == SyncState.failed),
+      orElse: () => _noSyncItem,
+    );
+
+    if (!identical(existing, _noSyncItem)) {
+      // A delete always wins over a pending create/update.
+      existing.action = action == 'DELETE' ? 'DELETE' : existing.action;
+      existing.status = SyncState.pending;
+      existing.createdAt = DateTime.now();
+      await _syncQueueBox.put(existing.id, existing);
+      return;
+    }
+
     final item = SyncQueueItem(
-      id: DateTime.now().millisecondsSinceEpoch.toString(), // Alternatively use UUID
+      id: Ids.generate(),
       entityType: entityType,
       entityId: entityId,
       action: action,
-      status: 'PENDING',
+      status: SyncState.pending,
       retryCount: 0,
       createdAt: DateTime.now(),
       priority: priority,
@@ -164,14 +526,256 @@ class StorageRepository {
     await _syncQueueBox.put(item.id, item);
   }
 
+  static List<String> _topicsFor(String entityType) {
+    switch (entityType) {
+      case 'Product':
+        return const [DataTopic.products, DataTopic.inventory];
+      case 'InventoryMovement':
+        return const [DataTopic.inventory, DataTopic.history];
+      case 'Sale':
+        return const [DataTopic.sales, DataTopic.inventory, DataTopic.products];
+      case 'Customer':
+        return const [DataTopic.customers];
+      case 'LoyaltyTransaction':
+        return const [DataTopic.loyalty, DataTopic.customers];
+      case 'Supplier':
+        return const [DataTopic.suppliers];
+      case 'Purchase':
+        return const [
+          DataTopic.purchases,
+          DataTopic.inventory,
+          DataTopic.suppliers,
+        ];
+      case 'Expense':
+      case 'ExpenseCategory':
+        return const [DataTopic.expenses];
+      case 'LoyaltySettingsModel':
+        return const [DataTopic.loyalty, DataTopic.settings];
+      default:
+        return const [DataTopic.settings];
+    }
+  }
+
+  static final SyncQueueItem _noSyncItem = SyncQueueItem(
+    id: '',
+    entityType: '',
+    entityId: '',
+    action: '',
+    status: '',
+    retryCount: 0,
+    createdAt: DateTime.fromMillisecondsSinceEpoch(0),
+  );
+
+  /// Returns items to `PENDING` if the app was killed mid-upload.
+  ///
+  /// `SYNCING` is not a queryable state, so without this sweep an item left in
+  /// it by a crash would never be retried again.
+  // --- Backup ---------------------------------------------------------------
+
+  /// Local keys for the records that are one-of-a-kind rather than a list.
+  static const Map<String, String> _singletonKeys = {
+    'SettingsModel': 'app_settings',
+    'CompanyModel': 'profile',
+    'InvoiceSettingsModel': 'invoice_settings',
+    'LoyaltySettingsModel': 'loyalty_settings',
+  };
+
+  /// Every record on this device, grouped by entity type.
+  ///
+  /// Built from [getEntityJson] rather than a second serialiser of its own.
+  /// A backup written by different code than the one sync uses would drift
+  /// from it silently — and a backup that quietly omits a field is worse than
+  /// no backup, because it is only discovered when someone restores it.
+  Map<String, List<Map<String, dynamic>>> exportSnapshot() {
+    final snapshot = <String, List<Map<String, dynamic>>>{};
+
+    for (final entityType in syncableEntities) {
+      final singleton = _singletonKeys[entityType];
+      final ids = singleton != null
+          ? [singleton]
+          : _idsFor(entityType);
+
+      final records = <Map<String, dynamic>>[];
+      for (final id in ids) {
+        final json = getEntityJson(entityType, id);
+        if (json == null) continue;
+        // The local key travels alongside, because a singleton's payload id
+        // ('settings') is not the box key it has to be restored under.
+        records.add({...json, '_localId': id});
+      }
+      if (records.isNotEmpty) snapshot[entityType] = records;
+    }
+
+    return snapshot;
+  }
+
+  List<String> _idsFor(String entityType) => switch (entityType) {
+    'Product' => _productsBox.keys.cast<String>().toList(),
+    'Customer' => _customersBox.keys.cast<String>().toList(),
+    'Supplier' => _suppliersBox.keys.cast<String>().toList(),
+    'Sale' => _salesBox.keys.cast<String>().toList(),
+    'Purchase' => _purchasesBox.keys.cast<String>().toList(),
+    'Expense' => _expensesBox.keys.cast<String>().toList(),
+    'ExpenseCategory' => _expenseCategoriesBox.keys.cast<String>().toList(),
+    'InventoryMovement' => _movementsBox.keys.cast<String>().toList(),
+    'LoyaltyTransaction' =>
+      _loyaltyTransactionsBox.keys.cast<String>().toList(),
+    'CustomerLedger' => _customerLedgersBox.keys.cast<String>().toList(),
+    'SupplierLedger' => _supplierLedgersBox.keys.cast<String>().toList(),
+    _ => const <String>[],
+  };
+
+  /// Writes a snapshot back, returning how many records of each type landed.
+  ///
+  /// Restoring is additive by id: a record already present is overwritten, one
+  /// that is absent is created, and nothing local is deleted for being absent
+  /// from the backup. Restoring an older backup therefore cannot destroy work
+  /// done since it was taken, which is the failure people actually fear.
+  Future<Map<String, int>> importSnapshot(
+    Map<String, List<Map<String, dynamic>>> snapshot,
+  ) async {
+    final restored = <String, int>{};
+
+    // Dependency order matters: a sale references products and customers.
+    final order = [
+      ...EntityCodec.pullOrder.where(snapshot.containsKey),
+      ...snapshot.keys.where((k) => !EntityCodec.pullOrder.contains(k)),
+    ];
+
+    for (final entityType in order) {
+      var count = 0;
+      for (final record in snapshot[entityType] ?? const []) {
+        final id = record['_localId'] as String? ?? record['id'] as String?;
+        if (id == null || id.isEmpty) continue;
+        if (await _writeRestored(entityType, id, record)) count++;
+      }
+      if (count > 0) restored[entityType] = count;
+    }
+
+    await reconcileAfterPull();
+    return restored;
+  }
+
+  /// Puts one restored record straight into its box.
+  ///
+  /// Deliberately not [applyRemote]: that refuses a record with unsent local
+  /// changes and skips anything older than what is stored, which are the right
+  /// rules for a peer device and the wrong ones for an operator who has asked
+  /// for this file to be put back.
+  Future<bool> _writeRestored(
+    String entityType,
+    String id,
+    Map<String, dynamic> json,
+  ) async {
+    switch (entityType) {
+      case 'Product':
+        await _productsBox.put(id, EntityCodec.product(json));
+      case 'Customer':
+        await _customersBox.put(id, EntityCodec.customer(json));
+      case 'Supplier':
+        await _suppliersBox.put(id, EntityCodec.supplier(json));
+      case 'Sale':
+        await _salesBox.put(id, EntityCodec.sale(json));
+      case 'Purchase':
+        await _purchasesBox.put(id, EntityCodec.purchase(json));
+      case 'Expense':
+        await _expensesBox.put(id, EntityCodec.expense(json));
+      case 'ExpenseCategory':
+        await _expenseCategoriesBox.put(
+          id,
+          EntityCodec.expenseCategory(json),
+        );
+      case 'InventoryMovement':
+        await _movementsBox.put(id, EntityCodec.movement(json));
+      case 'LoyaltyTransaction':
+        await _loyaltyTransactionsBox.put(
+          id,
+          EntityCodec.loyaltyTransaction(json),
+        );
+      case 'CustomerLedger':
+        await _customerLedgersBox.put(id, EntityCodec.customerLedger(json));
+      case 'SupplierLedger':
+        await _supplierLedgersBox.put(id, EntityCodec.supplierLedger(json));
+      case 'SettingsModel':
+        // Biometric enrolment is per-device and is not in the payload, so it
+        // is carried over rather than reset by a restore.
+        final incoming = EntityCodec.settings(json);
+        final local = _settingsBox.get('app_settings');
+        if (local != null) {
+          incoming.isBiometricEnabled = local.isBiometricEnabled;
+        }
+        await _settingsBox.put('app_settings', incoming);
+      case 'CompanyModel':
+        await _companyBox.put('profile', EntityCodec.company(json));
+      case 'InvoiceSettingsModel':
+        await _invoiceSettingsBox.put(
+          'invoice_settings',
+          EntityCodec.invoiceSettings(json),
+        );
+      case 'LoyaltySettingsModel':
+        await _loyaltySettingsBox.put(
+          'loyalty_settings',
+          EntityCodec.loyaltySettings(json),
+        );
+      default:
+        return false;
+    }
+
+    await enqueueSync(
+      entityType: entityType,
+      entityId: id,
+      action: 'UPDATE',
+    );
+    return true;
+  }
+
+  Future<void> resetStuckSyncItems() async {
+    for (final item in _syncQueueBox.values.toList()) {
+      if (item.status == SyncState.syncing) {
+        item.status = SyncState.pending;
+        await _syncQueueBox.put(item.id, item);
+      }
+    }
+  }
+
+  /// Items that exhausted their retries. Surfaced in the sync sheet so the
+  /// user knows some records are not reaching the cloud.
+  List<SyncQueueItem> getDeadSyncItems() =>
+      _syncQueueBox.values.where((i) => i.status == SyncState.dead).toList();
+
+  int get pendingSyncCount =>
+      _syncQueueBox.values.where((i) => i.status != SyncState.dead).length;
+
+  /// Moves dead items back to the queue for a manual retry.
+  Future<void> retryDeadSyncItems() async {
+    for (final item in _syncQueueBox.values.toList()) {
+      if (item.status == SyncState.dead) {
+        item.status = SyncState.pending;
+        item.retryCount = 0;
+        item.lastAttempt = null;
+        await _syncQueueBox.put(item.id, item);
+      }
+    }
+  }
+
   Future<void> enqueueAllExistingDataForSync() async {
     // Enqueue all products
     for (var p in _productsBox.values) {
-      await enqueueSync(entityType: 'Product', entityId: p.id, action: 'UPDATE');
+      await enqueueSync(
+        entityType: 'Product',
+        entityId: p.id,
+        action: 'UPDATE',
+      );
     }
     // Enqueue all customers
     for (var c in _customersBox.values) {
-      if (!c.isDeleted) await enqueueSync(entityType: 'Customer', entityId: c.id, action: 'UPDATE');
+      if (!c.isDeleted) {
+        await enqueueSync(
+          entityType: 'Customer',
+          entityId: c.id,
+          action: 'UPDATE',
+        );
+      }
     }
     // Enqueue all sales
     for (var s in _salesBox.values) {
@@ -179,29 +783,84 @@ class StorageRepository {
     }
     // Enqueue all suppliers
     for (var s in _suppliersBox.values) {
-      if (!s.isDeleted) await enqueueSync(entityType: 'Supplier', entityId: s.id, action: 'UPDATE');
+      if (!s.isDeleted) {
+        await enqueueSync(
+          entityType: 'Supplier',
+          entityId: s.id,
+          action: 'UPDATE',
+        );
+      }
     }
     // Enqueue all purchases
     for (var p in _purchasesBox.values) {
-      await enqueueSync(entityType: 'Purchase', entityId: p.id, action: 'UPDATE');
+      await enqueueSync(
+        entityType: 'Purchase',
+        entityId: p.id,
+        action: 'UPDATE',
+      );
     }
     // Enqueue all expenses
     for (var e in _expensesBox.values) {
-      await enqueueSync(entityType: 'Expense', entityId: e.id, action: 'UPDATE');
+      await enqueueSync(
+        entityType: 'Expense',
+        entityId: e.id,
+        action: 'UPDATE',
+      );
     }
     // Enqueue all movements
     for (var m in _movementsBox.values) {
-      await enqueueSync(entityType: 'InventoryMovement', entityId: m.id, action: 'UPDATE');
+      await enqueueSync(
+        entityType: 'InventoryMovement',
+        entityId: m.id,
+        action: 'UPDATE',
+      );
     }
-    
-    // Settings and Company
-    await enqueueSync(entityType: 'SettingsModel', entityId: 'app_settings', action: 'UPDATE');
-    await enqueueSync(entityType: 'CompanyModel', entityId: 'profile', action: 'UPDATE');
+    // Expense categories
+    for (var c in _expenseCategoriesBox.values) {
+      await enqueueSync(
+        entityType: 'ExpenseCategory',
+        entityId: c.id,
+        action: 'UPDATE',
+      );
+    }
+    // Loyalty transactions
+    for (var t in _loyaltyTransactionsBox.values) {
+      await enqueueSync(
+        entityType: 'LoyaltyTransaction',
+        entityId: t.id,
+        action: 'UPDATE',
+      );
+    }
+    // Singleton documents
+    await enqueueSync(
+      entityType: 'SettingsModel',
+      entityId: 'app_settings',
+      action: 'UPDATE',
+    );
+    await enqueueSync(
+      entityType: 'CompanyModel',
+      entityId: 'profile',
+      action: 'UPDATE',
+    );
+    await enqueueSync(
+      entityType: 'InvoiceSettingsModel',
+      entityId: 'invoice_settings',
+      action: 'UPDATE',
+    );
+    await enqueueSync(
+      entityType: 'LoyaltySettingsModel',
+      entityId: 'loyalty_settings',
+      action: 'UPDATE',
+    );
   }
 
   List<SyncQueueItem> getPendingSyncItems() {
     final items = _syncQueueBox.values
-        .where((item) => item.status == 'PENDING' || item.status == 'FAILED')
+        .where(
+          (item) =>
+              item.status == SyncState.pending ||
+              item.status == SyncState.failed,
+        )
         .toList();
     // Sort by priority (lower number = higher priority), then by creation date
     items.sort((a, b) {
@@ -214,32 +873,124 @@ class StorageRepository {
     return items;
   }
 
-  Future<void> updateSyncItemStatus(String id, String status, {int? retryCount, DateTime? lastAttempt}) async {
+  Future<void> updateSyncItemStatus(
+    String id,
+    String status, {
+    int? retryCount,
+    DateTime? lastAttempt,
+  }) async {
     final item = _syncQueueBox.get(id);
     if (item != null) {
-      item.status = status;
+      // Retries exhausted: park it rather than re-scanning it forever.
+      final resolved =
+          status == SyncState.failed &&
+              (retryCount ?? item.retryCount) >= SyncState.maxRetries
+          ? SyncState.dead
+          : status;
+      item.status = resolved;
       if (retryCount != null) item.retryCount = retryCount;
       if (lastAttempt != null) item.lastAttempt = lastAttempt;
       await _syncQueueBox.put(id, item);
+      _notify(DataTopic.sync);
     }
   }
-  
+
   Future<void> deleteSyncItem(String id) async {
     await _syncQueueBox.delete(id);
+    _notify(DataTopic.sync);
   }
 
   // --- SYNC LOGS ---
   Future<void> addSyncLog(SyncLogModel log) async {
     await _syncLogBox.put(log.id, log);
-    
+
     // Optional: Keep only the latest 1000 logs to prevent unbounded growth
     if (_syncLogBox.length > 1000) {
-      final keysToDelete = _syncLogBox.keys.take(_syncLogBox.length - 1000).toList();
+      final keysToDelete = _syncLogBox.keys
+          .take(_syncLogBox.length - 1000)
+          .toList();
       await _syncLogBox.deleteAll(keysToDelete);
     }
   }
 
+  /// Sync outcomes, newest first.
+  ///
+  /// Every batch has been recorded here since sync was written, but nothing
+  /// ever read them back — the failures a technician needs to diagnose were
+  /// being captured and discarded.
+  List<SyncLogModel> getSyncLogs({int limit = 200, bool failuresOnly = false}) {
+    final logs =
+        _syncLogBox.values
+            .where((log) => !failuresOnly || log.status != 'SUCCESS')
+            .toList()
+          ..sort((a, b) => b.completedAt.compareTo(a.completedAt));
+    return logs.length > limit ? logs.sublist(0, limit) : logs;
+  }
+
+  /// Clears the sync log. The queue itself is untouched — this only discards
+  /// history, never pending work.
+  Future<void> clearSyncLogs() async {
+    await _syncLogBox.clear();
+    _notify(DataTopic.sync);
+  }
+
+  /// Builds the Firestore payload for a queued entity.
+  ///
+  /// Every branch mirrors the full model. A missing field here is silent data
+  /// loss on sync, so anything added to a model must be added below and the
+  /// round-trip covered by a test in `test/unit/sync_payload_test.dart`.
   Map<String, dynamic>? getEntityJson(String entityType, String entityId) {
+    if (entityType == 'CompanyModel') {
+      final c = getCompany();
+      return {
+        'name': c.name,
+        'logoPath': c.logoPath,
+        'ownerName': c.ownerName,
+        'gstNumber': c.gstNumber,
+        'panNumber': c.panNumber,
+        'phone1': c.phone1,
+        'phone2': c.phone2,
+        'email': c.email,
+        'website': c.website,
+        'address': c.address,
+        'city': c.city,
+        'state': c.state,
+        'country': c.country,
+        'pincode': c.pincode,
+        'invoicePrefix': c.invoicePrefix,
+        'barcodePrefix': c.barcodePrefix,
+        'currency': c.currency,
+        'financialYear': c.financialYear,
+      };
+    }
+    if (entityType == 'InvoiceSettingsModel') {
+      final s = getInvoiceSettings();
+      return {
+        'footerText': s.footerText,
+        'showUpiQr': s.showUpiQr,
+        'upiId': s.upiId,
+        'upiQrImagePath': s.upiQrImagePath,
+        'showCompanyLogo': s.showCompanyLogo,
+        'termsAndConditions': s.termsAndConditions,
+        'fontName': s.fontName,
+      };
+    }
+    if (entityType == 'LoyaltySettingsModel') {
+      final s = getLoyaltySettings();
+      return {
+        'isLoyaltyEnabled': s.isLoyaltyEnabled,
+        'spendAmountForPoint': s.spendAmountForPoint,
+        'pointsEarnedPerSpend': s.pointsEarnedPerSpend,
+        'pointRedemptionValue': s.pointRedemptionValue,
+        'maxRedemptionPercentage': s.maxRedemptionPercentage,
+        'minBillAmountForRedemption': s.minBillAmountForRedemption,
+      };
+    }
+    if (entityType == 'ExpenseCategory') {
+      final c = _expenseCategoriesBox.get(entityId);
+      if (c == null) return null;
+      return {'id': c.id, 'name': c.name, 'iconName': c.iconName};
+    }
     if (entityType == 'Customer') {
       final c = getCustomerById(entityId);
       if (c == null) return null;
@@ -337,10 +1088,17 @@ class StorageRepository {
         'supplierId': p.supplierId, 'supplierName': p.supplierName,
         'subtotal': p.subtotal, 'discount': p.discount,
         'tax': p.tax, 'grandTotal': p.grandTotal, 'paymentStatus': p.paymentStatus,
+        'status': p.status,
+        'expectedDeliveryDate': p.expectedDeliveryDate?.toIso8601String(),
+        'createdDate': p.createdDate.toIso8601String(),
+        'createdBy': p.createdBy, 'deviceId': p.deviceId,
+        'version': p.version, 'isDeleted': p.isDeleted,
         'notes': p.notes, 'isSynced': true, 'updatedAt': p.updatedAt?.toIso8601String(),
         'items': p.items.map((i) => {
           'productId': i.productId, 'productName': i.productName,
           'variantBarcode': i.variantBarcode, 'variantSize': i.variantSize,
+          'sku': i.sku, 'sellingPrice': i.sellingPrice,
+          'receivedQuantity': i.receivedQuantity,
           'costPrice': i.costPrice, 'quantity': i.quantity, 'lineTotal': i.lineTotal,
         }).toList(),
       };
@@ -349,8 +1107,11 @@ class StorageRepository {
       final e = _expensesBox.get(entityId);
       if (e == null) return null;
       return {
-        'id': e.id, 'categoryId': e.categoryId, 'categoryName': e.categoryName,
+        'id': e.id, 'title': e.title,
+        'categoryId': e.categoryId, 'categoryName': e.categoryName,
         'amount': e.amount, 'date': e.date.toIso8601String(), 'notes': e.notes,
+        'receiptImagePath': e.receiptImagePath,
+        'createdDate': e.createdDate.toIso8601String(),
         'createdBy': e.createdBy, 'isSynced': true,
       };
     }
@@ -365,15 +1126,191 @@ class StorageRepository {
         'performedAt': m.performedAt,
       };
     }
+    if (entityType == 'CustomerLedger') {
+      final l = _customerLedgersBox.get(entityId);
+      if (l == null) return null;
+      return {
+        'id': l.id, 'customerId': l.customerId,
+        'date': l.date.toIso8601String(),
+        'transactionType': l.transactionType, 'referenceId': l.referenceId,
+        'debit': l.debit, 'credit': l.credit, 'balance': l.balance,
+        'notes': l.notes,
+      };
+    }
+    if (entityType == 'SupplierLedger') {
+      final l = _supplierLedgersBox.get(entityId);
+      if (l == null) return null;
+      return {
+        'id': l.id, 'supplierId': l.supplierId,
+        'date': l.date.toIso8601String(),
+        'transactionType': l.transactionType, 'referenceId': l.referenceId,
+        'debit': l.debit, 'credit': l.credit, 'balance': l.balance,
+        'notes': l.notes,
+      };
+    }
     if (entityType == 'SettingsModel') {
       final s = _settingsBox.get('app_settings');
       if (s == null) return null;
       return {
-        'isDarkMode': s.isDarkMode, 'companyName': s.companyName,
-        'currencySymbol': s.currencySymbol, 'pdfPageSize': s.pdfPageSize,
+        'isDarkMode': s.isDarkMode,
+        'companyName': s.companyName,
+        'currencySymbol': s.currencySymbol,
+        'pdfPageSize': s.pdfPageSize,
+        'taxMode': s.taxMode,
+        'taxRate': s.taxRate,
       };
     }
     return null;
+  }
+
+  /// Local timestamp used to decide whether a remote copy is newer.
+  DateTime? _localUpdatedAt(String entityType, String entityId) {
+    switch (entityType) {
+      case 'Product':
+        return _productsBox.get(entityId)?.updatedDate;
+      case 'Customer':
+        return _customersBox.get(entityId)?.updatedAt;
+      case 'Supplier':
+        return _suppliersBox.get(entityId)?.updatedDate;
+      case 'Sale':
+        return _salesBox.get(entityId)?.updatedAt;
+      case 'Purchase':
+        return _purchasesBox.get(entityId)?.updatedAt;
+      case 'LoyaltyTransaction':
+        return _loyaltyTransactionsBox.get(entityId)?.updatedAt;
+      case 'Expense':
+        return _expensesBox.get(entityId)?.createdDate;
+      default:
+        return null;
+    }
+  }
+
+  /// Writes a record pulled from the cloud into local storage.
+  ///
+  /// Resolution is last-write-wins on `updatedAt`, and a record with an
+  /// unsent local change always wins so a pull can never discard work the
+  /// device has not uploaded yet.
+  ///
+  /// Returns true when the local copy was replaced.
+  Future<bool> applyRemote(
+    String entityType,
+    String entityId,
+    Map<String, dynamic> json,
+  ) async {
+    final hasPendingLocalChange = _syncQueueBox.values.any(
+      (item) =>
+          item.entityType == entityType &&
+          item.entityId == entityId &&
+          item.status != SyncState.dead,
+    );
+    if (hasPendingLocalChange) return false;
+
+    final remoteUpdated = EntityCodec.remoteUpdatedAt(json);
+    final localUpdated = _localUpdatedAt(entityType, entityId);
+    if (remoteUpdated != null &&
+        localUpdated != null &&
+        !remoteUpdated.isAfter(localUpdated)) {
+      return false;
+    }
+
+    switch (entityType) {
+      case 'Product':
+        await _productsBox.put(entityId, EntityCodec.product(json));
+        _rebuildBarcodeIndex();
+        _notify(DataTopic.products);
+        _notify(DataTopic.inventory);
+      case 'Customer':
+        await _customersBox.put(entityId, EntityCodec.customer(json));
+        _customerBalances.remove(entityId);
+        _notify(DataTopic.customers);
+      case 'Supplier':
+        await _suppliersBox.put(entityId, EntityCodec.supplier(json));
+        _supplierBalances.remove(entityId);
+        _notify(DataTopic.suppliers);
+      case 'Sale':
+        await _salesBox.put(entityId, EntityCodec.sale(json));
+        _notify(DataTopic.sales);
+      case 'Purchase':
+        await _purchasesBox.put(entityId, EntityCodec.purchase(json));
+        _costPriceIndex = null;
+        _notify(DataTopic.purchases);
+      case 'Expense':
+        await _expensesBox.put(entityId, EntityCodec.expense(json));
+        _notify(DataTopic.expenses);
+      case 'ExpenseCategory':
+        await _expenseCategoriesBox.put(
+          entityId,
+          EntityCodec.expenseCategory(json),
+        );
+        _notify(DataTopic.expenses);
+      case 'InventoryMovement':
+        await _movementsBox.put(entityId, EntityCodec.movement(json));
+        _notify(DataTopic.inventory);
+      case 'LoyaltyTransaction':
+        await _loyaltyTransactionsBox.put(
+          entityId,
+          EntityCodec.loyaltyTransaction(json),
+        );
+        _notify(DataTopic.loyalty);
+      case 'CustomerLedger':
+        await _customerLedgersBox.put(
+          entityId,
+          EntityCodec.customerLedger(json),
+        );
+        _notify(DataTopic.customers);
+      case 'SupplierLedger':
+        await _supplierLedgersBox.put(
+          entityId,
+          EntityCodec.supplierLedger(json),
+        );
+        _notify(DataTopic.suppliers);
+      case 'SettingsModel':
+        // Merge rather than replace. The payload carries only the shared
+        // trading settings, so putting the rebuilt record straight in wiped
+        // every field it does not mention — including the biometric
+        // enrolment, which is meaningless coming from another device and must
+        // survive a pull.
+        final incoming = EntityCodec.settings(json);
+        final local = _settingsBox.get('app_settings');
+        if (local != null) {
+          incoming.isBiometricEnabled = local.isBiometricEnabled;
+        }
+        await _settingsBox.put('app_settings', incoming);
+        _notify(DataTopic.settings);
+      case 'CompanyModel':
+        await _companyBox.put('profile', EntityCodec.company(json));
+        _notify(DataTopic.settings);
+      case 'InvoiceSettingsModel':
+        await _invoiceSettingsBox.put(
+          'invoice_settings',
+          EntityCodec.invoiceSettings(json),
+        );
+        _notify(DataTopic.settings);
+      case 'LoyaltySettingsModel':
+        await _loyaltySettingsBox.put(
+          'loyalty_settings',
+          EntityCodec.loyaltySettings(json),
+        );
+        _notify(DataTopic.loyalty);
+      default:
+        return false;
+    }
+    return true;
+  }
+
+  /// Rebuilds derived state after a bulk pull.
+  Future<void> reconcileAfterPull() async {
+    _rebuildBarcodeIndex();
+    _costPriceIndex = null;
+    for (final customer in _customersBox.values) {
+      _customerBalances[customer.id] = customer.currentBalance;
+    }
+    for (final supplier in _suppliersBox.values) {
+      _supplierBalances[supplier.id] = supplier.currentBalance;
+    }
+    for (final topic in DataTopic.all) {
+      _notify(topic);
+    }
   }
 
   // --- PRODUCTS ---
@@ -395,7 +1332,7 @@ class StorageRepository {
         _barcodeIndex[variant.barcode] = product;
       }
     }
-    
+
     await enqueueSync(
       entityType: 'Product',
       entityId: product.id,
@@ -413,11 +1350,7 @@ class StorageRepository {
       }
     }
     await _productsBox.delete(id);
-    await enqueueSync(
-      entityType: 'Product',
-      entityId: id,
-      action: 'DELETE',
-    );
+    await enqueueSync(entityType: 'Product', entityId: id, action: 'DELETE');
   }
 
   List<Product> getAllProducts() {
@@ -459,15 +1392,21 @@ class StorageRepository {
     String movementReferenceId = '',
     String performedAt = '',
   }) async {
-    if (quantity <= 0) throw Exception('Quantity must be greater than 0');
+    if (quantity <= 0) {
+      throw const AppException('Quantity must be greater than 0.');
+    }
 
     final product = _productsBox.get(productId);
-    if (product == null) throw Exception('Product not found');
+    if (product == null) {
+      throw const AppException('That product no longer exists.');
+    }
 
     final variantIndex = product.variants.indexWhere(
       (v) => v.barcode == variantBarcode,
     );
-    if (variantIndex == -1) throw Exception('Variant not found');
+    if (variantIndex == -1) {
+      throw const AppException('That variant no longer exists on the product.');
+    }
 
     final variant = product.variants[variantIndex];
     variant.quantity += quantity;
@@ -478,7 +1417,7 @@ class StorageRepository {
 
     // Record movement
     final movement = InventoryMovement(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      id: Ids.generate(),
       productId: productId,
       productName: product.productName,
       variantBarcode: variantBarcode,
@@ -517,20 +1456,27 @@ class StorageRepository {
     String movementReferenceId = '',
     String performedAt = '',
   }) async {
-    if (quantity <= 0) throw Exception('Quantity must be greater than 0');
+    if (quantity <= 0) {
+      throw const AppException('Quantity must be greater than 0.');
+    }
 
     final product = _productsBox.get(productId);
-    if (product == null) throw Exception('Product not found');
+    if (product == null) {
+      throw const AppException('That product no longer exists.');
+    }
 
     final variantIndex = product.variants.indexWhere(
       (v) => v.barcode == variantBarcode,
     );
-    if (variantIndex == -1) throw Exception('Variant not found');
+    if (variantIndex == -1) {
+      throw const AppException('That variant no longer exists on the product.');
+    }
 
     final variant = product.variants[variantIndex];
     if (variant.quantity < quantity) {
-      throw Exception(
-        'Insufficient stock. Available: ${variant.quantity}, Requested: $quantity',
+      throw AppException(
+        'Not enough stock for ${product.productName} (${variant.size}). '
+        'Available: ${variant.quantity}, requested: $quantity.',
       );
     }
 
@@ -542,7 +1488,7 @@ class StorageRepository {
 
     // Record movement
     final movement = InventoryMovement(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      id: Ids.generate(),
       productId: productId,
       productName: product.productName,
       variantBarcode: variantBarcode,
@@ -622,6 +1568,13 @@ class StorageRepository {
   // --- HISTORY ---
   Future<void> saveHistory(ActionHistory history) async {
     await _historyBox.put(history.id, history);
+
+    // Keep the audit trail bounded; it is a convenience log, not a ledger.
+    if (_historyBox.length > 2000) {
+      final excess = _historyBox.keys.take(_historyBox.length - 2000).toList();
+      await _historyBox.deleteAll(excess);
+    }
+    _notify(DataTopic.history);
   }
 
   List<ActionHistory> getHistory() {
@@ -631,6 +1584,7 @@ class StorageRepository {
 
   Future<void> clearHistory() async {
     await _historyBox.clear();
+    _notify(DataTopic.history);
   }
 
   // --- SETTINGS ---
@@ -667,66 +1621,118 @@ class StorageRepository {
 
   // --- INVOICE SETTINGS ---
   InvoiceSettingsModel getInvoiceSettings() {
-    return _invoiceSettingsBox.get('invoice_settings') ?? InvoiceSettingsModel();
+    return _invoiceSettingsBox.get('invoice_settings') ??
+        InvoiceSettingsModel();
   }
 
   Future<void> saveInvoiceSettings(InvoiceSettingsModel settings) async {
     await _invoiceSettingsBox.put('invoice_settings', settings);
+    await enqueueSync(
+      entityType: 'InvoiceSettingsModel',
+      entityId: 'invoice_settings',
+      action: 'UPDATE',
+    );
   }
 
-  // --- SALES ---
+  // --- DOCUMENT NUMBERING ---
+
+  /// Identifies this installation. Set once from [SessionService] so offline
+  /// document numbers from different devices cannot collide.
+  String _deviceTag = '0000';
+  set deviceId(String value) => _deviceTag = Ids.shortCode(value);
+
+  /// The short tag stamped on document numbers, recorded in backups so a file
+  /// can be traced back to the device that wrote it.
+  String get deviceTag => _deviceTag;
+
+  /// `INV-20260810-A3F1-0001`
+  ///
+  /// The device tag is what keeps two tills billing offline from both issuing
+  /// invoice 0001 for the day.
   String getNextInvoiceNumber() {
-    final now = DateTime.now();
-    final dateStr =
-        '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}';
-    final prefix = 'INV-$dateStr-';
-
-    int maxCounter = 0;
-    for (var sale in _salesBox.values) {
-      if (sale.invoiceNumber.startsWith(prefix)) {
-        final counterStr = sale.invoiceNumber.substring(prefix.length);
-        final counter = int.tryParse(counterStr) ?? 0;
-        if (counter > maxCounter) maxCounter = counter;
-      }
-    }
-
-    return '$prefix${(maxCounter + 1).toString().padLeft(4, '0')}';
+    final company = getCompany();
+    final base = company.invoicePrefix.trim().isEmpty
+        ? 'INV'
+        : company.invoicePrefix.trim().toUpperCase();
+    final prefix = '$base-${_documentDateStamp()}-$_deviceTag-';
+    return '$prefix${_nextCounter(prefix, _salesBox.values.map((s) => s.invoiceNumber))}';
   }
 
+  String _documentDateStamp() {
+    final now = DateTime.now();
+    return '${now.year}'
+        '${now.month.toString().padLeft(2, '0')}'
+        '${now.day.toString().padLeft(2, '0')}';
+  }
+
+  String _nextCounter(String prefix, Iterable<String> existingNumbers) {
+    int maxCounter = 0;
+    for (final number in existingNumbers) {
+      if (!number.startsWith(prefix)) continue;
+      final counter = int.tryParse(number.substring(prefix.length)) ?? 0;
+      if (counter > maxCounter) maxCounter = counter;
+    }
+    return (maxCounter + 1).toString().padLeft(4, '0');
+  }
+
+  /// Persists a sale. Ledger, stock and loyalty effects belong to
+  /// [SaleService] so the whole checkout can be rolled back as one unit.
   Future<void> saveSale(Sale sale) async {
     final isNew = _salesBox.get(sale.id) == null;
     await _salesBox.put(sale.id, sale);
+    _indexSale(sale, isNew: isNew);
     await enqueueSync(
       entityType: 'Sale',
       entityId: sale.id,
+      // Sales are the highest-value record in the app; they upload first.
+      priority: 1,
       action: isNew ? 'CREATE' : 'UPDATE',
     );
+  }
 
-    // Update Customer Ledger if sale is linked to a customer
-    if (sale.customerId.isNotEmpty) {
-      // Debit the customer account for the grand total
-      await addLedgerEntry(
-        customerId: sale.customerId,
-        date: sale.date,
-        transactionType: 'Sale',
-        referenceId: sale.invoiceNumber,
-        debit: sale.grandTotal,
-        notes: 'Invoice #${sale.invoiceNumber}',
-      );
+  /// Removes a sale that failed part-way through checkout.
+  Future<void> deleteSale(String id) async {
+    final sale = _salesBox.get(id);
+    await _salesBox.delete(id);
+    if (sale != null && sale.customerId.isNotEmpty) {
+      _salesByCustomer[sale.customerId]?.removeWhere((s) => s.id == id);
+    }
+    await enqueueSync(entityType: 'Sale', entityId: id, action: 'DELETE');
+  }
 
-      // If the sale was immediately paid (not Credit), record the payment
-      if (sale.paymentMethod.toLowerCase() != 'credit') {
-        await addLedgerEntry(
-          customerId: sale.customerId,
-          date: sale.date,
-          transactionType: 'Payment',
-          referenceId: sale.invoiceNumber,
-          credit: sale.grandTotal,
-          notes: 'Paid via ${sale.paymentMethod}',
-        );
-      }
+  void _indexSale(Sale sale, {required bool isNew}) {
+    if (sale.customerId.isEmpty) return;
+    final sales = _salesByCustomer.putIfAbsent(sale.customerId, () => []);
+    if (isNew) {
+      sales.add(sale);
+    } else {
+      final at = sales.indexWhere((s) => s.id == sale.id);
+      at >= 0 ? sales[at] = sale : sales.add(sale);
     }
   }
+
+  /// Removes an inventory movement written by a checkout that was rolled back.
+  Future<void> deleteMovement(String id) async {
+    await _movementsBox.delete(id);
+    await enqueueSync(
+      entityType: 'InventoryMovement',
+      entityId: id,
+      action: 'DELETE',
+    );
+  }
+
+  /// The most recent movement recorded for a reference, used when unwinding.
+  InventoryMovement? getMovementByReference(String referenceId) {
+    for (final movement in _movementsBox.values) {
+      if (movement.movementReferenceId == referenceId) return movement;
+    }
+    return null;
+  }
+
+  List<InventoryMovement> getMovementsByReference(String referenceId) =>
+      _movementsBox.values
+          .where((m) => m.movementReferenceId == referenceId)
+          .toList();
 
   List<Sale> getAllSales() {
     return _salesBox.values.toList()..sort((a, b) => b.date.compareTo(a.date));
@@ -736,25 +1742,52 @@ class StorageRepository {
     return _salesBox.get(id);
   }
 
-  List<Sale> getTodaySales() {
+  /// Today's takings, invoice list and unit count, computed once.
+  ///
+  /// The dashboard asks for all three, and each used to scan and sort every
+  /// sale ever recorded — three full passes on every rebuild, growing with the
+  /// shop's history. They are derived together and cached until a sale
+  /// changes, so opening the home screen costs one pass on the first build and
+  /// nothing on the rest.
+  _TodayTotals get _todayTotals {
     final now = DateTime.now();
-    return _salesBox.values.where((s) {
-      return s.date.year == now.year &&
-          s.date.month == now.month &&
-          s.date.day == now.day;
-    }).toList()..sort((a, b) => b.date.compareTo(a.date));
-  }
+    final cached = _todayCache;
+    if (cached != null && cached.isFor(now)) return cached;
 
-  double getTodayRevenue() {
-    return getTodaySales().fold(0.0, (sum, s) => sum + s.grandTotal);
-  }
+    final sales = <Sale>[];
+    var revenue = 0.0;
+    var units = 0;
 
-  int getTodayItemsSold() {
-    return getTodaySales().fold(
-      0,
-      (sum, s) => sum + s.items.fold(0, (iSum, item) => iSum + item.quantity),
+    for (final sale in _salesBox.values) {
+      final date = sale.date;
+      if (date.year != now.year ||
+          date.month != now.month ||
+          date.day != now.day) {
+        continue;
+      }
+      sales.add(sale);
+      revenue += sale.grandTotal;
+      for (final item in sale.items) {
+        units += item.quantity;
+      }
+    }
+    sales.sort((a, b) => b.date.compareTo(a.date));
+
+    return _todayCache = _TodayTotals(
+      day: DateTime(now.year, now.month, now.day),
+      sales: List.unmodifiable(sales),
+      revenue: Fmt.round2(revenue),
+      units: units,
     );
   }
+
+  _TodayTotals? _todayCache;
+
+  List<Sale> getTodaySales() => _todayTotals.sales;
+
+  double getTodayRevenue() => _todayTotals.revenue;
+
+  int getTodayItemsSold() => _todayTotals.units;
 
   List<Sale> getSalesByDateRange(DateTime start, DateTime end) {
     return _salesBox.values.where((s) {
@@ -774,8 +1807,18 @@ class StorageRepository {
     );
   }
 
+  /// Soft-deletes a supplier so the deletion reaches other devices.
+  ///
+  /// A hard local delete leaves the cloud copy alive and reappearing on the
+  /// next pull, and orphans the supplier name on historical purchases.
   Future<void> deleteSupplier(String id) async {
-    await _suppliersBox.delete(id);
+    final supplier = _suppliersBox.get(id);
+    if (supplier == null) return;
+    supplier.isDeleted = true;
+    supplier.isActive = false;
+    supplier.updatedDate = DateTime.now();
+    await _suppliersBox.put(id, supplier);
+    await enqueueSync(entityType: 'Supplier', entityId: id, action: 'UPDATE');
   }
 
   List<Supplier> getSuppliers() {
@@ -808,7 +1851,9 @@ class StorageRepository {
 
   List<Supplier> getSuppliersByCategory(String category) {
     if (category.isEmpty || category == 'All') return getSuppliers();
-    return _suppliersBox.values.where((s) => !s.isDeleted && s.supplierCategory == category).toList()
+    return _suppliersBox.values
+        .where((s) => !s.isDeleted && s.supplierCategory == category)
+        .toList()
       ..sort((a, b) => b.createdDate.compareTo(a.createdDate));
   }
 
@@ -820,21 +1865,8 @@ class StorageRepository {
 
   // --- PURCHASES ---
   String getNextPurchaseNumber() {
-    final now = DateTime.now();
-    final dateStr =
-        '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}';
-    final prefix = 'PUR-$dateStr-';
-
-    int maxCounter = 0;
-    for (var purchase in _purchasesBox.values) {
-      if (purchase.purchaseNumber.startsWith(prefix)) {
-        final counterStr = purchase.purchaseNumber.substring(prefix.length);
-        final counter = int.tryParse(counterStr) ?? 0;
-        if (counter > maxCounter) maxCounter = counter;
-      }
-    }
-
-    return '$prefix${(maxCounter + 1).toString().padLeft(4, '0')}';
+    final prefix = 'PUR-${_documentDateStamp()}-$_deviceTag-';
+    return '$prefix${_nextCounter(prefix, _purchasesBox.values.map((p) => p.purchaseNumber))}';
   }
 
   /// Saves a purchase to the local database.
@@ -842,6 +1874,7 @@ class StorageRepository {
   Future<void> savePurchase(Purchase purchase) async {
     final isNew = _purchasesBox.get(purchase.id) == null;
     await _purchasesBox.put(purchase.id, purchase);
+    _costPriceIndex = null; // cost prices may have moved
     await enqueueSync(
       entityType: 'Purchase',
       entityId: purchase.id,
@@ -897,19 +1930,30 @@ class StorageRepository {
   /// Returns {costValue, retailValue, potentialProfit}
   /// costValue uses a simple average: for each variant, uses the latest
   /// purchase cost price if available, otherwise falls back to selling price.
+  // Cached barcode -> latest cost price. Rebuilt only when a purchase changes,
+  // instead of re-sorting every purchase on each dashboard rebuild.
+  Map<String, double>? _costPriceIndex;
+
+  Map<String, double> _latestCostPrices() {
+    final cached = _costPriceIndex;
+    if (cached != null) return cached;
+
+    final prices = <String, double>{};
+    final sortedPurchases = _purchasesBox.values.toList()
+      ..sort((a, b) => a.purchaseDate.compareTo(b.purchaseDate));
+    for (final purchase in sortedPurchases) {
+      for (final item in purchase.items) {
+        prices[item.variantBarcode] = item.costPrice;
+      }
+    }
+    return _costPriceIndex = prices;
+  }
+
   Map<String, double> calculateInventoryValue() {
     double retailValue = 0;
     double costValue = 0;
 
-    // Build a map of variant barcode -> latest cost price from purchases
-    final Map<String, double> latestCostPrices = {};
-    final sortedPurchases = _purchasesBox.values.toList()
-      ..sort((a, b) => a.purchaseDate.compareTo(b.purchaseDate));
-    for (var purchase in sortedPurchases) {
-      for (var item in purchase.items) {
-        latestCostPrices[item.variantBarcode] = item.costPrice;
-      }
-    }
+    final latestCostPrices = _latestCostPrices();
 
     for (var product in _productsBox.values) {
       for (var variant in product.variants) {
@@ -944,6 +1988,7 @@ class StorageRepository {
   Future<void> saveCustomer(Customer customer) async {
     final isNew = _customersBox.get(customer.id) == null;
     await _customersBox.put(customer.id, customer);
+    _indexCustomerMobile(customer);
     await enqueueSync(
       entityType: 'Customer',
       entityId: customer.id,
@@ -972,10 +2017,12 @@ class StorageRepository {
           c.tags.any((tag) => tag.toLowerCase().contains(lowerQuery));
     }).toList()..sort((a, b) => b.createdDate.compareTo(a.createdDate));
   }
-  
+
   List<Customer> getCustomersByGroup(String group) {
     if (group.isEmpty || group == 'All') return getAllCustomers();
-    return _customersBox.values.where((c) => !c.isDeleted && c.customerGroup == group).toList()
+    return _customersBox.values
+        .where((c) => !c.isDeleted && c.customerGroup == group)
+        .toList()
       ..sort((a, b) => b.createdDate.compareTo(a.createdDate));
   }
 
@@ -983,10 +2030,19 @@ class StorageRepository {
     return _customerLedgersBox.values
         .where((l) => l.customerId == customerId)
         .toList()
-      ..sort((a, b) => a.date.compareTo(b.date)); // Chronological for balance logic
+      ..sort(
+        (a, b) => a.date.compareTo(b.date),
+      ); // Chronological for balance logic
   }
 
-  Future<void> addLedgerEntry({
+  /// Appends a ledger entry and advances the running balance.
+  ///
+  /// The balance is carried forward from the previous entry rather than
+  /// recomputed from history, so a customer with a long ledger costs one write
+  /// per transaction instead of one per historical row.
+  /// Returns the id of the entry written, so a caller running a multi-step
+  /// transaction can hand it to [deleteLedgerEntry] to compensate.
+  Future<String> addLedgerEntry({
     required String customerId,
     required DateTime date,
     required String transactionType,
@@ -996,11 +2052,16 @@ class StorageRepository {
     String notes = '',
   }) async {
     final customer = getCustomerById(customerId);
-    if (customer == null) throw Exception('Customer not found');
+    if (customer == null) {
+      throw const AppException('That customer no longer exists.');
+    }
 
-    // Create entry
+    final previousBalance =
+        _customerBalances[customerId] ?? customer.currentBalance;
+    final newBalance = Fmt.round2(previousBalance + debit - credit);
+
     final entry = CustomerLedger(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      id: Ids.generate(),
       customerId: customerId,
       date: date,
       transactionType: transactionType,
@@ -1008,23 +2069,56 @@ class StorageRepository {
       debit: debit,
       credit: credit,
       notes: notes,
-    );
+    )..balance = newBalance;
 
     await _customerLedgersBox.put(entry.id, entry);
+    await enqueueSync(
+      entityType: 'CustomerLedger',
+      entityId: entry.id,
+      action: 'CREATE',
+    );
 
-    // Recalculate customer currentBalance
-    // Balance = OpeningBalance + Sum(Debits) - Sum(Credits)
-    final ledgers = getLedgerForCustomer(customerId);
-    double runningBalance = customer.openingBalance;
-    for (var l in ledgers) {
-      runningBalance += l.debit;
-      runningBalance -= l.credit;
-      // Update running balance on the ledger entry itself
-      l.balance = runningBalance;
-      await _customerLedgersBox.put(l.id, l);
+    _customerBalances[customerId] = newBalance;
+    customer.currentBalance = newBalance;
+    await saveCustomer(customer);
+    return entry.id;
+  }
+
+  /// Removes a ledger entry and rebuilds the customer's running balance.
+  ///
+  /// Balances are carried forward, so dropping a row in the middle invalidates
+  /// every balance after it — the full recalculation is the only correct
+  /// repair. Mirrors [addLedgerEntry] in enqueueing nothing of its own: ledger
+  /// rows ride to the cloud with their customer, not as separate documents.
+  Future<void> deleteLedgerEntry(String entryId) async {
+    final entry = _customerLedgersBox.get(entryId);
+    if (entry == null) return;
+    final customerId = entry.customerId;
+    await _customerLedgersBox.delete(entryId);
+    await recalculateCustomerLedger(customerId);
+  }
+
+  /// Recomputes a customer's ledger from scratch. Used after a merge or an
+  /// out-of-order import, where carrying forward is not valid.
+  Future<void> recalculateCustomerLedger(String customerId) async {
+    final customer = getCustomerById(customerId);
+    if (customer == null) return;
+
+    double running = customer.openingBalance;
+    for (final entry in getLedgerForCustomer(customerId)) {
+      running = Fmt.round2(running + entry.debit - entry.credit);
+      entry.balance = running;
+      await _customerLedgersBox.put(entry.id, entry);
+      // The running balance changed, so the stored entry no longer matches
+      // what was uploaded.
+      await enqueueSync(
+        entityType: 'CustomerLedger',
+        entityId: entry.id,
+        action: 'UPDATE',
+      );
     }
-
-    customer.currentBalance = runningBalance;
+    _customerBalances[customerId] = running;
+    customer.currentBalance = running;
     await saveCustomer(customer);
   }
 
@@ -1033,7 +2127,9 @@ class StorageRepository {
     return _supplierLedgersBox.values
         .where((l) => l.supplierId == supplierId)
         .toList()
-      ..sort((a, b) => a.date.compareTo(b.date)); // Chronological for balance logic
+      ..sort(
+        (a, b) => a.date.compareTo(b.date),
+      ); // Chronological for balance logic
   }
 
   Future<void> addSupplierLedgerEntry({
@@ -1046,11 +2142,18 @@ class StorageRepository {
     String notes = '',
   }) async {
     final supplier = getSupplierById(supplierId);
-    if (supplier == null) throw Exception('Supplier not found');
+    if (supplier == null) {
+      throw const AppException('That supplier no longer exists.');
+    }
 
-    // Create entry
+    // A supplier balance is what we owe them: a purchase (credit) raises it,
+    // a payment (debit) lowers it.
+    final previousBalance =
+        _supplierBalances[supplierId] ?? supplier.currentBalance;
+    final newBalance = Fmt.round2(previousBalance + credit - debit);
+
     final entry = SupplierLedger(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      id: Ids.generate(),
       supplierId: supplierId,
       date: date,
       transactionType: transactionType,
@@ -1058,34 +2161,33 @@ class StorageRepository {
       credit: credit,
       debit: debit,
       notes: notes,
-    );
+    )..balance = newBalance;
 
     await _supplierLedgersBox.put(entry.id, entry);
+    await enqueueSync(
+      entityType: 'SupplierLedger',
+      entityId: entry.id,
+      action: 'CREATE',
+    );
 
-    // Recalculate supplier currentBalance
-    // Balance = Sum(Credits) - Sum(Debits)  -> Since Supplier balance means "How much we owe them"
-    // So Credit (Purchase) increases balance, Debit (Payment) decreases balance
-    final ledgers = getLedgerForSupplier(supplierId);
-    double runningBalance = 0; // We will add an Opening Balance logic in future if needed
-    for (var l in ledgers) {
-      runningBalance += l.credit;
-      runningBalance -= l.debit;
-      // Update running balance on the ledger entry itself
-      l.balance = runningBalance;
-      await _supplierLedgersBox.put(l.id, l);
-    }
-
-    supplier.currentBalance = runningBalance;
+    _supplierBalances[supplierId] = newBalance;
+    supplier.currentBalance = newBalance;
     await saveSupplier(supplier);
   }
 
   // --- LOYALTY ---
   LoyaltySettingsModel getLoyaltySettings() {
-    return _loyaltySettingsBox.get('loyalty_settings') ?? LoyaltySettingsModel();
+    return _loyaltySettingsBox.get('loyalty_settings') ??
+        LoyaltySettingsModel();
   }
 
   Future<void> saveLoyaltySettings(LoyaltySettingsModel settings) async {
     await _loyaltySettingsBox.put('loyalty_settings', settings);
+    await enqueueSync(
+      entityType: 'LoyaltySettingsModel',
+      entityId: 'loyalty_settings',
+      action: 'UPDATE',
+    );
   }
 
   List<LoyaltyTransaction> getLoyaltyTransactions(String customerId) {
@@ -1099,10 +2201,13 @@ class StorageRepository {
     return _loyaltyTransactionsBox.get(id);
   }
 
-  Future<void> addLoyaltyTransaction({
+  /// Returns the id of the transaction written, so a caller running a
+  /// multi-step transaction can hand it to [deleteLoyaltyTransaction].
+  Future<String> addLoyaltyTransaction({
     required String customerId,
     String? saleId,
-    required String transactionType, // Earn, Redeem, Refund, Expire, ManualAdjustment
+    required String
+    transactionType, // Earn, Redeem, Refund, Expire, ManualAdjustment
     required double points,
     required double monetaryValue,
     String reference = '',
@@ -1110,10 +2215,12 @@ class StorageRepository {
     required String createdBy,
   }) async {
     final customer = getCustomerById(customerId);
-    if (customer == null) throw Exception('Customer not found');
+    if (customer == null) {
+      throw const AppException('That customer no longer exists.');
+    }
 
     final tx = LoyaltyTransaction(
-      id: DateTime.now().millisecondsSinceEpoch.toString(), // or UUIDv4
+      id: Ids.generate(),
       customerId: customerId,
       saleId: saleId,
       transactionType: transactionType,
@@ -1132,13 +2239,37 @@ class StorageRepository {
       action: 'CREATE',
     );
 
-    // Recalculate customer total points
-    final allTxs = getLoyaltyTransactions(customerId);
+    await _recomputeRewardPoints(customerId);
+    return tx.id;
+  }
+
+  /// Removes a loyalty transaction and restores the customer's point balance.
+  ///
+  /// Used to compensate a checkout that failed after awarding or redeeming
+  /// points, so a rolled-back sale cannot leave points behind.
+  Future<void> deleteLoyaltyTransaction(String transactionId) async {
+    final tx = _loyaltyTransactionsBox.get(transactionId);
+    if (tx == null) return;
+    final customerId = tx.customerId;
+    await _loyaltyTransactionsBox.delete(transactionId);
+    await enqueueSync(
+      entityType: 'LoyaltyTransaction',
+      entityId: transactionId,
+      action: 'DELETE',
+    );
+    await _recomputeRewardPoints(customerId);
+  }
+
+  /// Re-derives a customer's point balance from their transaction history.
+  Future<void> _recomputeRewardPoints(String customerId) async {
+    final customer = getCustomerById(customerId);
+    if (customer == null) return;
+
     double totalPoints = 0;
-    for (var t in allTxs) {
+    for (final t in getLoyaltyTransactions(customerId)) {
       totalPoints += t.points;
     }
-    
+
     // Prevent negative balance logically, though not throwing here allows corrections
     if (totalPoints < 0) totalPoints = 0;
 
@@ -1163,13 +2294,16 @@ class StorageRepository {
     if (subtotal < settings.minBillAmountForRedemption) return 0;
 
     final potentialValue = availablePoints * settings.pointRedemptionValue;
-    final maxAllowedValue = subtotal * (settings.maxRedemptionPercentage / 100.0);
+    final maxAllowedValue =
+        subtotal * (settings.maxRedemptionPercentage / 100.0);
 
     return potentialValue > maxAllowedValue ? maxAllowedValue : potentialValue;
   }
+
   // --- EXPENSES ---
   List<Expense> getExpenses() {
-    return _expensesBox.values.toList()..sort((a, b) => b.date.compareTo(a.date));
+    return _expensesBox.values.toList()
+      ..sort((a, b) => b.date.compareTo(a.date));
   }
 
   Future<void> saveExpense(Expense expense, {bool isNew = false}) async {
@@ -1191,109 +2325,26 @@ class StorageRepository {
   }
 
   List<ExpenseCategory> getExpenseCategories() {
-    return _expenseCategoriesBox.values.toList()..sort((a, b) => a.name.compareTo(b.name));
+    return _expenseCategoriesBox.values.toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
   }
 
   Future<void> saveExpenseCategory(ExpenseCategory category) async {
     await _expenseCategoriesBox.put(category.id, category);
+    await enqueueSync(
+      entityType: 'ExpenseCategory',
+      entityId: category.id,
+      action: 'UPDATE',
+    );
   }
 
   Future<void> deleteExpenseCategory(String categoryId) async {
     await _expenseCategoriesBox.delete(categoryId);
-  }
-
-  // --- Employee Management ---
-
-  List<EmployeeModel> getEmployees() {
-    return _employeesBox.values.toList()..sort((a, b) => a.fullName.compareTo(b.fullName));
-  }
-
-  EmployeeModel? getEmployee(String id) {
-    return _employeesBox.get(id);
-  }
-
-  Future<void> saveEmployee(EmployeeModel employee, {String? actionBy}) async {
-    final isNew = !_employeesBox.containsKey(employee.id);
-    await _employeesBox.put(employee.id, employee);
     await enqueueSync(
-      entityType: 'Employee',
-      entityId: employee.id,
-      action: isNew ? 'CREATE' : 'UPDATE',
-    );
-    if (actionBy != null) {
-      await logActivity(
-        action: isNew ? 'Created Employee' : 'Updated Employee',
-        ownerId: actionBy,
-        targetEmployeeId: employee.id,
-      );
-    }
-  }
-
-  Future<void> deleteEmployee(String id, {String? actionBy}) async {
-    final employee = _employeesBox.get(id);
-    if (employee != null) {
-      final updated = employee.copyWith(isDeleted: true);
-      await _employeesBox.put(id, updated);
-      await enqueueSync(
-        entityType: 'Employee',
-        entityId: id,
-        action: 'UPDATE', // Soft delete is an update
-      );
-      if (actionBy != null) {
-        await logActivity(
-          action: 'Deleted Employee',
-          ownerId: actionBy,
-          targetEmployeeId: id,
-        );
-      }
-    }
-  }
-
-  // --- Audit & Login Logging ---
-
-  Future<void> logActivity({
-    required String action,
-    required String ownerId,
-    required String targetEmployeeId,
-  }) async {
-    final log = ActivityLogModel(
-      timestamp: DateTime.now(),
-      action: action,
-      ownerId: ownerId,
-      targetEmployeeId: targetEmployeeId,
-    );
-    await _activityLogBox.put(log.id, log);
-    await enqueueSync(
-      entityType: 'ActivityLog',
-      entityId: log.id,
-      action: 'CREATE',
+      entityType: 'ExpenseCategory',
+      entityId: categoryId,
+      action: 'DELETE',
     );
   }
 
-  List<ActivityLogModel> getActivityLogs() {
-    return _activityLogBox.values.toList()..sort((a, b) => b.timestamp.compareTo(a.timestamp));
-  }
-
-  Future<void> logLogin({
-    required String employeeId,
-    required String deviceInfo,
-    required String ipAddress,
-  }) async {
-    final log = LoginHistoryModel(
-      employeeId: employeeId,
-      loginTime: DateTime.now(),
-      deviceInfo: deviceInfo,
-      ipAddress: ipAddress,
-    );
-    await _loginHistoryBox.put(log.id, log);
-    await enqueueSync(
-      entityType: 'LoginHistory',
-      entityId: log.id,
-      action: 'CREATE',
-    );
-  }
-
-  List<LoginHistoryModel> getLoginHistory() {
-    return _loginHistoryBox.values.toList()..sort((a, b) => b.loginTime.compareTo(a.loginTime));
-  }
 }

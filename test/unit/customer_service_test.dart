@@ -7,8 +7,11 @@ import 'package:atomid/domain/services/session_service.dart';
 import 'package:atomid/domain/services/customer_service.dart';
 
 class MockStorageRepository extends Mock implements StorageRepository {}
+
 class MockSessionService extends Mock implements SessionService {}
+
 class FakeCustomer extends Fake implements Customer {}
+
 class FakeActionHistory extends Fake implements ActionHistory {}
 
 void main() {
@@ -25,7 +28,7 @@ void main() {
     mockStorageRepo = MockStorageRepository();
     mockSessionService = MockSessionService();
     customerService = CustomerService(mockStorageRepo, mockSessionService);
-    
+
     when(() => mockSessionService.deviceId).thenReturn('device_123');
   });
 
@@ -38,10 +41,15 @@ void main() {
         mobile: '1234567890',
         createdDate: DateTime.now(),
       );
-      
-      when(() => mockStorageRepo.getAllCustomers()).thenReturn([existingCustomer]);
-      
-      final result = customerService.isDuplicate('1234567890', 'email@test.com');
+
+      when(
+        () => mockStorageRepo.getAllCustomers(),
+      ).thenReturn([existingCustomer]);
+
+      final result = customerService.isDuplicate(
+        '1234567890',
+        'email@test.com',
+      );
       expect(result, isTrue);
     });
 
@@ -53,10 +61,16 @@ void main() {
         mobile: '1234567890',
         createdDate: DateTime.now(),
       );
-      
-      when(() => mockStorageRepo.getAllCustomers()).thenReturn([existingCustomer]);
-      
-      final result = customerService.isDuplicate('1234567890', 'email@test.com', excludeId: 'c1');
+
+      when(
+        () => mockStorageRepo.getAllCustomers(),
+      ).thenReturn([existingCustomer]);
+
+      final result = customerService.isDuplicate(
+        '1234567890',
+        'email@test.com',
+        excludeId: 'c1',
+      );
       expect(result, isFalse);
     });
 
@@ -68,60 +82,69 @@ void main() {
         mobile: '0987654321',
         createdDate: DateTime.now(),
       );
-      
-      when(() => mockStorageRepo.saveCustomer(any())).thenAnswer((_) async => {});
-      
+
+      when(
+        () => mockStorageRepo.saveCustomer(any()),
+      ).thenAnswer((_) async => {});
+
       await customerService.saveCustomer(customer);
-      
+
       verify(() => mockStorageRepo.saveCustomer(customer)).called(1);
       expect(customer.deviceId, 'device_123');
       expect(customer.updatedAt, isNotNull);
     });
 
-    test('mergeCustomers should combine stats and soft delete secondary', () async {
-      final primary = Customer(
-        id: 'p1',
-        code: 'C-P',
-        name: 'Primary',
-        mobile: '111',
-        createdDate: DateTime.now(),
-        totalRewardPoints: 10,
-        lifetimeSpend: 100,
-        currentBalance: 50,
-        tags: ['vip'],
-      );
-      
-      final secondary = Customer(
-        id: 's1',
-        code: 'C-S',
-        name: 'Secondary',
-        mobile: '222',
-        createdDate: DateTime.now(),
-        totalRewardPoints: 5,
-        lifetimeSpend: 50,
-        currentBalance: 20,
-        tags: ['new'],
-      );
-      
-      when(() => mockStorageRepo.getCustomerById('p1')).thenReturn(primary);
-      when(() => mockStorageRepo.getCustomerById('s1')).thenReturn(secondary);
-      when(() => mockStorageRepo.getLedgerForCustomer('s1')).thenReturn([]);
-      when(() => mockStorageRepo.saveCustomer(any())).thenAnswer((_) async => {});
-      when(() => mockStorageRepo.saveHistory(any())).thenAnswer((_) async => {});
-      
-      await customerService.mergeCustomers('p1', 's1');
-      
-      expect(primary.totalRewardPoints, 15);
-      expect(primary.lifetimeSpend, 150);
-      expect(primary.currentBalance, 70);
-      expect(primary.tags, containsAll(['vip', 'new']));
-      
-      expect(secondary.isDeleted, isTrue);
-      expect(secondary.status, 'Merged');
-      
-      verify(() => mockStorageRepo.saveCustomer(primary)).called(1);
-      verify(() => mockStorageRepo.saveCustomer(secondary)).called(1);
-      verify(() => mockStorageRepo.saveHistory(any())).called(1);
-    });
+    test(
+      'mergeCustomers should combine stats and soft delete secondary',
+      () async {
+        final primary = Customer(
+          id: 'p1',
+          code: 'C-P',
+          name: 'Primary',
+          mobile: '111',
+          createdDate: DateTime.now(),
+          totalRewardPoints: 10,
+          lifetimeSpend: 100,
+          currentBalance: 50,
+          tags: ['vip'],
+        );
+
+        final secondary = Customer(
+          id: 's1',
+          code: 'C-S',
+          name: 'Secondary',
+          mobile: '222',
+          createdDate: DateTime.now(),
+          totalRewardPoints: 5,
+          lifetimeSpend: 50,
+          currentBalance: 20,
+          tags: ['new'],
+        );
+
+        when(() => mockStorageRepo.getCustomerById('p1')).thenReturn(primary);
+        when(() => mockStorageRepo.getCustomerById('s1')).thenReturn(secondary);
+        when(() => mockStorageRepo.getLedgerForCustomer('s1')).thenReturn([]);
+        when(
+          () => mockStorageRepo.saveCustomer(any()),
+        ).thenAnswer((_) async => {});
+        when(
+          () => mockStorageRepo.saveHistory(any()),
+        ).thenAnswer((_) async => {});
+
+        await customerService.mergeCustomers('p1', 's1');
+
+        expect(primary.totalRewardPoints, 15);
+        expect(primary.lifetimeSpend, 150);
+        expect(primary.currentBalance, 70);
+        expect(primary.tags, containsAll(['vip', 'new']));
+
+        expect(secondary.isDeleted, isTrue);
+        expect(secondary.status, 'Merged');
+
+        verify(() => mockStorageRepo.saveCustomer(primary)).called(1);
+        verify(() => mockStorageRepo.saveCustomer(secondary)).called(1);
+        verify(() => mockStorageRepo.saveHistory(any())).called(1);
+      },
+    );
   });
 }

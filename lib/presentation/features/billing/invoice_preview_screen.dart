@@ -62,6 +62,7 @@ class InvoicePreviewScreen extends ConsumerWidget {
                       onLayout: (PdfPageFormat format) async => pdf.save(),
                       name: 'Receipt_${sale.invoiceNumber}',
                     );
+                    if (context.mounted) Navigator.pop(context);
                   },
                   icon: const Icon(Icons.receipt_long),
                   label: const Text('Thermal Receipt'),
@@ -78,6 +79,7 @@ class InvoicePreviewScreen extends ConsumerWidget {
                       onLayout: (PdfPageFormat format) async => pdf.save(),
                       name: 'Invoice_${sale.invoiceNumber}',
                     );
+                    if (context.mounted) Navigator.pop(context);
                   },
                   icon: const Icon(Icons.picture_as_pdf),
                   label: const Text('A4 Invoice'),

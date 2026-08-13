@@ -1,11 +1,11 @@
 {
-    "name": "atomid",
-    "short_name": "atomid",
+    "name": "Atomid",
+    "short_name": "Atomid",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#ffffff",
     "theme_color": "#ffffff",
-    "description": "A new Flutter project.",
+    "description": "Offline-first retail and point-of-sale for small shops.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:atomid/core/utils/formatters.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:atomid/presentation/providers/app_providers.dart';
 import 'customer_form_screen.dart';
@@ -20,14 +21,18 @@ class CustomerListScreen extends ConsumerWidget {
             icon: const Icon(Icons.file_download),
             tooltip: 'Export',
             onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Exporting Customers...')));
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Exporting Customers...')),
+              );
             },
           ),
           IconButton(
             icon: const Icon(Icons.file_upload),
             tooltip: 'Import',
             onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Import Customers...')));
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Import Customers...')),
+              );
             },
           ),
         ],
@@ -57,22 +62,39 @@ class CustomerListScreen extends ConsumerWidget {
                   scrollDirection: Axis.horizontal,
                   child: Row(
                     children: [
-                      const Text('Filter by Group: ', style: TextStyle(color: Colors.white70)),
+                      Text(
+                        'Filter by Group: ',
+                        style: TextStyle(
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
                       const SizedBox(width: 8),
                       DropdownButton<String>(
                         value: ref.watch(customerGroupFilterProvider),
                         dropdownColor: Theme.of(context).cardColor,
-                        style: const TextStyle(color: Colors.white),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurface,
+                        ),
                         underline: const SizedBox(),
                         items: const [
                           DropdownMenuItem(value: 'All', child: Text('All')),
-                          DropdownMenuItem(value: 'General', child: Text('General')),
+                          DropdownMenuItem(
+                            value: 'General',
+                            child: Text('General'),
+                          ),
                           DropdownMenuItem(value: 'VIP', child: Text('VIP')),
-                          DropdownMenuItem(value: 'Wholesale', child: Text('Wholesale')),
+                          DropdownMenuItem(
+                            value: 'Wholesale',
+                            child: Text('Wholesale'),
+                          ),
                         ],
                         onChanged: (v) {
                           if (v != null) {
-                            ref.read(customerGroupFilterProvider.notifier).setGroup(v);
+                            ref
+                                .read(customerGroupFilterProvider.notifier)
+                                .setGroup(v);
                           }
                         },
                       ),
@@ -91,22 +113,36 @@ class CustomerListScreen extends ConsumerWidget {
               itemBuilder: (context, index) {
                 final c = customers[index];
                 return Card(
-                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  margin: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
                   child: ListTile(
                     leading: CircleAvatar(
                       backgroundColor: Theme.of(context).colorScheme.primary,
                       child: Text(
                         c.name.substring(0, 1).toUpperCase(),
-                        style: const TextStyle(color: Colors.white),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onPrimary,
+                        ),
                       ),
                     ),
-                    title: Text(c.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                    title: Text(
+                      c.name,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
                     subtitle: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text('${c.code} • ${c.mobile}'),
                         if (c.customerGroup != 'General')
-                          Text('Group: ${c.customerGroup}', style: const TextStyle(fontSize: 12, color: Colors.blue)),
+                          Text(
+                            'Group: ${c.customerGroup}',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.blue,
+                            ),
+                          ),
                       ],
                     ),
                     trailing: Column(
@@ -114,15 +150,26 @@ class CustomerListScreen extends ConsumerWidget {
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
                         Text(
-                          '${settings.currencySymbol}${c.currentBalance.toStringAsFixed(2)}',
+                          Fmt.money(
+                            c.currentBalance,
+                            settings.currencySymbol,
+                          ),
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 16,
-                            color: c.currentBalance > 0 ? Colors.red : (c.currentBalance < 0 ? Colors.green : Colors.grey),
+                            color: c.currentBalance > 0
+                                ? Colors.red
+                                : (c.currentBalance < 0
+                                      ? Colors.green
+                                      : Colors.grey),
                           ),
                         ),
                         Text(
-                          c.currentBalance > 0 ? 'Due' : (c.currentBalance < 0 ? 'Advance' : 'Settled'),
+                          c.currentBalance > 0
+                              ? 'Due'
+                              : (c.currentBalance < 0
+                                    ? 'Advance'
+                                    : 'Settled'),
                           style: const TextStyle(fontSize: 10),
                         ),
                       ],
@@ -131,7 +178,8 @@ class CustomerListScreen extends ConsumerWidget {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) => CustomerDetailsScreen(customerId: c.id),
+                          builder: (_) =>
+                              CustomerDetailsScreen(customerId: c.id),
                         ),
                       );
                     },

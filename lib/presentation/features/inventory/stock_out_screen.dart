@@ -1,11 +1,9 @@
-import 'dart:math';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:atomid/data/models/product_model.dart';
 import 'package:atomid/presentation/providers/app_providers.dart';
-import 'package:atomid/presentation/providers/provider_refresh_helper.dart';
 import 'package:atomid/core/utils/responsive.dart';
+import 'package:atomid/core/utils/app_error.dart';
 
 class StockOutScreen extends ConsumerStatefulWidget {
   final Product? preselectedProduct;
@@ -86,8 +84,6 @@ class _StockOutScreenState extends ConsumerState<StockOutScreen> {
         reason: _selectedReason,
       );
 
-      ProviderRefreshHelper.invalidateProductProviders(ref);
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -99,11 +95,17 @@ class _StockOutScreenState extends ConsumerState<StockOutScreen> {
         );
         Navigator.pop(context);
       }
-      debugPrint('Stock out error: $e');
+    } catch (e, stack) {
+      debugPrint('Stock out error: $e\n$stack');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Unable to update inventory. Please try again.'),
+          SnackBar(
+            content: Text(
+              describeError(
+                e,
+                fallback: 'Could not remove stock. Please try again.',
+              ),
+            ),
             backgroundColor: Colors.red,
           ),
         );
@@ -183,7 +185,10 @@ class _StockOutScreenState extends ConsumerState<StockOutScreen> {
                 if (_selectedProduct != null) ...[
                   const Text(
                     'Select Variant',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
                   ),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<ProductVariant>(
@@ -269,7 +274,10 @@ class _StockOutScreenState extends ConsumerState<StockOutScreen> {
                   // Quantity
                   const Text(
                     'Quantity to Remove',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
                   ),
                   const SizedBox(height: 8),
                   TextFormField(
@@ -286,7 +294,10 @@ class _StockOutScreenState extends ConsumerState<StockOutScreen> {
                   // Reason
                   const Text(
                     'Reason',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
                   ),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
@@ -330,17 +341,23 @@ class _StockOutScreenState extends ConsumerState<StockOutScreen> {
       ),
     );
   }
+}
 
-  Widget _infoRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: const TextStyle(color: Colors.grey)),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
-        ],
-      ),
-    );
-  }
+Widget _infoRow(String label, String value) {
+  return Padding(
+    padding: const EdgeInsets.symmetric(vertical: 4.0),
+    child: Row(
+      children: [
+        Text('$label:', style: const TextStyle(fontWeight: FontWeight.bold)),
+        const SizedBox(width: 4),
+        Expanded(
+          child: Text(
+            value,
+            style: TextStyle(color: Colors.grey[600]),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    ),
+  );
 }

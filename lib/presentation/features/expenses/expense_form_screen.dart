@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:atomid/data/models/expense_model.dart';
 import 'package:atomid/presentation/providers/app_providers.dart';
-import 'package:atomid/presentation/providers/provider_refresh_helper.dart';
 
 class ExpenseFormScreen extends ConsumerStatefulWidget {
   final Expense? expense;
@@ -18,7 +17,7 @@ class _ExpenseFormScreenState extends ConsumerState<ExpenseFormScreen> {
   final _titleCtrl = TextEditingController();
   final _amountCtrl = TextEditingController();
   final _notesCtrl = TextEditingController();
-  
+
   ExpenseCategory? _selectedCategory;
   DateTime _selectedDate = DateTime.now();
   bool _isProcessing = false;
@@ -32,7 +31,7 @@ class _ExpenseFormScreenState extends ConsumerState<ExpenseFormScreen> {
       _notesCtrl.text = widget.expense!.notes;
       _selectedDate = widget.expense!.date;
     }
-    
+
     // Defer reading providers until after first frame
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initCategory();
@@ -43,7 +42,9 @@ class _ExpenseFormScreenState extends ConsumerState<ExpenseFormScreen> {
     final categories = ref.read(expenseCategoriesProvider);
     if (widget.expense != null) {
       try {
-        _selectedCategory = categories.firstWhere((c) => c.id == widget.expense!.categoryId);
+        _selectedCategory = categories.firstWhere(
+          (c) => c.id == widget.expense!.categoryId,
+        );
       } catch (e) {
         if (categories.isNotEmpty) _selectedCategory = categories.first;
       }
@@ -64,9 +65,9 @@ class _ExpenseFormScreenState extends ConsumerState<ExpenseFormScreen> {
   Future<void> _saveExpense() async {
     if (!_formKey.currentState!.validate()) return;
     if (_selectedCategory == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a category')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Please select a category')));
       return;
     }
 
@@ -74,7 +75,8 @@ class _ExpenseFormScreenState extends ConsumerState<ExpenseFormScreen> {
 
     try {
       final now = DateTime.now();
-      final expenseId = widget.expense?.id ?? now.millisecondsSinceEpoch.toString();
+      final expenseId =
+          widget.expense?.id ?? now.millisecondsSinceEpoch.toString();
       final amount = double.tryParse(_amountCtrl.text) ?? 0.0;
 
       final newExpense = Expense(
@@ -88,12 +90,9 @@ class _ExpenseFormScreenState extends ConsumerState<ExpenseFormScreen> {
         createdDate: widget.expense?.createdDate ?? now,
       );
 
-      await ref.read(expenseServiceProvider).saveExpense(
-            newExpense,
-            isNew: widget.expense == null,
-          );
-
-      ProviderRefreshHelper.invalidateExpenseProviders(ref);
+      await ref
+          .read(expenseServiceProvider)
+          .saveExpense(newExpense, isNew: widget.expense == null);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -126,13 +125,20 @@ class _ExpenseFormScreenState extends ConsumerState<ExpenseFormScreen> {
 
   IconData _getIconData(String iconName) {
     switch (iconName) {
-      case 'home': return Icons.home;
-      case 'electric_bolt': return Icons.electric_bolt;
-      case 'people': return Icons.people;
-      case 'build': return Icons.build;
-      case 'campaign': return Icons.campaign;
-      case 'receipt': return Icons.receipt;
-      default: return Icons.receipt;
+      case 'home':
+        return Icons.home;
+      case 'electric_bolt':
+        return Icons.electric_bolt;
+      case 'people':
+        return Icons.people;
+      case 'build':
+        return Icons.build;
+      case 'campaign':
+        return Icons.campaign;
+      case 'receipt':
+        return Icons.receipt;
+      default:
+        return Icons.receipt;
     }
   }
 
@@ -150,16 +156,14 @@ class _ExpenseFormScreenState extends ConsumerState<ExpenseFormScreen> {
               child: Padding(
                 padding: EdgeInsets.all(16),
                 child: SizedBox(
-                  width: 20, height: 20,
+                  width: 20,
+                  height: 20,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 ),
               ),
             )
           else
-            IconButton(
-              icon: const Icon(Icons.save),
-              onPressed: _saveExpense,
-            ),
+            IconButton(icon: const Icon(Icons.save), onPressed: _saveExpense),
         ],
       ),
       body: SingleChildScrollView(
@@ -186,11 +190,19 @@ class _ExpenseFormScreenState extends ConsumerState<ExpenseFormScreen> {
                           prefixText: '${settings.currencySymbol} ',
                           border: const OutlineInputBorder(),
                         ),
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        style: const TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                        ),
                         validator: (value) {
-                          if (value == null || value.isEmpty) return 'Required';
-                          if (double.tryParse(value) == null) return 'Invalid number';
+                          final amount = double.tryParse(value?.trim() ?? '');
+                          if (amount == null) return 'Enter an amount';
+                          if (amount <= 0) {
+                            return 'The amount must be more than zero';
+                          }
                           return null;
                         },
                       ),
@@ -202,7 +214,8 @@ class _ExpenseFormScreenState extends ConsumerState<ExpenseFormScreen> {
                           border: OutlineInputBorder(),
                           prefixIcon: Icon(Icons.description),
                         ),
-                        validator: (value) => value == null || value.isEmpty ? 'Required' : null,
+                        validator: (value) =>
+                            value == null || value.isEmpty ? 'Required' : null,
                       ),
                     ],
                   ),
@@ -231,7 +244,11 @@ class _ExpenseFormScreenState extends ConsumerState<ExpenseFormScreen> {
                             value: c,
                             child: Row(
                               children: [
-                                Icon(_getIconData(c.iconName), size: 20, color: Colors.grey),
+                                Icon(
+                                  _getIconData(c.iconName),
+                                  size: 20,
+                                  color: Colors.grey,
+                                ),
                                 const SizedBox(width: 12),
                                 Text(c.name),
                               ],

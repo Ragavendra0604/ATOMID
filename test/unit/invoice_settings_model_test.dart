@@ -12,7 +12,10 @@ void main() {
       expect(settings.upiId, '');
       expect(settings.upiQrImagePath, '');
       expect(settings.showCompanyLogo, true);
-      expect(settings.termsAndConditions, '1. Goods once sold will not be taken back.\n2. Subject to local jurisdiction.');
+      expect(
+        settings.termsAndConditions,
+        '1. Goods once sold will not be taken back.\n2. Subject to local jurisdiction.',
+      );
     });
 
     test('should allow overriding default values', () {

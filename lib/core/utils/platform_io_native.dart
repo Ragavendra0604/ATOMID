@@ -18,6 +18,16 @@ class PlatformIo {
     final dir = await getApplicationDocumentsDirectory();
     return dir.path;
   }
+
+  /// Android's app-specific external storage, or null where there is none.
+  ///
+  /// Unlike the documents directory this survives an uninstall and is visible
+  /// to a file manager, which is what a backup needs.
+  static Future<String?> getExternalStorageDirectoryPath() async {
+    if (!io.Platform.isAndroid) return null;
+    final dir = await getExternalStorageDirectory();
+    return dir?.path;
+  }
 }
 
 typedef PlatformFile = io.File;

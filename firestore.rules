@@ -1,77 +1,32 @@
 rules_version = '2';
+
+// Atomid — one account, one copy of its own data.
+//
+// Everything an installation syncs lives under /users/{uid}/… . There is no
+// sharing, no membership and no role: an account either owns the path it is
+// touching or it is refused. That makes the whole policy one condition, which
+// is the point — the previous store-and-membership model existed to let several
+// people into one shop, and nothing needs that now.
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Helper function to check if user is authenticated
-    function isAuthenticated() {
-      return request.auth != null;
-    }
-    
-    // Helper function to check if the current user has the 'Owner' role
-    function isOwner() {
-      return isAuthenticated() && 
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Owner';
+
+    // The account's own subtree: products, sales, customers, suppliers,
+    // purchases, expenses, inventory movements, loyalty and config.
+    //
+    // Matching with {document=**} rather than naming each collection is
+    // deliberate. The per-collection rules that used to sit here drew their
+    // distinctions from who was acting — staff may correct a sale, only the
+    // owner may delete one — and with a single user there is no second party
+    // for those distinctions to be about.
+    match /users/{userId}/{document=**} {
+      allow read, write: if request.auth != null
+                            && request.auth.uid == userId;
     }
 
-    // Users collection: users can read and write their own profile
-    match /users/{userId} {
-      allow read, write: if isAuthenticated() && request.auth.uid == userId;
-    }
-
-    // Core ERP Data Collections
-    match /customers/{document=**} {
-      allow read: if isAuthenticated();
-      allow write: if isOwner();
-    }
-    
-    match /products/{document=**} {
-      allow read: if isAuthenticated();
-      allow write: if isOwner();
-    }
-
-    match /sales/{document=**} {
-      allow read: if isAuthenticated();
-      allow write: if isOwner();
-    }
-
-    match /purchases/{document=**} {
-      allow read: if isAuthenticated();
-      allow write: if isOwner();
-    }
-
-    match /suppliers/{document=**} {
-      allow read: if isAuthenticated();
-      allow write: if isOwner();
-    }
-
-    match /loyaltyTransactions/{document=**} {
-      allow read: if isAuthenticated();
-      allow write: if isOwner();
-    }
-
-    match /settings/{document=**} {
-      allow read: if isAuthenticated();
-      allow write: if isOwner();
-    }
-
-    match /expenses/{document=**} {
-      allow read: if isAuthenticated();
-      allow write: if isOwner();
-    }
-
-    match /expenseCategories/{document=**} {
-      allow read: if isAuthenticated();
-      allow write: if isOwner();
-    }
-
-    match /inventoryMovements/{document=**} {
-      allow read: if isAuthenticated();
-      allow write: if isOwner();
-    }
-
-    match /company/{document=**} {
-      allow read: if isAuthenticated();
-      allow write: if isOwner();
+    // Anything not matched above is denied — including the old
+    // /stores/{storeId}/… tree, which nothing writes to any more.
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

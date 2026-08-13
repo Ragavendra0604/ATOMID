@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:atomid/core/utils/formatters.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:atomid/data/models/product_model.dart';
 import 'package:atomid/presentation/providers/app_providers.dart';
@@ -117,7 +118,7 @@ class _PriceTagScreenState extends ConsumerState<PriceTagScreen> {
         child: Column(
           children: [
             Image.asset(
-              'assets/images/logo.jpeg',
+              'assets/images/logo.png',
               width: 120,
               height: 60,
               fit: BoxFit.contain,
@@ -232,7 +233,7 @@ class _PriceTagScreenState extends ConsumerState<PriceTagScreen> {
                       style: TextStyle(color: Colors.black54, fontSize: 12),
                     ),
                     Text(
-                      '$currencySymbol${_selectedVariant.price.toStringAsFixed(2)}',
+                      Fmt.money(_selectedVariant.price, currencySymbol),
                       style: const TextStyle(
                         color: Colors.black,
                         fontSize: 24,

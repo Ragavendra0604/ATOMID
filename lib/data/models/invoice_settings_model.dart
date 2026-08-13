@@ -22,12 +22,17 @@ class InvoiceSettingsModel extends HiveObject {
   @HiveField(5)
   String termsAndConditions;
 
+  @HiveField(6)
+  String fontName;
+
   InvoiceSettingsModel({
     this.footerText = 'Thank you for your business!',
     this.showUpiQr = false,
     this.upiId = '',
     this.upiQrImagePath = '',
     this.showCompanyLogo = true,
-    this.termsAndConditions = '1. Goods once sold will not be taken back.\n2. Subject to local jurisdiction.',
+    this.termsAndConditions =
+        '1. Goods once sold will not be taken back.\n2. Subject to local jurisdiction.',
+    this.fontName = 'Roboto',
   });
 }

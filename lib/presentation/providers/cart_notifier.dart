@@ -1,83 +1,96 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import 'package:atomid/core/utils/formatters.dart';
 import 'package:atomid/data/models/product_model.dart';
 
 class CartItem {
   final Product product;
   final ProductVariant variant;
-  int quantity;
+  final int quantity;
 
-  CartItem({required this.product, required this.variant, this.quantity = 1});
+  const CartItem({
+    required this.product,
+    required this.variant,
+    this.quantity = 1,
+  });
 
-  double get total => variant.price * quantity;
+  CartItem withQuantity(int value) =>
+      CartItem(product: product, variant: variant, quantity: value);
+
+  double get total => Fmt.round2(variant.price * quantity);
 
   String get displayName => '${product.productName} (${variant.size})';
 }
 
 class CartNotifier extends Notifier<List<CartItem>> {
   @override
-  List<CartItem> build() {
-    return [];
-  }
+  List<CartItem> build() => const [];
 
-  void addItem(Product product, ProductVariant variant) {
-    // Check if already in cart
-    final existingIndex = state.indexWhere(
+  /// Adds one unit. Returns false when stock is exhausted, so the caller can
+  /// explain why nothing happened instead of silently ignoring the tap.
+  bool addItem(Product product, ProductVariant variant) {
+    if (variant.quantity <= 0) return false;
+
+    final index = state.indexWhere(
       (item) => item.variant.barcode == variant.barcode,
     );
 
-    if (existingIndex >= 0) {
-      // Increase quantity
-      final existing = state[existingIndex];
-      if (existing.quantity < variant.quantity) {
-        final updated = List<CartItem>.from(state);
-        updated[existingIndex].quantity++;
-        state = updated;
-      }
-    } else {
-      if (variant.quantity <= 0) return;
+    if (index < 0) {
       state = [...state, CartItem(product: product, variant: variant)];
+      return true;
     }
+
+    final existing = state[index];
+    if (existing.quantity >= variant.quantity) return false;
+
+    final updated = [...state];
+    updated[index] = existing.withQuantity(existing.quantity + 1);
+    state = updated;
+    return true;
   }
 
   void removeItem(String barcode) {
     state = state.where((item) => item.variant.barcode != barcode).toList();
   }
 
-  void updateQuantity(String barcode, int newQty) {
-    if (newQty <= 0) {
+  bool updateQuantity(String barcode, int newQuantity) {
+    if (newQuantity <= 0) {
       removeItem(barcode);
-      return;
+      return true;
     }
 
     final index = state.indexWhere((item) => item.variant.barcode == barcode);
-    if (index >= 0) {
-      final item = state[index];
-      if (newQty > item.variant.quantity) return; // Cannot exceed stock
-      final updated = List<CartItem>.from(state);
-      updated[index].quantity = newQty;
-      state = updated;
-    }
+    if (index < 0) return false;
+
+    final item = state[index];
+    if (newQuantity > item.variant.quantity) return false;
+
+    final updated = [...state];
+    updated[index] = item.withQuantity(newQuantity);
+    state = updated;
+    return true;
   }
 
-  void clearCart() {
-    state = [];
-  }
+  void clearCart() => state = const [];
 
-  double get subtotal => state.fold(0.0, (sum, item) => sum + item.total);
+  double get subtotal =>
+      Fmt.round2(state.fold(0.0, (sum, item) => sum + item.total));
 
   int get totalItems => state.fold(0, (sum, item) => sum + item.quantity);
 
-  /// Validates that no cart item exceeds available stock
+  /// Names the first line that now exceeds what is on the shelf. Stock can
+  /// move underneath a basket that has been open for a while.
   String? validateStock() {
-    for (var item in state) {
+    for (final item in state) {
       if (item.quantity > item.variant.quantity) {
-        return '${item.displayName}: only ${item.variant.quantity} available, but ${item.quantity} in cart.';
+        return '${item.displayName}: only ${item.variant.quantity} available, '
+            'but ${item.quantity} in the basket.';
       }
     }
     return null;
   }
 }
 
-final cartProvider = NotifierProvider<CartNotifier, List<CartItem>>(() {
-  return CartNotifier();
-});
+final cartProvider = NotifierProvider<CartNotifier, List<CartItem>>(
+  CartNotifier.new,
+);

@@ -8,6 +8,7 @@ import 'package:atomid/data/repositories/storage_repository.dart';
 import 'package:atomid/data/models/invoice_settings_model.dart';
 
 class MockStorageRepository extends Mock implements StorageRepository {}
+
 class FakeInvoiceSettingsModel extends Fake implements InvoiceSettingsModel {}
 
 void main() {
@@ -29,9 +30,11 @@ void main() {
         showCompanyLogo: true,
         termsAndConditions: 'T&C',
       );
-      
+
       when(() => mockStorageRepo.getInvoiceSettings()).thenReturn(mockSettings);
-      when(() => mockStorageRepo.saveInvoiceSettings(any())).thenAnswer((_) async {});
+      when(
+        () => mockStorageRepo.saveInvoiceSettings(any()),
+      ).thenAnswer((_) async {});
     });
 
     Widget createWidgetUnderTest() {
@@ -40,26 +43,28 @@ void main() {
           storageRepositoryProvider.overrideWithValue(mockStorageRepo),
           invoiceSettingsProvider.overrideWithValue(mockSettings),
         ],
-        child: const MaterialApp(
-          home: InvoiceSettingsScreen(),
-        ),
+        child: const MaterialApp(home: InvoiceSettingsScreen()),
       );
     }
 
-    testWidgets('should render all fields with initial values', (WidgetTester tester) async {
+    testWidgets('should render all fields with initial values', (
+      WidgetTester tester,
+    ) async {
       await tester.pumpWidget(createWidgetUnderTest());
       await tester.pumpAndSettle();
 
       expect(find.text('Invoice Customization'), findsOneWidget);
       expect(find.text('Invoice Footer Text'), findsOneWidget);
       expect(find.text('Terms and Conditions'), findsOneWidget);
-      
+
       // Verify initial values in text fields
       expect(find.text('Default Footer'), findsOneWidget);
       expect(find.text('T&C'), findsOneWidget);
     });
 
-    testWidgets('should toggle UPI QR settings visibility', (WidgetTester tester) async {
+    testWidgets('should toggle UPI QR settings visibility', (
+      WidgetTester tester,
+    ) async {
       await tester.pumpWidget(createWidgetUnderTest());
       await tester.pumpAndSettle();
 
@@ -73,12 +78,17 @@ void main() {
       expect(find.text('UPI ID (Optional)'), findsOneWidget);
     });
 
-    testWidgets('should call save function when save button is pressed', (WidgetTester tester) async {
+    testWidgets('should call save function when save button is pressed', (
+      WidgetTester tester,
+    ) async {
       await tester.pumpWidget(createWidgetUnderTest());
       await tester.pumpAndSettle();
 
       // Enter new text
-      await tester.enterText(find.byType(TextFormField).first, 'New Footer Text');
+      await tester.enterText(
+        find.byType(TextFormField).first,
+        'New Footer Text',
+      );
       await tester.pump();
 
       // Tap save

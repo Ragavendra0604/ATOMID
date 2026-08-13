@@ -1,67 +1,53 @@
 import 'package:flutter/material.dart';
 
+import 'package:atomid/core/utils/formatters.dart';
+
+/// Offers the customer's reward points as a discount on this sale.
 class RewardDiscountWidget extends StatelessWidget {
   final double availablePoints;
   final double maxRedeemableValue;
   final bool isRedeeming;
+  final String currencySymbol;
   final ValueChanged<bool?> onChanged;
-  final double subtotal;
 
   const RewardDiscountWidget({
     super.key,
     required this.availablePoints,
     required this.maxRedeemableValue,
     required this.isRedeeming,
+    required this.currencySymbol,
     required this.onChanged,
-    required this.subtotal,
   });
 
   @override
   Widget build(BuildContext context) {
-    if (availablePoints <= 0 || maxRedeemableValue <= 0) {
-      return const SizedBox.shrink();
-    }
+    final scheme = Theme.of(context).colorScheme;
+    final canRedeem = availablePoints > 0 && maxRedeemableValue > 0;
 
     return Card(
       elevation: 0,
-      color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.4),
+      color: scheme.primaryContainer.withValues(alpha: 0.35),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
-        side: BorderSide(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.5)),
+        borderRadius: BorderRadius.circular(10),
+        side: BorderSide(color: scheme.primary.withValues(alpha: 0.4)),
       ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.card_giftcard, size: 18, color: Theme.of(context).colorScheme.primary),
-                      const SizedBox(width: 8),
-                      const Text(
-                        'Redeem Reward Points',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Available: ${availablePoints.toStringAsFixed(0)} pts\nMax discount: ₹${maxRedeemableValue.toStringAsFixed(2)}',
-                    style: TextStyle(fontSize: 12, color: Colors.grey[700]),
-                  ),
-                ],
-              ),
-            ),
-            Checkbox(
-              value: isRedeeming,
-              onChanged: onChanged,
-              activeColor: Theme.of(context).colorScheme.primary,
-            )
-          ],
+      child: SwitchListTile(
+        value: isRedeeming && canRedeem,
+        onChanged: canRedeem ? onChanged : null,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        secondary: Icon(Icons.card_giftcard, color: scheme.primary),
+        title: const Text(
+          'Redeem reward points',
+          style: TextStyle(fontWeight: FontWeight.w600),
+        ),
+        subtitle: Text(
+          canRedeem
+              ? '${Fmt.points(availablePoints)} available · saves up to '
+                    '${Fmt.money(maxRedeemableValue, currencySymbol)}'
+              : availablePoints <= 0
+              ? 'No points earned yet'
+              : 'This bill is below the minimum for redemption',
+          style: const TextStyle(fontSize: 12),
         ),
       ),
     );

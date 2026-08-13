@@ -3,12 +3,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:atomid/data/models/supplier_model.dart';
 import 'package:atomid/data/models/product_model.dart';
 import 'package:atomid/data/models/purchase_model.dart';
-import 'package:atomid/presentation/providers/provider_refresh_helper.dart';
 import 'package:atomid/presentation/providers/app_providers.dart';
+import 'package:atomid/core/utils/app_error.dart';
+import 'package:atomid/core/utils/formatters.dart';
+import 'package:atomid/core/utils/ids.dart';
 import 'package:atomid/core/utils/responsive.dart';
+import 'package:atomid/domain/services/purchase_service.dart';
 
 class PurchaseFormScreen extends ConsumerStatefulWidget {
-  const PurchaseFormScreen({super.key});
+  /// When supplied, the form edits this order instead of creating a new one.
+  final Purchase? existingPurchase;
+
+  const PurchaseFormScreen({super.key, this.existingPurchase});
 
   @override
   ConsumerState<PurchaseFormScreen> createState() => _PurchaseFormScreenState();
@@ -20,11 +26,54 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
   final _discountCtrl = TextEditingController(text: '0');
   final _taxCtrl = TextEditingController(text: '0');
   bool _isProcessing = false;
-  String _status = 'Draft';
+  String _status = PurchaseStatus.draft;
+  String? _originalStatus;
   DateTime? _expectedDeliveryDate;
 
   // Line items
   final List<_LineItem> _lineItems = [];
+
+  bool get _isEditing => widget.existingPurchase != null;
+
+  /// A received order has already moved stock and money, so its contents are
+  /// frozen; only a draft or issued order can still be amended.
+  bool get _isLocked =>
+      _isEditing && PurchaseStatus.isSettled(widget.existingPurchase!.status);
+
+  @override
+  void initState() {
+    super.initState();
+    final existing = widget.existingPurchase;
+    if (existing == null) return;
+
+    _originalStatus = existing.status;
+    _status = existing.status;
+    _notesCtrl.text = existing.notes;
+    _discountCtrl.text = Fmt.amount(existing.discount);
+    _taxCtrl.text = Fmt.amount(existing.tax);
+    _expectedDeliveryDate = existing.expectedDeliveryDate;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final repo = ref.read(storageRepositoryProvider);
+      _selectedSupplier = repo.getSupplierById(existing.supplierId);
+
+      for (final item in existing.items) {
+        final product = repo.getProductById(item.productId);
+        final line = _LineItem()
+          ..selectedProduct = product
+          ..selectedVariant = product?.variants
+              .cast<ProductVariant?>()
+              .firstWhere(
+                (v) => v?.barcode == item.variantBarcode,
+                orElse: () => null,
+              );
+        line.qtyCtrl.text = item.quantity.toString();
+        line.costPriceCtrl.text = Fmt.amount(item.costPrice);
+        _lineItems.add(line);
+      }
+      if (mounted) setState(() {});
+    });
+  }
 
   @override
   void dispose() {
@@ -70,6 +119,13 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
   }
 
   Future<void> _savePurchase() async {
+    if (_isLocked) {
+      _showError(
+        'This order has already been received, so its contents are fixed. '
+        'Record a return instead.',
+      );
+      return;
+    }
     // Validations
     if (_selectedSupplier == null) {
       _showError('Please select a supplier');
@@ -103,7 +159,9 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
 
     try {
       final repo = ref.read(storageRepositoryProvider);
-      final purchaseNumber = repo.getNextPurchaseNumber();
+      final existing = widget.existingPurchase;
+      final purchaseNumber =
+          existing?.purchaseNumber ?? repo.getNextPurchaseNumber();
       final now = DateTime.now();
 
       final purchaseItems = _lineItems.map((item) {
@@ -123,45 +181,61 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
       }).toList();
 
       final purchase = Purchase(
-        id: now.millisecondsSinceEpoch.toString(),
+        id: existing?.id ?? Ids.generate(),
         purchaseNumber: purchaseNumber,
         supplierId: _selectedSupplier!.id,
         supplierName: _selectedSupplier!.supplierName,
-        purchaseDate: now,
+        purchaseDate: existing?.purchaseDate ?? now,
         items: purchaseItems,
-        subtotal: _subtotal,
-        discount: _discount,
+        subtotal: Fmt.round2(_subtotal),
+        discount: Fmt.round2(_discount),
         tax: _tax,
-        grandTotal: _grandTotal,
+        grandTotal: Fmt.round2(_grandTotal),
         notes: _notesCtrl.text.trim(),
-        createdDate: now,
+        createdDate: existing?.createdDate ?? now,
         status: _status,
+        paymentStatus: existing?.paymentStatus ?? 'Unpaid',
         expectedDeliveryDate: _expectedDeliveryDate,
+        deviceId: existing?.deviceId ?? '',
+        createdBy: existing?.createdBy ?? '',
       );
 
-      final service = ref.read(purchaseServiceProvider);
-      await service.savePurchase(purchase, isNew: true);
-
-      // Invalidate all relevant providers
-      ProviderRefreshHelper.invalidatePurchaseProviders(ref);
-      ProviderRefreshHelper.invalidateSupplierProviders(ref);
+      await ref
+          .read(purchaseServiceProvider)
+          .savePurchase(
+            purchase,
+            isNew: existing == null,
+            previousStatus: _originalStatus,
+          );
 
       if (mounted) {
+        final received =
+            _status == PurchaseStatus.received &&
+            _originalStatus != PurchaseStatus.received;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Purchase $purchaseNumber saved. Inventory updated.'),
-            backgroundColor: Colors.green,
+            content: Text(
+              received
+                  ? 'Purchase $purchaseNumber received — stock updated.'
+                  : 'Purchase $purchaseNumber saved as ${_status.toLowerCase()}.',
+            ),
+            backgroundColor: Colors.green.shade700,
           ),
         );
         Navigator.pop(context);
       }
-    } catch (e) {
-      debugPrint('Purchase form error: $e');
+    } catch (e, stack) {
+      debugPrint('Purchase form error: $e\n$stack');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Purchase could not be completed. Please try again.'),
-            backgroundColor: Colors.red,
+          SnackBar(
+            content: Text(
+              describeError(
+                e,
+                fallback: 'The purchase could not be saved. Please try again.',
+              ),
+            ),
+            backgroundColor: Theme.of(context).colorScheme.error,
           ),
         );
       }
@@ -184,7 +258,11 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('New Purchase'),
+        title: Text(
+          _isEditing
+              ? 'Edit ${widget.existingPurchase!.purchaseNumber}'
+              : 'New purchase',
+        ),
         actions: [
           if (_isProcessing)
             const Center(
@@ -198,7 +276,11 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
               ),
             )
           else
-            IconButton(icon: const Icon(Icons.save), tooltip: 'Save Purchase', onPressed: _savePurchase),
+            IconButton(
+              icon: const Icon(Icons.save),
+              tooltip: 'Save Purchase',
+              onPressed: _savePurchase,
+            ),
         ],
       ),
       body: Builder(
@@ -226,7 +308,10 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
                     ),
                     initialValue: _selectedSupplier,
                     items: activeSuppliers.map((s) {
-                      return DropdownMenuItem(value: s, child: Text(s.supplierName));
+                      return DropdownMenuItem(
+                        value: s,
+                        child: Text(s.supplierName),
+                      );
                     }).toList(),
                     onChanged: (val) {
                       setState(() => _selectedSupplier = val);
@@ -242,9 +327,17 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
                             border: OutlineInputBorder(),
                           ),
                           initialValue: _status,
-                          items: ['Draft', 'Issued', 'Received'].map((s) {
-                            return DropdownMenuItem(value: s, child: Text(s));
-                          }).toList(),
+                          items:
+                              const [
+                                PurchaseStatus.draft,
+                                PurchaseStatus.issued,
+                                PurchaseStatus.received,
+                              ].map((s) {
+                                return DropdownMenuItem(
+                                  value: s,
+                                  child: Text(s),
+                                );
+                              }).toList(),
                           onChanged: (val) {
                             if (val != null) setState(() => _status = val);
                           },
@@ -256,9 +349,15 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
                           onTap: () async {
                             final date = await showDatePicker(
                               context: context,
-                              initialDate: _expectedDeliveryDate ?? DateTime.now().add(const Duration(days: 7)),
-                              firstDate: DateTime.now().subtract(const Duration(days: 365)),
-                              lastDate: DateTime.now().add(const Duration(days: 365 * 2)),
+                              initialDate:
+                                  _expectedDeliveryDate ??
+                                  DateTime.now().add(const Duration(days: 7)),
+                              firstDate: DateTime.now().subtract(
+                                const Duration(days: 365),
+                              ),
+                              lastDate: DateTime.now().add(
+                                const Duration(days: 365 * 2),
+                              ),
                             );
                             if (date != null) {
                               setState(() => _expectedDeliveryDate = date);
@@ -338,33 +437,31 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
                   const Divider(),
                   _summaryRow(
                     'Subtotal',
-                    '${settings.currencySymbol}${_subtotal.toStringAsFixed(2)}',
+                    Fmt.money(_subtotal, settings.currencySymbol),
                   ),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Tax (%)', style: TextStyle(fontSize: 16)),
-                      SizedBox(
-                        width: 100,
-                        child: TextFormField(
-                          controller: _taxCtrl,
-                          keyboardType: TextInputType.number,
-                          textAlign: TextAlign.right,
-                          decoration: const InputDecoration(
-                            isDense: true,
-                            contentPadding: EdgeInsets.all(8),
-                            border: OutlineInputBorder(),
-                          ),
-                          onChanged: (_) => _calculateTotals(),
+                  const SizedBox(height: 10),
+                  _inlineField(
+                    label: 'Discount',
+                    controller: _discountCtrl,
+                    prefix: settings.currencySymbol,
+                  ),
+                  const SizedBox(height: 10),
+                  _inlineField(label: 'Tax', controller: _taxCtrl, suffix: '%'),
+                  if (_discount > _subtotal)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        'Discount is larger than the subtotal.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context).colorScheme.error,
                         ),
                       ),
-                    ],
-                  ),
-                  const Divider(),
+                    ),
+                  const Divider(height: 24),
                   _summaryRow(
                     'Grand Total',
-                    '${settings.currencySymbol}${_grandTotal.toStringAsFixed(2)}',
+                    Fmt.money(_grandTotal, settings.currencySymbol),
                     isBold: true,
                   ),
                 ],
@@ -397,9 +494,11 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
                     ),
                     onPressed: _savePurchase,
                     icon: const Icon(Icons.check_circle_outline),
-                    label: const Text(
-                      'Save Purchase & Update Inventory',
-                      style: TextStyle(fontSize: 16),
+                    label: Text(
+                      _status == PurchaseStatus.received
+                          ? 'Save and receive into stock'
+                          : 'Save purchase',
+                      style: const TextStyle(fontSize: 16),
                     ),
                   ),
           );
@@ -506,6 +605,39 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
           );
         },
       ),
+    );
+  }
+
+  Widget _inlineField({
+    required String label,
+    required TextEditingController controller,
+    String? prefix,
+    String? suffix,
+  }) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 16)),
+        SizedBox(
+          width: 120,
+          child: TextFormField(
+            controller: controller,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            textAlign: TextAlign.right,
+            decoration: InputDecoration(
+              isDense: true,
+              prefixText: prefix,
+              suffixText: suffix,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 8,
+                vertical: 10,
+              ),
+              border: const OutlineInputBorder(),
+            ),
+            onChanged: (_) => _calculateTotals(),
+          ),
+        ),
+      ],
     );
   }
 
@@ -639,14 +771,14 @@ class _PurchaseLineItemCard extends StatelessWidget {
                   return DropdownMenuItem(
                     value: v,
                     child: Text(
-                      'Size: ${v.size} | Qty: ${v.quantity} | ${settings.currencySymbol}${v.price.toStringAsFixed(0)}',
+                      'Size ${v.size} · ${v.quantity} in stock · ${Fmt.money(v.price, settings.currencySymbol)}',
                     ),
                   );
                 }).toList(),
                 onChanged: (v) {
                   item.selectedVariant = v;
                   if (v != null) {
-                    item.costPriceCtrl.text = v.price.toStringAsFixed(2);
+                    item.costPriceCtrl.text = Fmt.amount(v.price);
                   }
                   onChanged();
                 },
@@ -697,7 +829,7 @@ class _PurchaseLineItemCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
-                        '${settings.currencySymbol}${item.lineTotal.toStringAsFixed(2)}',
+                        Fmt.money(item.lineTotal, settings.currencySymbol),
                         style: const TextStyle(fontWeight: FontWeight.bold),
                         textAlign: TextAlign.center,
                       ),

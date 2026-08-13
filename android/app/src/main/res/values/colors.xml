@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The logo is black line-art, so the launch ground stays light in both
+         system themes. -->
+    <color name="splash_background">#FFFFFFFF</color>
+	<color name="ic_launcher_background">#FFFFFF</color>
+</resources>

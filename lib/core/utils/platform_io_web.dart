@@ -15,6 +15,8 @@ class PlatformIo {
   static Future<String> getApplicationDocumentsDirectoryPath() async {
     return '';
   }
+
+  static Future<String?> getExternalStorageDirectoryPath() async => null;
 }
 
 class PlatformFile {

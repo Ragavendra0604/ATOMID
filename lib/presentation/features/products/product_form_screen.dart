@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:atomid/data/models/product_model.dart';
-import 'package:atomid/presentation/providers/provider_refresh_helper.dart';
 import 'package:atomid/data/models/action_history_model.dart';
 import 'package:atomid/presentation/widgets/adaptive_dialog.dart';
 import 'package:atomid/presentation/providers/app_providers.dart';
@@ -176,7 +175,11 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
           widget.existingProduct != null ? 'Edit Product' : 'Create Product',
         ),
         actions: [
-          IconButton(icon: const Icon(Icons.save), tooltip: 'Save Product', onPressed: _saveProduct),
+          IconButton(
+            icon: const Icon(Icons.save),
+            tooltip: 'Save Product',
+            onPressed: _saveProduct,
+          ),
         ],
       ),
       body: Form(
@@ -614,8 +617,6 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
         ),
       );
     }
-
-    ProviderRefreshHelper.invalidateProductProviders(ref);
 
     if (mounted) {
       ScaffoldMessenger.of(

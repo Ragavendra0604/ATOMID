@@ -1,4 +1,5 @@
 import 'package:atomid/core/utils/platform_io.dart';
+import 'package:atomid/core/utils/formatters.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
@@ -13,12 +14,13 @@ import 'package:atomid/data/models/purchase_model.dart' as import_purchase;
 import 'package:atomid/data/models/supplier_model.dart';
 import 'package:atomid/data/models/company_model.dart';
 import 'package:atomid/data/models/invoice_settings_model.dart';
+import 'package:atomid/domain/price_tag_size.dart';
 
 class ExportService {
-  // Cached PDF Resources (loaded once per session)
   static pw.Font? _cachedRegularFont;
   static pw.Font? _cachedBoldFont;
-  static pw.ThemeData? _cachedTheme;
+  static final Map<String, pw.ThemeData> _cachedThemes = {};
+  static pw.ThemeData? _cachedTheme; // fallback
   static pw.MemoryImage? _cachedLogo;
   static bool _resourcesLoaded = false;
 
@@ -59,7 +61,7 @@ class ExportService {
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
             pw.Text(
-              company.name.isNotEmpty ? company.name : 'Company Name',
+              company.name.isNotEmpty ? company.name : 'ATOMID',
               style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold),
             ),
             if (company.address.isNotEmpty) pw.Text(company.address),
@@ -118,13 +120,63 @@ class ExportService {
     );
 
     final logoBytes = await rootBundle
-        .load('assets/images/logo.jpeg')
+        .load('assets/images/logo.png')
         .catchError((_) => ByteData(0));
     if (logoBytes.lengthInBytes > 0) {
       _cachedLogo = pw.MemoryImage(logoBytes.buffer.asUint8List());
     }
 
     _resourcesLoaded = true;
+  }
+
+  static Future<pw.ThemeData> _getTheme(String fontName) async {
+    if (_cachedThemes.containsKey(fontName)) {
+      return _cachedThemes[fontName]!;
+    }
+
+    pw.Font regular;
+    pw.Font bold;
+
+    try {
+      switch (fontName) {
+        case 'Open Sans':
+          regular = await PdfGoogleFonts.openSansRegular();
+          bold = await PdfGoogleFonts.openSansBold();
+          break;
+        case 'Lato':
+          regular = await PdfGoogleFonts.latoRegular();
+          bold = await PdfGoogleFonts.latoBold();
+          break;
+        case 'Montserrat':
+          regular = await PdfGoogleFonts.montserratRegular();
+          bold = await PdfGoogleFonts.montserratBold();
+          break;
+        case 'Oswald':
+          regular = await PdfGoogleFonts.oswaldRegular();
+          bold = await PdfGoogleFonts.oswaldBold();
+          break;
+        case 'Merriweather':
+          regular = await PdfGoogleFonts.merriweatherRegular();
+          bold = await PdfGoogleFonts.merriweatherBold();
+          break;
+        case 'Roboto':
+        default:
+          regular = await PdfGoogleFonts.robotoRegular();
+          bold = await PdfGoogleFonts.robotoBold();
+          break;
+      }
+    } catch (_) {
+      // Fallback to bundled Roboto if network fails
+      regular = _cachedRegularFont!;
+      bold = _cachedBoldFont!;
+    }
+
+    final theme = pw.ThemeData.withFont(
+      base: regular,
+      bold: bold,
+    );
+    _cachedThemes[fontName] = theme;
+    return theme;
   }
 
   static pw.ThemeData get _theme => _cachedTheme!;
@@ -307,7 +359,10 @@ class ExportService {
     return pdf;
   }
 
-  static Future<PlatformFile> exportPdf(pw.Document pdf, String fileName) async {
+  static Future<PlatformFile> exportPdf(
+    pw.Document pdf,
+    String fileName,
+  ) async {
     if (kIsWeb) throw UnsupportedError('File export is not supported on Web');
     final dir = await _getExportDirectory('PDF');
     final file = PlatformFile('${dir.path}/$fileName.pdf');
@@ -341,20 +396,28 @@ class ExportService {
   }
 
   static Future<PlatformDirectory> _getExportDirectory(String subFolder) async {
-    if (kIsWeb) throw UnsupportedError('Directory access is not supported on Web');
+    if (kIsWeb) {
+      throw UnsupportedError('Directory access is not supported on Web');
+    }
     PlatformDirectory? baseDir;
     if (PlatformIo.isAndroid) {
       final extDir = await getExternalStorageDirectory();
       if (extDir != null) {
         baseDir = PlatformDirectory('${extDir.path}/Atomid Store/$subFolder');
       } else {
-        baseDir = PlatformDirectory('${(await getApplicationDocumentsDirectory()).path}/Atomid Store/$subFolder');
+        baseDir = PlatformDirectory(
+          '${(await getApplicationDocumentsDirectory()).path}/Atomid Store/$subFolder',
+        );
       }
     } else if (PlatformIo.isIOS) {
-      baseDir = PlatformDirectory('${(await getApplicationDocumentsDirectory()).path}/Atomid Store/$subFolder');
+      baseDir = PlatformDirectory(
+        '${(await getApplicationDocumentsDirectory()).path}/Atomid Store/$subFolder',
+      );
     } else {
       // Windows / Desktop
-      baseDir = PlatformDirectory('${(await getApplicationDocumentsDirectory()).path}/Atomid Store/$subFolder');
+      baseDir = PlatformDirectory(
+        '${(await getApplicationDocumentsDirectory()).path}/Atomid Store/$subFolder',
+      );
     }
 
     if (!await baseDir.exists()) {
@@ -367,31 +430,36 @@ class ExportService {
     Product product,
     List<ProductVariant> variantsToPrint,
     SettingsModel settings,
-    CompanyModel company,
-  ) async {
+    CompanyModel company, {
+    PriceTagSize tagSize = PriceTagSize.medium,
+  }) async {
     await _ensureResourcesLoaded();
     final pdf = pw.Document();
-    final logoImage = await _getCompanyLogo(company);
+    final logoImage = tagSize.showLogo ? await _getCompanyLogo(company) : null;
 
-    // A4 size: 595 x 842 points
-    // 6 x 4 grid = 24 tags
-    final double tagWidth = 595 / 4;
-    final double tagHeight = 842 / 6;
+    final pageFormat = settings.pdfPageSize == 'Letter'
+        ? PdfPageFormat.letter
+        : PdfPageFormat.a4;
 
-    final pages = (variantsToPrint.length / 24).ceil();
+    // Derived from the page actually being printed. These were fixed at A4's
+    // 595 x 842 regardless of the setting, so a Letter sheet — shorter at 792
+    // — lost the bottom row of every page.
+    final double tagWidth = pageFormat.width / tagSize.columns;
+    final double tagHeight = pageFormat.height / tagSize.rows;
+
+    final perPage = tagSize.perPage;
+    final pages = (variantsToPrint.length / perPage).ceil();
 
     for (var i = 0; i < pages; i++) {
-      final startIndex = i * 24;
-      final endIndex = (startIndex + 24 > variantsToPrint.length)
+      final startIndex = i * perPage;
+      final endIndex = (startIndex + perPage > variantsToPrint.length)
           ? variantsToPrint.length
-          : startIndex + 24;
+          : startIndex + perPage;
       final pageVariants = variantsToPrint.sublist(startIndex, endIndex);
 
       pdf.addPage(
         pw.Page(
-          pageFormat: settings.pdfPageSize == 'Letter'
-              ? PdfPageFormat.letter
-              : PdfPageFormat.a4,
+          pageFormat: pageFormat,
           margin: const pw.EdgeInsets.all(0),
           theme: _theme,
           build: (pw.Context context) {
@@ -400,7 +468,7 @@ class ExportService {
                 return pw.Container(
                   width: tagWidth,
                   height: tagHeight,
-                  padding: const pw.EdgeInsets.all(4),
+                  padding: pw.EdgeInsets.all(tagSize.padding),
                   decoration: pw.BoxDecoration(
                     border: pw.Border.all(color: PdfColors.grey300, width: 0.5),
                   ),
@@ -408,36 +476,40 @@ class ExportService {
                     crossAxisAlignment: pw.CrossAxisAlignment.center,
                     children: [
                       if (logoImage != null)
-                        pw.Image(logoImage, width: 24, height: 24),
+                        pw.Image(
+                          logoImage,
+                          width: tagSize.logoSize,
+                          height: tagSize.logoSize,
+                        ),
                       pw.Text(
                         product.productName,
                         style: pw.TextStyle(
-                          fontSize: 10,
+                          fontSize: tagSize.nameFontSize,
                           fontWeight: pw.FontWeight.bold,
                         ),
                         maxLines: 1,
                       ),
                       pw.Text(
                         product.productCode,
-                        style: const pw.TextStyle(fontSize: 8),
+                        style: pw.TextStyle(fontSize: tagSize.codeFontSize),
                       ),
-                      pw.SizedBox(height: 2),
+                      pw.SizedBox(height: tagSize.padding / 2),
                       pw.Text(
                         'Size: ${variant.size}',
                         style: pw.TextStyle(
-                          fontSize: 10,
+                          fontSize: tagSize.sizeFontSize,
                           fontWeight: pw.FontWeight.bold,
                         ),
                       ),
-                      pw.SizedBox(height: 4),
+                      pw.SizedBox(height: tagSize.padding),
                       pw.BarcodeWidget(
                         barcode: pw.Barcode.code128(),
                         data: variant.barcode,
-                        width: 100,
-                        height: 30,
+                        width: tagSize.barcodeWidth,
+                        height: tagSize.barcodeHeight,
                         drawText: true,
-                        textStyle: const pw.TextStyle(
-                          fontSize: 6,
+                        textStyle: pw.TextStyle(
+                          fontSize: tagSize.barcodeTextSize,
                           letterSpacing: 1,
                         ),
                       ),
@@ -445,7 +517,7 @@ class ExportService {
                       pw.Text(
                         '${settings.currencySymbol}${variant.price.toStringAsFixed(2)}',
                         style: pw.TextStyle(
-                          fontSize: 12,
+                          fontSize: tagSize.priceFontSize,
                           fontWeight: pw.FontWeight.bold,
                         ),
                       ),
@@ -468,16 +540,20 @@ class ExportService {
     InvoiceSettingsModel invoiceSettings,
   ) async {
     await _ensureResourcesLoaded();
+    final theme = await _getTheme(invoiceSettings.fontName);
     final pdf = pw.Document();
-    final logoImage = invoiceSettings.showCompanyLogo ? await _getCompanyLogo(company) : null;
-    final upiQrImage = (invoiceSettings.showUpiQr && sale.paymentMethod == 'UPI') 
-        ? await _getImage(invoiceSettings.upiQrImagePath) 
+    final logoImage = invoiceSettings.showCompanyLogo
+        ? await _getCompanyLogo(company)
+        : null;
+    final upiQrImage =
+        (invoiceSettings.showUpiQr && sale.paymentMethod == 'UPI')
+        ? await _getImage(invoiceSettings.upiQrImagePath)
         : null;
 
     pdf.addPage(
       pw.Page(
         pageFormat: PdfPageFormat.a4,
-        theme: _theme,
+        theme: theme,
         build: (pw.Context context) {
           return pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -554,6 +630,14 @@ class ExportService {
                       crossAxisAlignment: pw.CrossAxisAlignment.start,
                       children: [
                         pw.Text('Subtotal:'),
+                        if (sale.discountAmount > 0)
+                          pw.Text(
+                            sale.discountPercent > 0
+                                ? 'Discount (${sale.discountPercent}%):'
+                                : 'Discount:',
+                          ),
+                        if (sale.rewardDiscountAmount > 0)
+                          pw.Text('Reward points:'),
                         if (sale.taxAmount > 0)
                           pw.Text('Tax (${settings.taxRate}%):'),
                         pw.SizedBox(height: 8),
@@ -568,15 +652,23 @@ class ExportService {
                       crossAxisAlignment: pw.CrossAxisAlignment.end,
                       children: [
                         pw.Text(
-                          '${settings.currencySymbol}${sale.subtotal.toStringAsFixed(2)}',
+                          Fmt.money(sale.subtotal, settings.currencySymbol),
                         ),
+                        if (sale.discountAmount > 0)
+                          pw.Text(
+                            '-${Fmt.money(sale.discountAmount, settings.currencySymbol)}',
+                          ),
+                        if (sale.rewardDiscountAmount > 0)
+                          pw.Text(
+                            '-${Fmt.money(sale.rewardDiscountAmount, settings.currencySymbol)}',
+                          ),
                         if (sale.taxAmount > 0)
                           pw.Text(
-                            '${settings.currencySymbol}${sale.taxAmount.toStringAsFixed(2)}',
+                            Fmt.money(sale.taxAmount, settings.currencySymbol),
                           ),
                         pw.SizedBox(height: 8),
                         pw.Text(
-                          '${settings.currencySymbol}${sale.grandTotal.toStringAsFixed(2)}',
+                          Fmt.money(sale.grandTotal, settings.currencySymbol),
                           style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
                         ),
                       ],
@@ -594,8 +686,17 @@ class ExportService {
               ],
               pw.SizedBox(height: 16),
               if (invoiceSettings.termsAndConditions.isNotEmpty) ...[
-                pw.Text('Terms & Conditions:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
-                pw.Text(invoiceSettings.termsAndConditions, style: const pw.TextStyle(fontSize: 10)),
+                pw.Text(
+                  'Terms & Conditions:',
+                  style: pw.TextStyle(
+                    fontWeight: pw.FontWeight.bold,
+                    fontSize: 10,
+                  ),
+                ),
+                pw.Text(
+                  invoiceSettings.termsAndConditions,
+                  style: const pw.TextStyle(fontSize: 10),
+                ),
               ],
               pw.Spacer(),
               pw.Row(
@@ -606,9 +707,18 @@ class ExportService {
                     pw.Column(
                       crossAxisAlignment: pw.CrossAxisAlignment.start,
                       children: [
-                        pw.Text('Scan to Pay (UPI)', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
+                        pw.Text(
+                          'Scan to Pay (UPI)',
+                          style: pw.TextStyle(
+                            fontWeight: pw.FontWeight.bold,
+                            fontSize: 10,
+                          ),
+                        ),
                         if (invoiceSettings.upiId.isNotEmpty)
-                          pw.Text(invoiceSettings.upiId, style: const pw.TextStyle(fontSize: 10)),
+                          pw.Text(
+                            invoiceSettings.upiId,
+                            style: const pw.TextStyle(fontSize: 10),
+                          ),
                         pw.SizedBox(height: 4),
                         pw.Image(upiQrImage, width: 80, height: 80),
                       ],
@@ -616,7 +726,9 @@ class ExportService {
                   else
                     pw.SizedBox(),
                   pw.Text(
-                    invoiceSettings.footerText.isNotEmpty ? invoiceSettings.footerText : 'Thank you for your business!',
+                    invoiceSettings.footerText.isNotEmpty
+                        ? invoiceSettings.footerText
+                        : 'Thank you for your business!',
                     style: pw.TextStyle(fontStyle: pw.FontStyle.italic),
                   ),
                 ],
@@ -636,9 +748,11 @@ class ExportService {
     InvoiceSettingsModel invoiceSettings,
   ) async {
     await _ensureResourcesLoaded();
+    final theme = await _getTheme(invoiceSettings.fontName);
     final pdf = pw.Document();
-    final upiQrImage = (invoiceSettings.showUpiQr && sale.paymentMethod == 'UPI') 
-        ? await _getImage(invoiceSettings.upiQrImagePath) 
+    final upiQrImage =
+        (invoiceSettings.showUpiQr && sale.paymentMethod == 'UPI')
+        ? await _getImage(invoiceSettings.upiQrImagePath)
         : null;
 
     // Roll80 page format (80mm) -> approx 226 points wide
@@ -647,7 +761,7 @@ class ExportService {
     pdf.addPage(
       pw.Page(
         pageFormat: format,
-        theme: _theme,
+        theme: theme,
         margin: const pw.EdgeInsets.all(12),
         build: (pw.Context context) {
           return pw.Column(
@@ -663,8 +777,7 @@ class ExportService {
                   ),
                   textAlign: pw.TextAlign.center,
                 ),
-              if (invoiceSettings.showCompanyLogo)
-                pw.SizedBox(height: 4),
+              if (invoiceSettings.showCompanyLogo) pw.SizedBox(height: 4),
               pw.Text(
                 'Receipt: ${sale.invoiceNumber}',
                 style: const pw.TextStyle(fontSize: 10),
@@ -722,18 +835,48 @@ class ExportService {
                 children: [
                   pw.Text('Subtotal:', style: const pw.TextStyle(fontSize: 10)),
                   pw.Text(
-                    '${settings.currencySymbol}${sale.subtotal.toStringAsFixed(2)}',
+                    Fmt.money(sale.subtotal, settings.currencySymbol),
                     style: const pw.TextStyle(fontSize: 10),
                   ),
                 ],
               ),
+              if (sale.discountAmount > 0)
+                pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    pw.Text(
+                      sale.discountPercent > 0
+                          ? 'Discount (${sale.discountPercent}%):'
+                          : 'Discount:',
+                      style: const pw.TextStyle(fontSize: 10),
+                    ),
+                    pw.Text(
+                      '-${Fmt.money(sale.discountAmount, settings.currencySymbol)}',
+                      style: const pw.TextStyle(fontSize: 10),
+                    ),
+                  ],
+                ),
+              if (sale.rewardDiscountAmount > 0)
+                pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    pw.Text(
+                      'Reward points:',
+                      style: const pw.TextStyle(fontSize: 10),
+                    ),
+                    pw.Text(
+                      '-${Fmt.money(sale.rewardDiscountAmount, settings.currencySymbol)}',
+                      style: const pw.TextStyle(fontSize: 10),
+                    ),
+                  ],
+                ),
               if (sale.taxAmount > 0)
                 pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
                     pw.Text('Tax:', style: const pw.TextStyle(fontSize: 10)),
                     pw.Text(
-                      '${settings.currencySymbol}${sale.taxAmount.toStringAsFixed(2)}',
+                      Fmt.money(sale.taxAmount, settings.currencySymbol),
                       style: const pw.TextStyle(fontSize: 10),
                     ),
                   ],
@@ -750,7 +893,7 @@ class ExportService {
                     ),
                   ),
                   pw.Text(
-                    '${settings.currencySymbol}${sale.grandTotal.toStringAsFixed(2)}',
+                    Fmt.money(sale.grandTotal, settings.currencySymbol),
                     style: pw.TextStyle(
                       fontSize: 12,
                       fontWeight: pw.FontWeight.bold,
@@ -768,21 +911,41 @@ class ExportService {
               ),
               if (upiQrImage != null) ...[
                 pw.SizedBox(height: 8),
-                pw.Text('Scan to Pay (UPI)', style: const pw.TextStyle(fontSize: 10)),
+                pw.Text(
+                  'Scan to Pay (UPI)',
+                  style: const pw.TextStyle(fontSize: 10),
+                ),
                 if (invoiceSettings.upiId.isNotEmpty)
-                  pw.Text(invoiceSettings.upiId, style: const pw.TextStyle(fontSize: 10)),
+                  pw.Text(
+                    invoiceSettings.upiId,
+                    style: const pw.TextStyle(fontSize: 10),
+                  ),
                 pw.SizedBox(height: 4),
                 pw.Image(upiQrImage, width: 80, height: 80),
               ],
               pw.SizedBox(height: 16),
               if (invoiceSettings.termsAndConditions.isNotEmpty) ...[
-                pw.Text('Terms & Conditions:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8)),
-                pw.Text(invoiceSettings.termsAndConditions, style: const pw.TextStyle(fontSize: 8)),
+                pw.Text(
+                  'Terms & Conditions:',
+                  style: pw.TextStyle(
+                    fontWeight: pw.FontWeight.bold,
+                    fontSize: 8,
+                  ),
+                ),
+                pw.Text(
+                  invoiceSettings.termsAndConditions,
+                  style: const pw.TextStyle(fontSize: 8),
+                ),
                 pw.SizedBox(height: 8),
               ],
               pw.Text(
-                invoiceSettings.footerText.isNotEmpty ? invoiceSettings.footerText : 'Thank you for your business!',
-                style: const pw.TextStyle(fontSize: 10, fontStyle: pw.FontStyle.italic),
+                invoiceSettings.footerText.isNotEmpty
+                    ? invoiceSettings.footerText
+                    : 'Thank you for your business!',
+                style: const pw.TextStyle(
+                  fontSize: 10,
+                  fontStyle: pw.FontStyle.italic,
+                ),
                 textAlign: pw.TextAlign.center,
               ),
               pw.SizedBox(height: 24), // Extra spacing for tear off

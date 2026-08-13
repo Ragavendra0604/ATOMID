@@ -1,19 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
-
-class ThemeModeNotifier extends Notifier<ThemeMode> {
-  @override
-  ThemeMode build() => ThemeMode.dark;
-
-  void toggleTheme() {
-    state = state == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
-  }
-}
-
-final themeModeProvider = NotifierProvider<ThemeModeNotifier, ThemeMode>(() {
-  return ThemeModeNotifier();
-});
 
 class AppTheme {
   // Premium Dark Colors
@@ -25,19 +11,27 @@ class AppTheme {
   // Premium Light Colors
   static const Color backgroundLight = Color(0xFFF5F5F7);
   static const Color surfaceLight = Colors.white;
-  static const Color primaryLight = Color(0xFF000000);
-  static const Color onPrimaryLight = Colors.white;
+  static const Color primaryLight = Color(0xFFD4AF37); // Premium Gold
+  static const Color onPrimaryLight = Colors.black;
 
   static ThemeData get darkTheme {
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.dark,
-      colorScheme: const ColorScheme.dark(
-        surface: surfaceDark,
-        primary: primaryDark,
-        onPrimary: onPrimaryDark,
-        secondary: primaryDark,
-      ),
+      // Seeded from the brand gold so the roles this app never sets by hand —
+      // containers, tertiary, outline — are derived from it too. Setting only
+      // four roles left the rest on Material's purple-derived baseline, which
+      // is why accents read as off-brand. The anchors below are pinned so the
+      // established surface and primary are unchanged.
+      colorScheme:
+          ColorScheme.fromSeed(
+            seedColor: primaryDark,
+            brightness: Brightness.dark,
+          ).copyWith(
+            surface: surfaceDark,
+            primary: primaryDark,
+            onPrimary: onPrimaryDark,
+          ),
       scaffoldBackgroundColor: backgroundDark,
       appBarTheme: AppBarTheme(
         backgroundColor: backgroundDark,
@@ -87,12 +81,15 @@ class AppTheme {
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.light,
-      colorScheme: const ColorScheme.light(
-        surface: surfaceLight,
-        primary: primaryLight,
-        onPrimary: onPrimaryLight,
-        secondary: primaryLight,
-      ),
+      colorScheme:
+          ColorScheme.fromSeed(
+            seedColor: primaryLight,
+            brightness: Brightness.light,
+          ).copyWith(
+            surface: surfaceLight,
+            primary: primaryLight,
+            onPrimary: onPrimaryLight,
+          ),
       scaffoldBackgroundColor: backgroundLight,
       appBarTheme: AppBarTheme(
         backgroundColor: backgroundLight,

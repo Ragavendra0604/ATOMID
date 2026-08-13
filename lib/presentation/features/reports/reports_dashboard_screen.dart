@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:atomid/core/utils/formatters.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:atomid/presentation/providers/app_providers.dart';
 import 'package:atomid/data/models/sale_model.dart';
@@ -50,6 +51,7 @@ class _ReportsDashboardScreenState
   Widget build(BuildContext context) {
     final allSales = ref.watch(salesProvider);
     final filteredSales = _getFilteredSales(allSales);
+    final symbol = ref.watch(currencySymbolProvider);
 
     // Calculate metrics
     final double revenue = filteredSales.fold(
@@ -83,7 +85,7 @@ class _ReportsDashboardScreenState
             tooltip: 'Export Sales Report',
             onPressed: () async {
               final settings = ref.read(settingsProvider);
-              final company = ref.watch(companyProvider);
+              final company = ref.read(companyProvider);
               final pdf = await ExportService.generateSalesReportPdf(
                 filteredSales,
                 _selectedTimeframe,
@@ -129,17 +131,23 @@ class _ReportsDashboardScreenState
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
-            GridView.count(
-              crossAxisCount: 2,
+            // A fixed height rather than an aspect ratio: the card's icon,
+            // figure and label do not shrink with the screen, so deriving the
+            // cell height from its width overflowed every metric card on a
+            // phone.
+            GridView(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
-              crossAxisSpacing: 16,
-              mainAxisSpacing: 16,
-              childAspectRatio: 1.3,
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                crossAxisSpacing: 16,
+                mainAxisSpacing: 16,
+                mainAxisExtent: 132,
+              ),
               children: [
                 _buildMetricCard(
                   'Revenue',
-                  '₹${revenue.toStringAsFixed(0)}',
+                  Fmt.moneyCompact(revenue, symbol),
                   Icons.payments,
                   Colors.green,
                 ),
@@ -157,9 +165,10 @@ class _ReportsDashboardScreenState
                 ),
                 _buildMetricCard(
                   'Avg Sale',
-                  invoiceCount > 0
-                      ? '₹${(revenue / invoiceCount).toStringAsFixed(0)}'
-                      : '₹0',
+                  Fmt.moneyCompact(
+                    invoiceCount > 0 ? revenue / invoiceCount : 0,
+                    symbol,
+                  ),
                   Icons.analytics,
                   Colors.purple,
                 ),
@@ -205,7 +214,9 @@ class _ReportsDashboardScreenState
                           ),
                           title: Text(
                             item.key,
-                            style: const TextStyle(fontWeight: FontWeight.bold),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                           trailing: Text(
                             '${item.value} sold',
@@ -238,13 +249,25 @@ class _ReportsDashboardScreenState
           children: [
             Icon(icon, color: color, size: 32),
             const SizedBox(height: 8),
-            Text(
-              value,
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            // A compact currency figure still wraps to a second line in a
+            // narrow cell, which is what pushed these cards past their height.
+            // Scaling down keeps the whole figure on one line instead.
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                value,
+                maxLines: 1,
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ),
             const SizedBox(height: 4),
             Text(
               title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontSize: 12, color: Colors.grey),
             ),
           ],

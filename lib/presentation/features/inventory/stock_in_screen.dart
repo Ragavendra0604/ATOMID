@@ -1,11 +1,9 @@
-import 'dart:math';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:atomid/data/models/product_model.dart';
 import 'package:atomid/presentation/providers/app_providers.dart';
-import 'package:atomid/presentation/providers/provider_refresh_helper.dart';
 import 'package:atomid/core/utils/responsive.dart';
+import 'package:atomid/core/utils/app_error.dart';
 
 class StockInScreen extends ConsumerStatefulWidget {
   final Product? preselectedProduct;
@@ -79,8 +77,6 @@ class _StockInScreenState extends ConsumerState<StockInScreen> {
         reason: _selectedReason,
       );
 
-      ProviderRefreshHelper.invalidateProductProviders(ref);
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -92,11 +88,17 @@ class _StockInScreenState extends ConsumerState<StockInScreen> {
         );
         Navigator.pop(context);
       }
-      debugPrint('Stock in error: $e');
+    } catch (e, stack) {
+      debugPrint('Stock in error: $e\n$stack');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Unable to update inventory. Please try again.'),
+          SnackBar(
+            content: Text(
+              describeError(
+                e,
+                fallback: 'Could not add stock. Please try again.',
+              ),
+            ),
             backgroundColor: Colors.red,
           ),
         );
@@ -176,7 +178,10 @@ class _StockInScreenState extends ConsumerState<StockInScreen> {
                 if (_selectedProduct != null) ...[
                   const Text(
                     'Select Variant',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
                   ),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<ProductVariant>(
@@ -240,7 +245,10 @@ class _StockInScreenState extends ConsumerState<StockInScreen> {
                   // Quantity
                   const Text(
                     'Quantity to Add',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
                   ),
                   const SizedBox(height: 8),
                   TextFormField(
@@ -257,7 +265,10 @@ class _StockInScreenState extends ConsumerState<StockInScreen> {
                   // Reason
                   const Text(
                     'Reason',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
                   ),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(

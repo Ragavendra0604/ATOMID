@@ -30,7 +30,7 @@ class _BarcodeScannerScreenState extends ConsumerState<BarcodeScannerScreen> {
     super.dispose();
   }
 
-  void _onDetect(BarcodeCapture capture) {
+  Future<void> _onDetect(BarcodeCapture capture) async {
     if (!_isScanning) return;
 
     final List<Barcode> barcodes = capture.barcodes;
@@ -38,7 +38,11 @@ class _BarcodeScannerScreenState extends ConsumerState<BarcodeScannerScreen> {
       final String? code = barcodes.first.rawValue;
       if (code != null) {
         setState(() => _isScanning = false);
-        _handleBarcodeFound(code);
+        // Stop the camera safely before navigating to prevent BufferQueue abandoned errors
+        await _scannerController?.stop();
+        if (mounted) {
+          _handleBarcodeFound(code);
+        }
       }
     }
   }
@@ -77,9 +81,12 @@ class _BarcodeScannerScreenState extends ConsumerState<BarcodeScannerScreen> {
           content: Text('No product found with barcode: $barcode'),
           actions: [
             TextButton(
-              onPressed: () {
+              onPressed: () async {
                 Navigator.pop(ctx);
-                setState(() => _isScanning = true);
+                await _scannerController?.start();
+                if (mounted) {
+                  setState(() => _isScanning = true);
+                }
               },
               child: const Text('Scan Again'),
             ),
@@ -105,9 +112,20 @@ class _BarcodeScannerScreenState extends ConsumerState<BarcodeScannerScreen> {
           ),
         ],
       ),
-      body: MobileScanner(
-        controller: _scannerController!,
-        onDetect: _onDetect,
+      body: PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, result) async {
+          if (didPop) return;
+          // Cleanly stop the camera before destroying the view
+          await _scannerController?.stop();
+          if (context.mounted) {
+            Navigator.pop(context, result);
+          }
+        },
+        child: MobileScanner(
+          controller: _scannerController!,
+          onDetect: _onDetect,
+        ),
       ),
     );
   }

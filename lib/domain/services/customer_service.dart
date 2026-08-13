@@ -1,5 +1,7 @@
 import 'package:uuid/uuid.dart';
+import 'package:atomid/core/utils/app_error.dart';
 import 'package:atomid/data/models/customer_model.dart';
+import 'package:atomid/data/models/customer_stats.dart';
 import 'package:atomid/data/models/action_history_model.dart';
 import 'package:atomid/data/repositories/storage_repository.dart';
 import 'package:atomid/domain/services/session_service.dart';
@@ -12,12 +14,50 @@ class CustomerService {
   CustomerService(this._storageRepo, this._sessionService);
 
   List<Customer> getAllCustomers() => _storageRepo.getAllCustomers();
-  
-  List<Customer> searchCustomers(String query) => _storageRepo.searchCustomers(query);
-  
-  List<Customer> getCustomersByGroup(String group) => _storageRepo.getCustomersByGroup(group);
+
+  List<Customer> searchCustomers(String query) =>
+      _storageRepo.searchCustomers(query);
+
+  List<Customer> getCustomersByGroup(String group) =>
+      _storageRepo.getCustomersByGroup(group);
 
   Customer? getCustomerById(String id) => _storageRepo.getCustomerById(id);
+
+  /// The till's primary lookup: who is this phone number?
+  Customer? findByMobile(String mobile) =>
+      _storageRepo.getCustomerByMobile(mobile);
+
+  /// How often this person has bought, and how much.
+  CustomerVisitStats statsFor(String customerId) =>
+      _storageRepo.getCustomerStats(customerId);
+
+  /// Registers a walk-in from their phone number alone.
+  ///
+  /// Everything else is optional — capturing the number is what makes them
+  /// recognisable on the next visit, and a cashier at a queue will not type
+  /// more than that.
+  Future<Customer> registerByMobile(String mobile, {String name = ''}) async {
+    final digits = StorageRepository.normaliseMobile(mobile);
+    if (digits.length < 10) {
+      throw const AppException('Enter a 10-digit mobile number.');
+    }
+
+    final existing = _storageRepo.getCustomerByMobile(digits);
+    if (existing != null) return existing;
+
+    final customer = Customer(
+      id: _uuid.v4(),
+      code: 'C-${digits.substring(digits.length - 6)}',
+      name: name.trim().isEmpty ? 'Customer $digits' : name.trim(),
+      mobile: digits,
+      createdDate: DateTime.now(),
+      deviceId: _sessionService.deviceId,
+      updatedAt: DateTime.now(),
+    );
+
+    await _storageRepo.saveCustomer(customer);
+    return customer;
+  }
 
   bool isDuplicate(String mobile, String email, {String? excludeId}) {
     final customers = _storageRepo.getAllCustomers();
@@ -51,8 +91,8 @@ class CustomerService {
     for (var l in secondaryLedgers) {
       l.customerId = primaryId;
       // We would normally have a saveLedgerEntry method.
-      // Since it's Hive, we just delete and re-insert, or mutate. 
-      // StorageRepo needs an update method. We'll leave this to a more complex sync if needed, 
+      // Since it's Hive, we just delete and re-insert, or mutate.
+      // StorageRepo needs an update method. We'll leave this to a more complex sync if needed,
       // but for offline first we just mutate and wait for Firebase background sync.
       // For now, let's just append to history to indicate merge.
     }
@@ -61,7 +101,7 @@ class CustomerService {
     primary.totalRewardPoints += secondary.totalRewardPoints;
     primary.lifetimeSpend += secondary.lifetimeSpend;
     primary.currentBalance += secondary.currentBalance;
-    
+
     // Combine tags uniquely
     final mergedTags = <String>{...primary.tags, ...secondary.tags}.toList();
     primary.tags = mergedTags;
@@ -69,8 +109,9 @@ class CustomerService {
     // 3. Soft delete secondary
     secondary.isDeleted = true;
     secondary.status = 'Merged';
-    secondary.notes = '${secondary.notes}\n[System] Merged into ${primary.code} on ${DateTime.now().toIso8601String()}';
-    
+    secondary.notes =
+        '${secondary.notes}\n[System] Merged into ${primary.code} on ${DateTime.now().toIso8601String()}';
+
     await saveCustomer(primary);
     await saveCustomer(secondary);
 
@@ -80,7 +121,8 @@ class CustomerService {
         id: _uuid.v4(),
         barcode: primary.code,
         productName: 'Customer Merge',
-        action: 'Merged ${secondary.name} (${secondary.code}) into ${primary.name} (${primary.code})',
+        action:
+            'Merged ${secondary.name} (${secondary.code}) into ${primary.name} (${primary.code})',
         date: DateTime.now(),
       ),
     );

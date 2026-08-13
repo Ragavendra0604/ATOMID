@@ -1,73 +1,100 @@
+import 'dart:async';
 import 'dart:math';
+
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:hive_ce_flutter/hive_flutter.dart';
+
+import 'package:atomid/core/utils/platform_io.dart';
 import 'package:atomid/domain/services/auth_service.dart';
-import 'package:atomid/data/repositories/firebase_repository.dart';
 
+/// Per-install state: which device this is.
+///
+/// This used to carry a store id, a cloud role and an active operator, because
+/// a shop could have many people and many tills. It has one user now, so the
+/// only thing worth remembering across launches is the device tag — document
+/// numbering needs it so two devices billing offline cannot both issue
+/// invoice 0001.
 class SessionService {
-  final AuthService _authService;
-  final FirebaseRepository _firebaseRepo;
-  late Box _sessionBox;
-  String _deviceId = '';
-  String? _currentUserRole;
+  static const _boxName = 'session';
+  static const _keyDeviceId = 'deviceId';
 
-  SessionService(this._authService, this._firebaseRepo);
+  final AuthService _authService;
+
+  late Box _sessionBox;
+  StreamSubscription? _authSubscription;
+
+  String _deviceId = '';
+
+  /// Fires when the signed-in identity changes, so anything showing cloud
+  /// state can re-resolve.
+  final StreamController<void> _sessionChanges = StreamController.broadcast();
+  Stream<void> get sessionChanges => _sessionChanges.stream;
+
+  SessionService(this._authService);
 
   Future<void> init() async {
-    _sessionBox = await Hive.openBox('session');
-    
-    // Initialize or retrieve deviceId
-    final savedId = _sessionBox.get('deviceId');
-    if (savedId != null) {
-      _deviceId = savedId;
+    _sessionBox = await _safeOpenBox(_boxName);
+
+    final savedDevice = _sessionBox.get(_keyDeviceId);
+    if (savedDevice is String && savedDevice.isNotEmpty) {
+      _deviceId = savedDevice;
     } else {
       _deviceId = _generateDeviceId();
-      await _sessionBox.put('deviceId', _deviceId);
+      await _sessionBox.put(_keyDeviceId, _deviceId);
     }
 
-    // Listen to auth changes to fetch user role
-    _authService.authStateChanges.listen((user) async {
-      if (user != null) {
-        await _fetchUserRole(user.uid);
-      } else {
-        _currentUserRole = null;
-        await _sessionBox.delete('role');
-      }
+    _authSubscription = _authService.authStateChanges.listen((_) {
+      _sessionChanges.add(null);
     });
-
-    // Try to load cached role
-    _currentUserRole = _sessionBox.get('role');
   }
+
+  Future<void> dispose() async {
+    await _authSubscription?.cancel();
+    await _sessionChanges.close();
+  }
+
+  Future<Box> _safeOpenBox(String boxName) async {
+    try {
+      return await Hive.openBox(boxName);
+    } catch (e) {
+      debugPrint('Session box failed to open ($e); retrying with recovery.');
+      try {
+        return await Hive.openBox(boxName, crashRecovery: true);
+      } catch (_) {
+        try {
+          await Hive.deleteBoxFromDisk(boxName);
+        } catch (_) {}
+        return await Hive.openBox(boxName);
+      }
+    }
+  }
+
+  // --- Identity -------------------------------------------------------------
 
   String get deviceId => _deviceId;
-  String? get role => _currentUserRole;
 
-  bool get isOwner => _currentUserRole == 'Owner';
+  /// Scopes every cloud document. Null when signed out, which is what tells
+  /// sync there is nowhere to write yet.
+  String? get cloudUid => _authService.uid;
 
-  Future<void> _fetchUserRole(String uid) async {
-    try {
-      final doc = await _firebaseRepo.getCollection('users').doc(uid).get();
-      if (doc.exists) {
-        final data = doc.data() as Map<String, dynamic>?;
-        if (data != null && data.containsKey('role')) {
-          _currentUserRole = data['role'];
-          await _sessionBox.put('role', _currentUserRole);
-        }
-      }
-    } catch (e) {
-      // Offline or permission issue, fallback to cached role gracefully
-      _currentUserRole = _sessionBox.get('role');
-    }
+  String get deviceLabel {
+    if (kIsWeb) return 'Web browser';
+    if (PlatformIo.isAndroid) return 'Android device';
+    if (PlatformIo.isIOS) return 'iPhone or iPad';
+    if (PlatformIo.isWindows) return 'Windows PC';
+    if (PlatformIo.isMacOS) return 'Mac';
+    if (PlatformIo.isLinux) return 'Linux PC';
+    return 'Unknown device';
   }
 
-  Future<void> logout() async {
-    _currentUserRole = null;
-    await _sessionBox.delete('role');
-    await _authService.signOut();
-  }
+  Future<void> logout() => _authService.signOut();
 
   String _generateDeviceId() {
-    final timestamp = DateTime.now().millisecondsSinceEpoch.toString();
-    final random = Random().nextInt(1000000).toString().padLeft(6, '0');
-    return 'dev_${timestamp}_$random';
+    final random = Random.secure();
+    final entropy = List<int>.generate(
+      4,
+      (_) => random.nextInt(256),
+    ).map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    return 'dev_${DateTime.now().millisecondsSinceEpoch}_$entropy';
   }
 }

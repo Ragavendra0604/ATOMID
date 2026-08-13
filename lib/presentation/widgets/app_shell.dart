@@ -1,267 +1,312 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import 'package:atomid/bootstrap.dart';
 import 'package:atomid/core/utils/responsive.dart';
-import 'package:atomid/presentation/features/dashboard/dashboard_screen.dart';
-import 'package:atomid/presentation/features/products/product_list_screen.dart';
-import 'package:atomid/presentation/features/inventory/inventory_dashboard_screen.dart';
-import 'package:atomid/presentation/features/purchases/purchase_list_screen.dart';
-import 'package:atomid/presentation/features/suppliers/supplier_list_screen.dart';
 import 'package:atomid/presentation/features/customers/customer_list_screen.dart';
+import 'package:atomid/presentation/features/dashboard/dashboard_screen.dart';
+import 'package:atomid/presentation/features/inventory/inventory_dashboard_screen.dart';
+import 'package:atomid/presentation/features/products/product_list_screen.dart';
+import 'package:atomid/presentation/features/purchases/purchase_list_screen.dart';
 import 'package:atomid/presentation/features/reports/reports_dashboard_screen.dart';
 import 'package:atomid/presentation/features/settings/settings_screen.dart';
+import 'package:atomid/presentation/features/suppliers/supplier_list_screen.dart';
+import 'package:atomid/presentation/features/system/system_console_screen.dart';
+import 'package:atomid/presentation/providers/app_providers.dart';
+import 'package:atomid/presentation/widgets/brand_title.dart';
 
-class AppShell extends StatefulWidget {
-  const AppShell({super.key});
+/// One navigation destination.
+class _Destination {
+  final String label;
+  final IconData icon;
+  final IconData selectedIcon;
+  final Widget screen;
 
-  @override
-  State<AppShell> createState() => _AppShellState();
+  /// Sits on the phone bottom bar rather than behind "More".
+  final bool primaryOnMobile;
+
+  const _Destination({
+    required this.label,
+    required this.icon,
+    required this.selectedIcon,
+    required this.screen,
+    this.primaryOnMobile = false,
+  });
 }
 
-class _AppShellState extends State<AppShell> {
+class AppShell extends ConsumerStatefulWidget {
+  final BootstrapResult? startup;
+
+  const AppShell({super.key, this.startup});
+
+  @override
+  ConsumerState<AppShell> createState() => _AppShellState();
+}
+
+class _AppShellState extends ConsumerState<AppShell> {
   int _selectedIndex = 0;
+  bool _noticesShown = false;
 
-  // All screens for rail/sidebar (8 destinations)
-  final List<Widget> _allScreens = const [
-    DashboardScreen(),
-    ProductListScreen(),
-    InventoryDashboardScreen(),
-    PurchaseListScreen(),
-    SupplierListScreen(),
-    CustomerListScreen(),
-    ReportsDashboardScreen(),
-    SettingsScreen(),
-  ];
+  /// Destinations the user has opened, keyed by label rather than position so
+  /// reordering cannot make an entry point at a different screen.
+  final _visited = <String>{};
 
-  // Mobile bottom nav: only 4 main + More
-  // "More" opens a sheet with the remaining destinations
-  final List<NavigationDestination> _mobileDestinations = const [
-    NavigationDestination(
-      icon: Icon(Icons.dashboard_outlined),
-      selectedIcon: Icon(Icons.dashboard),
+  /// Switches tab and records the destination as built.
+  void _select(int index, List<_Destination> visible) {
+    setState(() {
+      _selectedIndex = index;
+      _visited.add(visible[index].label);
+    });
+  }
+
+  static const _destinations = <_Destination>[
+    _Destination(
       label: 'Home',
+      icon: Icons.dashboard_outlined,
+      selectedIcon: Icons.dashboard,
+      screen: DashboardScreen(),
+      primaryOnMobile: true,
     ),
-    NavigationDestination(
-      icon: Icon(Icons.inventory_2_outlined),
-      selectedIcon: Icon(Icons.inventory_2),
+    _Destination(
       label: 'Products',
+      icon: Icons.inventory_2_outlined,
+      selectedIcon: Icons.inventory_2,
+      screen: ProductListScreen(),
+      primaryOnMobile: true,
     ),
-    NavigationDestination(
-      icon: Icon(Icons.storefront_outlined),
-      selectedIcon: Icon(Icons.storefront),
-      label: 'Inventory',
+    _Destination(
+      label: 'Stock',
+      icon: Icons.storefront_outlined,
+      selectedIcon: Icons.storefront,
+      screen: InventoryDashboardScreen(),
+      primaryOnMobile: true,
     ),
-    NavigationDestination(
-      icon: Icon(Icons.bar_chart_outlined),
-      selectedIcon: Icon(Icons.bar_chart),
+    _Destination(
+      label: 'Purchases',
+      icon: Icons.shopping_cart_outlined,
+      selectedIcon: Icons.shopping_cart,
+      screen: PurchaseListScreen(),
+    ),
+    _Destination(
+      label: 'Suppliers',
+      icon: Icons.business_outlined,
+      selectedIcon: Icons.business,
+      screen: SupplierListScreen(),
+    ),
+    _Destination(
+      label: 'Customers',
+      icon: Icons.people_outline,
+      selectedIcon: Icons.people,
+      screen: CustomerListScreen(),
+    ),
+    _Destination(
       label: 'Reports',
+      icon: Icons.bar_chart_outlined,
+      selectedIcon: Icons.bar_chart,
+      screen: ReportsDashboardScreen(),
+      primaryOnMobile: true,
     ),
-    NavigationDestination(
-      icon: Icon(Icons.more_horiz),
-      selectedIcon: Icon(Icons.more_horiz),
-      label: 'More',
+    _Destination(
+      label: 'System',
+      icon: Icons.monitor_heart_outlined,
+      selectedIcon: Icons.monitor_heart,
+      screen: SystemConsoleScreen(),
+      primaryOnMobile: true,
     ),
-  ];
-
-  // Rail destinations for tablet/desktop (all 7)
-  final List<NavigationRailDestination> _railDestinations = const [
-    NavigationRailDestination(
-      icon: Icon(Icons.dashboard_outlined),
-      selectedIcon: Icon(Icons.dashboard),
-      label: Text('Dashboard'),
-    ),
-    NavigationRailDestination(
-      icon: Icon(Icons.inventory_2_outlined),
-      selectedIcon: Icon(Icons.inventory_2),
-      label: Text('Products'),
-    ),
-    NavigationRailDestination(
-      icon: Icon(Icons.storefront_outlined),
-      selectedIcon: Icon(Icons.storefront),
-      label: Text('Inventory'),
-    ),
-    NavigationRailDestination(
-      icon: Icon(Icons.shopping_cart_outlined),
-      selectedIcon: Icon(Icons.shopping_cart),
-      label: Text('Purchases'),
-    ),
-    NavigationRailDestination(
-      icon: Icon(Icons.business_outlined),
-      selectedIcon: Icon(Icons.business),
-      label: Text('Suppliers'),
-    ),
-    NavigationRailDestination(
-      icon: Icon(Icons.people_outline),
-      selectedIcon: Icon(Icons.people),
-      label: Text('Customers'),
-    ),
-    NavigationRailDestination(
-      icon: Icon(Icons.bar_chart_outlined),
-      selectedIcon: Icon(Icons.bar_chart),
-      label: Text('Reports'),
-    ),
-    NavigationRailDestination(
-      icon: Icon(Icons.settings_outlined),
-      selectedIcon: Icon(Icons.settings),
-      label: Text('Settings'),
+    _Destination(
+      label: 'Settings',
+      icon: Icons.settings_outlined,
+      selectedIcon: Icons.settings,
+      screen: SettingsScreen(),
     ),
   ];
 
-  // Maps mobile bottom nav index to _allScreens index
-  // 0=Dashboard, 1=Products, 2=Inventory, 3=Reports, 4=More (sheet)
-  static const List<int> _mobileIndexMap = [0, 1, 2, 6];
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _showStartupNotices());
+  }
 
-  void _onMobileDestinationSelected(int index) {
-    if (index == 4) {
-      // Show "More" bottom sheet
-      _showMoreSheet();
-    } else {
-      setState(() => _selectedIndex = _mobileIndexMap[index]);
+  /// Surfaces anything startup wants the user to know — recovered data or a
+  /// cloud that could not be reached — instead of failing silently.
+  void _showStartupNotices() {
+    if (_noticesShown || !mounted) return;
+    _noticesShown = true;
+
+    final startup = widget.startup;
+    if (startup == null) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+
+    if (startup.recoveredBoxes.isNotEmpty) {
+      messenger.showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 10),
+          backgroundColor: Theme.of(context).colorScheme.error,
+          content: Text(
+            'Some data could not be read and was reset: '
+            '${startup.recoveredBoxes.join(', ')}. '
+            'Sign in and fetch from the cloud to restore it.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (startup.cloudMessage != null) {
+      messenger.showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 6),
+          content: Text(startup.cloudMessage!),
+        ),
+      );
     }
   }
 
-  void _showMoreSheet() {
-    final moreItems = [
-      _MoreItem('Purchases', Icons.shopping_cart, 3),
-      _MoreItem('Suppliers', Icons.business, 4),
-      _MoreItem('Customers', Icons.people, 5),
-      _MoreItem('Settings', Icons.settings, 7),
-    ];
-
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 40,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(
-                    color: Colors.grey[400],
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                ...moreItems.map(
-                  (item) => ListTile(
-                    leading: Icon(
-                      item.icon,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                    title: Text(
-                      item.label,
-                      style: const TextStyle(fontWeight: FontWeight.w500),
-                    ),
-                    selected: _selectedIndex == item.screenIndex,
-                    selectedTileColor: Theme.of(
-                      context,
-                    ).colorScheme.primary.withAlpha(20),
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      setState(() => _selectedIndex = item.screenIndex);
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  // Which mobile bottom nav index corresponds to current _selectedIndex
-  int get _mobileBottomIndex {
-    final idx = _mobileIndexMap.indexOf(_selectedIndex);
-    if (idx != -1) return idx;
-    return 4; // "More" tab highlighted for Purchases/Suppliers/Settings
-  }
+  /// Every destination. One user, so there is nothing to filter on.
+  List<_Destination> _visibleDestinations() => _destinations;
 
   @override
   Widget build(BuildContext context) {
+    final visible = _visibleDestinations();
+    final safeIndex = _selectedIndex.clamp(0, visible.length - 1);
+
+    // IndexedStack keeps each screen alive, so scroll position, search text
+    // and filters survive a tab switch instead of being rebuilt from scratch.
+    //
+    // Only screens that have actually been opened are built. Handing it every
+    // destination meant the first frame after startup constructed all eight at
+    // once — every list, dashboard and report querying storage before the user
+    // had looked at any of them. Visited screens stay in the stack, so the
+    // state that survives a tab switch still survives.
+    final body = IndexedStack(
+      index: safeIndex,
+      children: [
+        for (var i = 0; i < visible.length; i++)
+          if (i == safeIndex || _visited.contains(visible[i].label))
+            visible[i].screen
+          else
+            const SizedBox.shrink(),
+      ],
+    );
+
     return ResponsiveBuilder(
-      mobileBuilder: (context) => _buildMobile(context),
-      tabletBuilder: (context) => _buildTablet(context),
-      desktopBuilder: (context) => _buildDesktop(context),
+      mobileBuilder: (context) => _mobile(visible, safeIndex, body),
+      tabletBuilder: (context) =>
+          _rail(visible, safeIndex, body, extended: false),
+      desktopBuilder: (context) =>
+          _rail(visible, safeIndex, body, extended: true),
     );
   }
 
-  Widget _buildMobile(BuildContext context) {
+  Widget _mobile(List<_Destination> visible, int index, Widget body) {
+    final all = List<int>.generate(visible.length, (i) => i);
+    final primary = all.where((i) => visible[i].primaryOnMobile).toList();
+    final overflow = all.where((i) => !visible[i].primaryOnMobile).toList();
+
+    final barIndex = primary.indexOf(index);
+
     return Scaffold(
-      body: _allScreens[_selectedIndex],
+      body: body,
       bottomNavigationBar: NavigationBar(
-        selectedIndex: _mobileBottomIndex,
-        onDestinationSelected: _onMobileDestinationSelected,
-        destinations: _mobileDestinations,
+        selectedIndex: barIndex >= 0 ? barIndex : primary.length,
+        height: 66,
         labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-        height: 65,
-      ),
-    );
-  }
-
-  Widget _buildTablet(BuildContext context) {
-    return Scaffold(
-      body: Row(
-        children: [
-          NavigationRail(
-            selectedIndex: _selectedIndex,
-            onDestinationSelected: (i) => setState(() => _selectedIndex = i),
-            labelType: NavigationRailLabelType.all,
-            destinations: _railDestinations,
-            extended: false,
-          ),
-          const VerticalDivider(thickness: 1, width: 1),
-          Expanded(child: _allScreens[_selectedIndex]),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDesktop(BuildContext context) {
-    return Scaffold(
-      body: Row(
-        children: [
-          NavigationRail(
-            selectedIndex: _selectedIndex,
-            onDestinationSelected: (i) => setState(() => _selectedIndex = i),
-            labelType: NavigationRailLabelType.none,
-            destinations: _railDestinations,
-            extended: true,
-            minExtendedWidth: 250,
-            leading: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.store,
-                    color: Theme.of(context).colorScheme.primary,
-                    size: 32,
-                  ),
-                  const SizedBox(width: 12),
-                  const Text(
-                    'Atomid Store',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                ],
-              ),
+        onDestinationSelected: (i) {
+          if (i < primary.length) {
+            _select(primary[i], visible);
+          } else {
+            _showMoreSheet(visible, overflow);
+          }
+        },
+        destinations: [
+          for (final i in primary)
+            NavigationDestination(
+              icon: Icon(visible[i].icon),
+              selectedIcon: Icon(visible[i].selectedIcon),
+              label: visible[i].label,
             ),
-          ),
-          const VerticalDivider(thickness: 1, width: 1),
-          Expanded(child: _allScreens[_selectedIndex]),
+          if (overflow.isNotEmpty)
+            const NavigationDestination(
+              icon: Icon(Icons.more_horiz),
+              label: 'More',
+            ),
         ],
       ),
     );
   }
-}
 
-class _MoreItem {
-  final String label;
-  final IconData icon;
-  final int screenIndex;
-  const _MoreItem(this.label, this.icon, this.screenIndex);
+  void _showMoreSheet(List<_Destination> visible, List<int> overflow) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final i in overflow)
+              ListTile(
+                leading: Icon(visible[i].icon),
+                title: Text(visible[i].label),
+                selected: _selectedIndex == i,
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _select(i, visible);
+                },
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _rail(
+    List<_Destination> visible,
+    int index,
+    Widget body, {
+    required bool extended,
+  }) {
+    return Scaffold(
+      body: Row(
+        children: [
+          NavigationRail(
+            selectedIndex: index,
+            onDestinationSelected: (i) => _select(i, visible),
+            extended: extended,
+            minExtendedWidth: 230,
+            labelType: extended
+                ? NavigationRailLabelType.none
+                : NavigationRailLabelType.all,
+            leading: extended
+                ? Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                    child: BrandTitle(
+                      name: ref.watch(
+                        settingsProvider.select((s) => s.companyName),
+                      ),
+                      textStyle: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      logoSize: 28,
+                    ),
+                  )
+                : null,
+            destinations: visible
+                .map(
+                  (d) => NavigationRailDestination(
+                    icon: Icon(d.icon),
+                    selectedIcon: Icon(d.selectedIcon),
+                    label: Text(d.label),
+                  ),
+                )
+                .toList(),
+          ),
+          const VerticalDivider(thickness: 1, width: 1),
+          Expanded(child: body),
+        ],
+      ),
+    );
+  }
 }

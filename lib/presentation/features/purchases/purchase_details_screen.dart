@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:atomid/core/utils/app_error.dart';
+import 'package:atomid/core/utils/formatters.dart';
 import 'package:atomid/data/models/purchase_model.dart';
+import 'package:atomid/domain/services/purchase_service.dart';
+import 'package:atomid/presentation/features/purchases/purchase_form_screen.dart';
 import 'package:atomid/presentation/providers/app_providers.dart';
-import 'package:atomid/presentation/providers/provider_refresh_helper.dart';
 import 'package:atomid/core/services/export_service.dart';
 import 'package:printing/printing.dart';
 import 'package:pdf/pdf.dart';
@@ -26,6 +29,18 @@ class PurchaseDetailsScreen extends ConsumerWidget {
       appBar: AppBar(
         title: Text(freshPurchase.purchaseNumber),
         actions: [
+          if (!PurchaseStatus.isSettled(freshPurchase.status))
+            IconButton(
+              icon: const Icon(Icons.edit_outlined),
+              tooltip: 'Edit purchase',
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) =>
+                      PurchaseFormScreen(existingPurchase: freshPurchase),
+                ),
+              ),
+            ),
           IconButton(
             icon: const Icon(Icons.print),
             tooltip: 'Print Purchase',
@@ -89,10 +104,16 @@ class PurchaseDetailsScreen extends ConsumerWidget {
                     _infoRow('Supplier', freshPurchase.supplierName),
                     _infoRow('Date', _formatDate(freshPurchase.purchaseDate)),
                     if (freshPurchase.expectedDeliveryDate != null)
-                      _infoRow('Due Date', _formatDate(freshPurchase.expectedDeliveryDate!)),
+                      _infoRow(
+                        'Due Date',
+                        _formatDate(freshPurchase.expectedDeliveryDate!),
+                      ),
                     _infoRow('Status', freshPurchase.status),
                     _infoRow('Payment', freshPurchase.paymentStatus),
-                    _infoRow('Items', '${freshPurchase.items.length} line items'),
+                    _infoRow(
+                      'Items',
+                      '${freshPurchase.items.length} line items',
+                    ),
                     if (freshPurchase.notes.isNotEmpty)
                       _infoRow('Notes', freshPurchase.notes),
                   ],
@@ -116,23 +137,35 @@ class PurchaseDetailsScreen extends ConsumerWidget {
                 return Card(
                   margin: const EdgeInsets.only(bottom: 8),
                   child: ListTile(
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
                     title: Text(item.productName),
                     subtitle: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text('${item.variantSize} - ${item.variantBarcode}'),
-                        if (freshPurchase.status == 'Received' || freshPurchase.status == 'Partially Received')
-                          Text('Received: ${item.receivedQuantity} / ${item.quantity}', style: const TextStyle(color: Colors.green, fontSize: 12)),
+                        if (freshPurchase.status == 'Received' ||
+                            freshPurchase.status == 'Partially Received')
+                          Text(
+                            'Received: ${item.receivedQuantity} / ${item.quantity}',
+                            style: const TextStyle(
+                              color: Colors.green,
+                              fontSize: 12,
+                            ),
+                          ),
                       ],
                     ),
                     trailing: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
-                        Text('${item.quantity} x ${settings.currencySymbol}${item.costPrice.toStringAsFixed(2)}'),
                         Text(
-                          '${settings.currencySymbol}${item.lineTotal.toStringAsFixed(2)}',
+                          '${item.quantity} x ${Fmt.money(item.costPrice, settings.currencySymbol)}',
+                        ),
+                        Text(
+                          Fmt.money(item.lineTotal, settings.currencySymbol),
                           style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
                       ],
@@ -148,11 +181,28 @@ class PurchaseDetailsScreen extends ConsumerWidget {
                 padding: const EdgeInsets.all(16),
                 child: Column(
                   children: [
-                    _summaryRow('Subtotal', '${settings.currencySymbol}${freshPurchase.subtotal.toStringAsFixed(2)}'),
+                    _summaryRow(
+                      'Subtotal',
+                      Fmt.money(
+                        freshPurchase.subtotal,
+                        settings.currencySymbol,
+                      ),
+                    ),
                     if (freshPurchase.discount > 0)
-                      _summaryRow('Discount', '-${settings.currencySymbol}${freshPurchase.discount.toStringAsFixed(2)}'),
+                      _summaryRow(
+                        'Discount',
+                        '-${Fmt.money(freshPurchase.discount, settings.currencySymbol)}',
+                      ),
                     if (freshPurchase.tax > 0)
-                      _summaryRow('Tax', '${settings.currencySymbol}${freshPurchase.tax.toStringAsFixed(2)}'),
+                      _summaryRow(
+                        'Tax (${freshPurchase.tax}%)',
+                        Fmt.money(
+                          (freshPurchase.subtotal - freshPurchase.discount) *
+                              freshPurchase.tax /
+                              100,
+                          settings.currencySymbol,
+                        ),
+                      ),
                     const Divider(),
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -167,7 +217,10 @@ class PurchaseDetailsScreen extends ConsumerWidget {
                             ),
                           ),
                           Text(
-                            '${settings.currencySymbol}${freshPurchase.grandTotal.toStringAsFixed(2)}',
+                            Fmt.money(
+                              freshPurchase.grandTotal,
+                              settings.currencySymbol,
+                            ),
                             style: TextStyle(
                               fontSize: 24,
                               fontWeight: FontWeight.bold,
@@ -187,34 +240,83 @@ class PurchaseDetailsScreen extends ConsumerWidget {
     );
   }
 
-  Widget? _buildBottomActions(BuildContext context, WidgetRef ref, Purchase purchase) {
-    if (purchase.status == 'Draft') {
-      return Container(
-        padding: const EdgeInsets.all(16),
-        child: ElevatedButton(
-          onPressed: () async {
-            await ref.read(purchaseServiceProvider).markAsIssued(purchase);
-            ProviderRefreshHelper.invalidatePurchaseProviders(ref);
-          },
-          child: const Text('Mark as Issued'),
-        ),
-      );
-    } else if (purchase.status == 'Issued') {
-      return Container(
-        padding: const EdgeInsets.all(16),
-        child: ElevatedButton(
-          style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
-          onPressed: () async {
-            await ref.read(purchaseServiceProvider).markAsReceived(purchase);
-            ProviderRefreshHelper.invalidatePurchaseProviders(ref);
-            ProviderRefreshHelper.invalidateInventoryProviders(ref);
-            ProviderRefreshHelper.invalidateSupplierProviders(ref);
-          },
-          child: const Text('Receive Order'),
-        ),
-      );
+  Widget? _buildBottomActions(
+    BuildContext context,
+    WidgetRef ref,
+    Purchase purchase,
+  ) {
+    final errorColor = Theme.of(context).colorScheme.error;
+
+    Future<void> run(Future<void> Function() action, String success) async {
+      final messenger = ScaffoldMessenger.of(context);
+      try {
+        await action();
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(success),
+            backgroundColor: Colors.green.shade700,
+          ),
+        );
+      } catch (error) {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(
+              describeError(
+                error,
+                fallback: 'That could not be completed. Please try again.',
+              ),
+            ),
+            backgroundColor: errorColor,
+          ),
+        );
+      }
     }
-    return null;
+
+    final service = ref.read(purchaseServiceProvider);
+
+    return switch (purchase.status) {
+      PurchaseStatus.draft => _actionBar(
+        label: 'Send to supplier',
+        icon: Icons.send_outlined,
+        onPressed: () => run(
+          () => service.markAsIssued(purchase),
+          'Order marked as issued.',
+        ),
+      ),
+      PurchaseStatus.issued => _actionBar(
+        label: 'Receive into stock',
+        icon: Icons.inventory_outlined,
+        emphasis: true,
+        onPressed: () => run(
+          () => service.markAsReceived(purchase),
+          'Stock updated and supplier account credited.',
+        ),
+      ),
+      _ => null,
+    };
+  }
+
+  Widget _actionBar({
+    required String label,
+    required IconData icon,
+    required VoidCallback onPressed,
+    bool emphasis = false,
+  }) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: FilledButton.icon(
+          onPressed: onPressed,
+          icon: Icon(icon),
+          label: Text(label),
+          style: FilledButton.styleFrom(
+            minimumSize: const Size.fromHeight(52),
+            backgroundColor: emphasis ? Colors.green.shade700 : null,
+            foregroundColor: emphasis ? Colors.white : null,
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _infoRow(String label, String value) {
@@ -254,7 +356,5 @@ class PurchaseDetailsScreen extends ConsumerWidget {
     );
   }
 
-  String _formatDate(DateTime date) {
-    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
-  }
+  String _formatDate(DateTime date) => Fmt.date(date);
 }

@@ -2,6 +2,7 @@ import 'package:atomid/core/utils/image_provider_utils.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:atomid/core/constants/invoice_fonts.dart';
 import 'package:atomid/data/models/invoice_settings_model.dart';
 import 'package:atomid/presentation/providers/app_providers.dart';
 
@@ -23,6 +24,7 @@ class _InvoiceSettingsScreenState extends ConsumerState<InvoiceSettingsScreen> {
   bool _showUpiQr = false;
   bool _showCompanyLogo = true;
   String _upiQrImagePath = '';
+  String _fontName = InvoiceFonts.defaultFont;
 
   @override
   void initState() {
@@ -36,6 +38,7 @@ class _InvoiceSettingsScreenState extends ConsumerState<InvoiceSettingsScreen> {
     _showUpiQr = settings.showUpiQr;
     _showCompanyLogo = settings.showCompanyLogo;
     _upiQrImagePath = settings.upiQrImagePath;
+    _fontName = settings.fontName;
   }
 
   @override
@@ -67,6 +70,7 @@ class _InvoiceSettingsScreenState extends ConsumerState<InvoiceSettingsScreen> {
       upiQrImagePath: _upiQrImagePath,
       showCompanyLogo: _showCompanyLogo,
       termsAndConditions: _termsController.text.trim(),
+      fontName: _fontName,
     );
 
     await ref.read(storageRepositoryProvider).saveInvoiceSettings(newSettings);
@@ -115,6 +119,22 @@ class _InvoiceSettingsScreenState extends ConsumerState<InvoiceSettingsScreen> {
                 subtitle: const Text('Display the company logo on invoices'),
                 value: _showCompanyLogo,
                 onChanged: (val) => setState(() => _showCompanyLogo = val),
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String>(
+                initialValue: _fontName,
+                decoration: const InputDecoration(
+                  labelText: 'Invoice Font',
+                  border: OutlineInputBorder(),
+                ),
+                items: InvoiceFonts.availableFonts
+                    .map((f) => DropdownMenuItem(value: f, child: Text(f)))
+                    .toList(),
+                onChanged: (val) {
+                  if (val != null) {
+                    setState(() => _fontName = val);
+                  }
+                },
               ),
               const SizedBox(height: 16),
               TextFormField(

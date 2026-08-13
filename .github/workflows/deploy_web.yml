@@ -1,43 +1,46 @@
-name: Deploy Flutter Web to GitHub Pages
+name: Deploy Web
 
+# Publishing waits on CI: a commit that fails analysis or tests must not ship.
 on:
-  push:
-    branches:
-      - main # Triggers the workflow on push to the main branch
+  workflow_run:
+    workflows: ['CI']
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
 
+env:
+  FLUTTER_VERSION: '3.35.0'
+
 jobs:
   build_and_deploy:
+    name: Build and publish to GitHub Pages
     runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
 
     steps:
-      # 1. Checkout the repository code
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # 2. Setup the Flutter environment
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 'any'
-          channel: 'stable'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
 
-      # 3. Get Flutter dependencies
       - name: Install dependencies
         run: flutter pub get
 
-      # 4. Generate necessary Hive adapters (since you use build_runner)
-      - name: Run code generation
+      - name: Generate Hive adapters
         run: dart run build_runner build --delete-conflicting-outputs
 
-      # 5. Build the Flutter Web application
-      # IMPORTANT: The base-href MUST match your GitHub repository name exactly, with trailing and leading slashes.
-      - name: Build Web
+      # base-href must match the repository name, with leading and trailing slashes.
+      - name: Build web
         run: flutter build web --release --base-href "/ATOMID/"
 
-      # 6. Deploy the generated build/web folder to the gh-pages branch
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:

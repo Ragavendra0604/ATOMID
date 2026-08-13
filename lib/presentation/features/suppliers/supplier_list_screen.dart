@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:atomid/core/utils/formatters.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:atomid/data/models/supplier_model.dart';
 import 'package:atomid/presentation/providers/app_providers.dart';
 import 'package:atomid/presentation/features/suppliers/supplier_form_screen.dart';
-import 'package:atomid/presentation/providers/provider_refresh_helper.dart';
 import 'package:atomid/presentation/widgets/adaptive_dialog.dart';
 import 'package:atomid/presentation/features/suppliers/supplier_details_screen.dart';
 import 'package:atomid/presentation/widgets/responsive_data_table.dart';
@@ -37,14 +37,18 @@ class _SupplierListScreenState extends ConsumerState<SupplierListScreen> {
             icon: const Icon(Icons.file_download),
             tooltip: 'Export',
             onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Exporting Suppliers...')));
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Exporting Suppliers...')),
+              );
             },
           ),
           IconButton(
             icon: const Icon(Icons.file_upload),
             tooltip: 'Import',
             onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Import Suppliers...')));
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Import Suppliers...')),
+              );
             },
           ),
         ],
@@ -63,34 +67,60 @@ class _SupplierListScreenState extends ConsumerState<SupplierListScreen> {
                       icon: const Icon(Icons.clear),
                       onPressed: () {
                         _searchCtrl.clear();
-                        ref.read(supplierSearchProvider.notifier).setQuery('');
+                        ref
+                            .read(supplierSearchProvider.notifier)
+                            .setQuery('');
                       },
                     ),
                   ),
-                  onChanged: (val) => ref.read(supplierSearchProvider.notifier).setQuery(val),
+                  onChanged: (val) =>
+                      ref.read(supplierSearchProvider.notifier).setQuery(val),
                 ),
                 const SizedBox(height: 8),
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Row(
                     children: [
-                      const Text('Category: ', style: TextStyle(color: Colors.white70)),
+                      Text(
+                        'Category: ',
+                        style: TextStyle(
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
                       const SizedBox(width: 8),
                       DropdownButton<String>(
                         value: ref.watch(supplierCategoryFilterProvider),
                         dropdownColor: Theme.of(context).cardColor,
-                        style: const TextStyle(color: Colors.white),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurface,
+                        ),
                         underline: const SizedBox(),
                         items: const [
                           DropdownMenuItem(value: 'All', child: Text('All')),
-                          DropdownMenuItem(value: 'General', child: Text('General')),
-                          DropdownMenuItem(value: 'Electronics', child: Text('Electronics')),
-                          DropdownMenuItem(value: 'Hardware', child: Text('Hardware')),
-                          DropdownMenuItem(value: 'Services', child: Text('Services')),
+                          DropdownMenuItem(
+                            value: 'General',
+                            child: Text('General'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'Electronics',
+                            child: Text('Electronics'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'Hardware',
+                            child: Text('Hardware'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'Services',
+                            child: Text('Services'),
+                          ),
                         ],
                         onChanged: (v) {
                           if (v != null) {
-                            ref.read(supplierCategoryFilterProvider.notifier).setCategory(v);
+                            ref
+                                .read(supplierCategoryFilterProvider.notifier)
+                                .setCategory(v);
                           }
                         },
                       ),
@@ -173,15 +203,26 @@ class _SupplierListScreenState extends ConsumerState<SupplierListScreen> {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(
-                    '${settings.currencySymbol}${supplier.currentBalance.toStringAsFixed(2)}',
+                    Fmt.money(
+                      supplier.currentBalance,
+                      settings.currencySymbol,
+                    ),
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 16,
-                      color: supplier.currentBalance > 0 ? Colors.red : (supplier.currentBalance < 0 ? Colors.green : Colors.grey),
+                      color: supplier.currentBalance > 0
+                          ? Colors.red
+                          : (supplier.currentBalance < 0
+                                ? Colors.green
+                                : Colors.grey),
                     ),
                   ),
                   Text(
-                    supplier.currentBalance > 0 ? 'To Pay' : (supplier.currentBalance < 0 ? 'Advance' : 'Settled'),
+                    supplier.currentBalance > 0
+                        ? 'To Pay'
+                        : (supplier.currentBalance < 0
+                              ? 'Advance'
+                              : 'Settled'),
                     style: const TextStyle(fontSize: 10),
                   ),
                 ],
@@ -212,7 +253,8 @@ class _SupplierListScreenState extends ConsumerState<SupplierListScreen> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => SupplierDetailsScreen(supplier: supplier),
+                      builder: (_) =>
+                          SupplierDetailsScreen(supplier: supplier),
                     ),
                   ).then((_) => setState(() {}));
                 },
@@ -231,17 +273,22 @@ class _SupplierListScreenState extends ConsumerState<SupplierListScreen> {
                         visualDensity: VisualDensity.compact,
                       )
                     : const Chip(
-                        label: Text('Inactive', style: TextStyle(fontSize: 12)),
+                        label: Text(
+                          'Inactive',
+                          style: TextStyle(fontSize: 12),
+                        ),
                         padding: EdgeInsets.zero,
                         visualDensity: VisualDensity.compact,
                       ),
               ),
               DataCell(
                 Text(
-                  '${settings.currencySymbol}${supplier.currentBalance.toStringAsFixed(2)}',
+                  Fmt.money(supplier.currentBalance, settings.currencySymbol),
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
-                    color: supplier.currentBalance > 0 ? Colors.red : (supplier.currentBalance < 0 ? Colors.green : null),
+                    color: supplier.currentBalance > 0
+                        ? Colors.red
+                        : (supplier.currentBalance < 0 ? Colors.green : null),
                   ),
                 ),
               ),
@@ -255,8 +302,9 @@ class _SupplierListScreenState extends ConsumerState<SupplierListScreen> {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (_) =>
-                                SupplierFormScreen(existingSupplier: supplier),
+                            builder: (_) => SupplierFormScreen(
+                              existingSupplier: supplier,
+                            ),
                           ),
                         ).then((_) => setState(() {}));
                       },
@@ -307,7 +355,6 @@ class _SupplierListScreenState extends ConsumerState<SupplierListScreen> {
     if (confirm == true) {
       final service = ref.read(supplierServiceProvider);
       await service.deleteSupplier(supplier);
-      ProviderRefreshHelper.invalidateSupplierProviders(ref);
     }
   }
 }

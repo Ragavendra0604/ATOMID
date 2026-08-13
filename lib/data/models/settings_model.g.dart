@@ -17,19 +17,20 @@ class SettingsModelAdapter extends TypeAdapter<SettingsModel> {
       for (int i = 0; i < numOfFields; i++) reader.readByte(): reader.read(),
     };
     return SettingsModel(
-      isDarkMode: fields[0] as bool,
-      companyName: fields[1] as String,
-      currencySymbol: fields[2] as String,
-      pdfPageSize: fields[3] as String,
+      isDarkMode: fields[0] == null ? true : fields[0] as bool,
+      companyName: fields[1] == null ? 'ATOMID STORE' : fields[1] as String,
+      currencySymbol: fields[2] == null ? '₹' : fields[2] as String,
+      pdfPageSize: fields[3] == null ? 'A4' : fields[3] as String,
       taxMode: fields[4] == null ? 'inclusive' : fields[4] as String,
       taxRate: fields[5] == null ? 0 : (fields[5] as num).toDouble(),
+      isBiometricEnabled: fields[6] == null ? false : fields[6] as bool,
     );
   }
 
   @override
   void write(BinaryWriter writer, SettingsModel obj) {
     writer
-      ..writeByte(6)
+      ..writeByte(7)
       ..writeByte(0)
       ..write(obj.isDarkMode)
       ..writeByte(1)
@@ -41,7 +42,9 @@ class SettingsModelAdapter extends TypeAdapter<SettingsModel> {
       ..writeByte(4)
       ..write(obj.taxMode)
       ..writeByte(5)
-      ..write(obj.taxRate);
+      ..write(obj.taxRate)
+      ..writeByte(6)
+      ..write(obj.isBiometricEnabled);
   }
 
   @override

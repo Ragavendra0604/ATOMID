@@ -1,164 +1,480 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'package:cloud_firestore/cloud_firestore.dart';
+
 import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:atomid/data/repositories/storage_repository.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
+
+import 'package:atomid/core/utils/ids.dart';
+import 'package:atomid/data/models/sync_log_model.dart';
 import 'package:atomid/data/repositories/firebase_repository.dart';
+import 'package:atomid/data/repositories/storage_repository.dart';
+import 'package:atomid/data/sync/entity_codec.dart';
 import 'package:atomid/domain/services/auth_service.dart';
 import 'package:atomid/domain/services/session_service.dart';
-import 'package:atomid/data/models/sync_log_model.dart';
 
+/// What the cloud indicator is showing.
+enum SyncPhase {
+  /// No cloud account attached — the app is running purely on-device.
+  offline,
+
+  /// Signed in, queue empty.
+  idle,
+
+  /// Actively uploading or downloading.
+  syncing,
+
+  /// Some items failed and are waiting out their backoff.
+  retrying,
+
+  /// Items have exhausted their retries and need attention.
+  failed,
+}
+
+class SyncStatus {
+  final SyncPhase phase;
+  final int pending;
+  final int dead;
+  final DateTime? lastSuccess;
+  final String? message;
+
+  const SyncStatus({
+    this.phase = SyncPhase.offline,
+    this.pending = 0,
+    this.dead = 0,
+    this.lastSuccess,
+    this.message,
+  });
+
+  SyncStatus copyWith({
+    SyncPhase? phase,
+    int? pending,
+    int? dead,
+    DateTime? lastSuccess,
+    String? message,
+    bool clearMessage = false,
+  }) => SyncStatus(
+    phase: phase ?? this.phase,
+    pending: pending ?? this.pending,
+    dead: dead ?? this.dead,
+    lastSuccess: lastSuccess ?? this.lastSuccess,
+    message: clearMessage ? null : (message ?? this.message),
+  );
+
+  bool get isHealthy => phase != SyncPhase.failed && dead == 0;
+}
+
+/// Moves records between the device and the cloud.
+///
+/// Upload is queue-driven with exponential backoff. Download is a pull on
+/// sign-in and on demand — previously absent entirely, which meant a second
+/// device or a reinstall started empty and stayed empty.
 class SyncService {
+  static const _batchSize = 20;
+  static const _fallbackInterval = Duration(minutes: 2);
+
   final StorageRepository _storageRepo;
   final FirebaseRepository _firebaseRepo;
   final AuthService _authService;
   final SessionService _sessionService;
-  
+
   StreamSubscription? _connectivitySubscription;
+  StreamSubscription? _authSubscription;
   Timer? _syncTimer;
   bool _isSyncing = false;
+  bool _isPulling = false;
 
-  SyncService(this._storageRepo, this._firebaseRepo, this._authService, this._sessionService);
+  final StreamController<SyncStatus> _statusController =
+      StreamController.broadcast();
+  SyncStatus _status = const SyncStatus();
+
+  SyncService(
+    this._storageRepo,
+    this._firebaseRepo,
+    this._authService,
+    this._sessionService,
+  );
+
+  Stream<SyncStatus> get statusStream => _statusController.stream;
+  SyncStatus get status => _status;
+
+  void _emit(SyncStatus next) {
+    _status = next;
+    if (!_statusController.isClosed) _statusController.add(next);
+  }
+
+  void _refreshCounts({SyncPhase? phase, String? message}) {
+    final dead = _storageRepo.getDeadSyncItems().length;
+    final pending = _storageRepo.getPendingSyncItems().length;
+    _emit(
+      _status.copyWith(
+        phase:
+            phase ??
+            (dead > 0
+                ? SyncPhase.failed
+                : pending > 0
+                ? SyncPhase.retrying
+                : SyncPhase.idle),
+        pending: pending,
+        dead: dead,
+        message: message,
+        clearMessage: message == null,
+      ),
+    );
+  }
 
   void start() {
-    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((List<ConnectivityResult> results) {
-      if (results.isNotEmpty && results.first != ConnectivityResult.none) {
+    if (!_firebaseRepo.isInitialized) {
+      _emit(
+        const SyncStatus(
+          phase: SyncPhase.offline,
+          message: 'Cloud sync is unavailable on this platform.',
+        ),
+      );
+      return;
+    }
+
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((
+      results,
+    ) {
+      final online = results.any((r) => r != ConnectivityResult.none);
+      if (online) {
         processQueue();
+      } else {
+        _emit(
+          _status.copyWith(
+            phase: SyncPhase.offline,
+            message: 'No connection — changes are queued on this device.',
+          ),
+        );
       }
     });
 
-    // Also run every 2 minutes as a fallback
-    _syncTimer = Timer.periodic(const Duration(minutes: 2), (_) {
-      processQueue();
+    // A fresh sign-in is the moment a device needs the store's history.
+    _authSubscription = _authService.authStateChanges.listen((user) async {
+      if (user == null) {
+        _emit(const SyncStatus(phase: SyncPhase.offline));
+        return;
+      }
+      await pullAll();
+      await processQueue();
     });
+
+    _syncTimer = Timer.periodic(_fallbackInterval, (_) => processQueue());
+
+    if (_authService.currentUser != null) {
+      _refreshCounts();
+      processQueue();
+    }
   }
 
-  void stop() {
-    _connectivitySubscription?.cancel();
+  Future<void> stop() async {
+    await _connectivitySubscription?.cancel();
+    await _authSubscription?.cancel();
     _syncTimer?.cancel();
+    await _statusController.close();
   }
+
+  // --- Upload ---------------------------------------------------------------
 
   Future<void> processQueue() async {
+    // Signing in is what gives the queue somewhere to go. Until then the work
+    // is captured locally and simply waits — nothing is lost by being offline.
+    final uid = _sessionService.cloudUid;
     if (_isSyncing) return;
-    
-    final user = _authService.currentUser;
-    if (user == null) return; // Not authenticated
+    if (uid == null) {
+      _emit(
+        _status.copyWith(
+          phase: SyncPhase.offline,
+          message: 'Sign in to back this device up to the cloud.',
+        ),
+      );
+      return;
+    }
 
     _isSyncing = true;
     try {
       final pendingItems = _storageRepo.getPendingSyncItems();
-      if (pendingItems.isEmpty) return;
+      if (pendingItems.isEmpty) {
+        _refreshCounts(phase: SyncPhase.idle);
+        return;
+      }
 
-      // Process in batches of 10
-      final batchSize = 10;
-      for (var i = 0; i < pendingItems.length; i += batchSize) {
-        final batchItems = pendingItems.skip(i).take(batchSize).toList();
-        final batch = _firebaseRepo.getBatch();
-        
-        if (batch == null) break;
+      _refreshCounts(phase: SyncPhase.syncing);
 
-        final itemsToMarkSyncing = <String>[];
-        final startedAtMap = <String, DateTime>{};
+      for (var i = 0; i < pendingItems.length; i += _batchSize) {
+        final slice = pendingItems.skip(i).take(_batchSize).toList();
+        if (!_firebaseRepo.isInitialized) break;
 
-        for (var item in batchItems) {
-          if (item.retryCount >= 5) continue;
-          
-          // Exponential backoff
-          if (item.lastAttempt != null) {
-            final minutesSinceLastAttempt = DateTime.now().difference(item.lastAttempt!).inMinutes;
-            final backoffThreshold = math.pow(2, item.retryCount);
-            if (minutesSinceLastAttempt < backoffThreshold) {
-              continue; 
-            }
-          }
-          
-          final collection = _getCollectionForType(item.entityType);
-          
-          startedAtMap[item.id] = DateTime.now();
+        final writes = <SyncWrite>[];
+        final queued = <String>[];
+        final startedAt = <String, DateTime>{};
+
+        for (final item in slice) {
+          if (item.retryCount >= SyncState.maxRetries) continue;
+          if (_isBackingOff(item.lastAttempt, item.retryCount)) continue;
+
+          final collection = EntityCodec.collectionFor(item.entityType);
+          final docId = _documentIdFor(item);
+
+          startedAt[item.id] = DateTime.now();
+
           if (item.action == 'DELETE') {
-            batch.delete(_firebaseRepo.getCollection(collection).doc(item.entityId));
-            itemsToMarkSyncing.add(item.id);
-          } else {
-            final data = _storageRepo.getEntityJson(item.entityType, item.entityId);
-            if (data != null) {
-              batch.set(_firebaseRepo.getCollection(collection).doc(item.entityId), data, SetOptions(merge: true));
-              itemsToMarkSyncing.add(item.id);
-            }
+            writes.add(
+              SyncWrite.delete(collection: collection, documentId: docId),
+            );
+            queued.add(item.id);
+            continue;
           }
+
+          final data = _storageRepo.getEntityJson(
+            item.entityType,
+            item.entityId,
+          );
+          if (data == null) {
+            // The record was deleted locally before it ever uploaded.
+            await _storageRepo.deleteSyncItem(item.id);
+            continue;
+          }
+
+          writes.add(
+            SyncWrite.put(
+              collection: collection,
+              documentId: docId,
+              data: data,
+            ),
+          );
+          queued.add(item.id);
         }
 
-        if (itemsToMarkSyncing.isEmpty) continue;
+        if (queued.isEmpty) continue;
 
-        for (var id in itemsToMarkSyncing) {
-          await _storageRepo.updateSyncItemStatus(id, 'SYNCING');
+        for (final id in queued) {
+          await _storageRepo.updateSyncItemStatus(id, SyncState.syncing);
         }
 
         try {
-          await batch.commit();
-          for (var id in itemsToMarkSyncing) {
-            await _storageRepo.deleteSyncItem(id);
-            
-            final originalItem = pendingItems.firstWhere((x) => x.id == id);
-            final startedAt = startedAtMap[id] ?? DateTime.now();
-            final completedAt = DateTime.now();
-            
-            await _storageRepo.addSyncLog(SyncLogModel(
-              id: DateTime.now().millisecondsSinceEpoch.toString() + originalItem.entityId,
-              entityType: originalItem.entityType,
-              entityId: originalItem.entityId,
-              operation: originalItem.action,
-              deviceId: _sessionService.deviceId,
-              startedAt: startedAt,
-              completedAt: completedAt,
-              durationMs: completedAt.difference(startedAt).inMilliseconds,
-              status: 'SUCCESS',
-              retryCount: originalItem.retryCount,
-            ));
-          }
-        } catch (e) {
-          for (var id in itemsToMarkSyncing) {
-            final originalItem = pendingItems.firstWhere((x) => x.id == id);
-            await _storageRepo.updateSyncItemStatus(
-              id, 
-              'FAILED',
-              retryCount: originalItem.retryCount + 1,
-              lastAttempt: DateTime.now(),
+          await _firebaseRepo.commitBatch(
+            uid: uid,
+            writes: writes,
+            sourceDevice: _sessionService.deviceId,
+          );
+          await _recordOutcome(slice, queued, startedAt, success: true);
+        } catch (error) {
+          debugPrint('Sync batch failed: $error');
+          if (_isPermissionDenied(error)) {
+            _emit(
+              _status.copyWith(
+                phase: SyncPhase.failed,
+                message:
+                    'The cloud refused this write. Your work is safe on '
+                    'this device — try signing in again.',
+              ),
             );
-            
-            final startedAt = startedAtMap[id] ?? DateTime.now();
-            final completedAt = DateTime.now();
-            
-            await _storageRepo.addSyncLog(SyncLogModel(
-              id: DateTime.now().millisecondsSinceEpoch.toString() + originalItem.entityId,
-              entityType: originalItem.entityType,
-              entityId: originalItem.entityId,
-              operation: originalItem.action,
-              deviceId: _sessionService.deviceId,
-              startedAt: startedAt,
-              completedAt: completedAt,
-              durationMs: completedAt.difference(startedAt).inMilliseconds,
-              status: 'FAILED',
-              retryCount: originalItem.retryCount + 1,
-              error: e.toString(),
-            ));
           }
+          await _recordOutcome(
+            slice,
+            queued,
+            startedAt,
+            success: false,
+            error: error.toString(),
+          );
         }
+      }
+
+      final remaining = _storageRepo.getPendingSyncItems().length;
+      if (remaining == 0) {
+        _emit(
+          _status.copyWith(
+            phase: _storageRepo.getDeadSyncItems().isEmpty
+                ? SyncPhase.idle
+                : SyncPhase.failed,
+            pending: 0,
+            dead: _storageRepo.getDeadSyncItems().length,
+            lastSuccess: DateTime.now(),
+            clearMessage: true,
+          ),
+        );
+      } else {
+        _refreshCounts();
       }
     } finally {
       _isSyncing = false;
     }
   }
 
-  String _getCollectionForType(String entityType) {
-    switch (entityType) {
-      case 'Customer': return 'customers';
-      case 'Sale': return 'sales';
-      case 'LoyaltyTransaction': return 'loyaltyTransactions';
-      case 'InventoryMovement': return 'inventoryMovements';
-      case 'SettingsModel': return 'settings';
-      case 'CompanyModel': return 'company';
-      case 'ExpenseCategory': return 'expenseCategories';
-      default: return '${entityType.toLowerCase()}s';
+  /// Config records share one document per store rather than one per row.
+  String _documentIdFor(dynamic item) {
+    switch (item.entityType) {
+      case 'SettingsModel':
+        return 'settings';
+      case 'CompanyModel':
+        return 'company';
+      case 'InvoiceSettingsModel':
+        return 'invoice';
+      case 'LoyaltySettingsModel':
+        return 'loyalty';
+      default:
+        return item.entityId as String;
     }
+  }
+
+  bool _isBackingOff(DateTime? lastAttempt, int retryCount) {
+    if (lastAttempt == null) return false;
+    final waited = DateTime.now().difference(lastAttempt).inSeconds;
+    final threshold = math.pow(2, retryCount).toInt() * 30;
+    return waited < threshold;
+  }
+
+  Future<void> _recordOutcome(
+    List<dynamic> slice,
+    List<String> queued,
+    Map<String, DateTime> startedAt, {
+    required bool success,
+    String? error,
+  }) async {
+    for (final id in queued) {
+      final item = slice.firstWhere((x) => x.id == id);
+      final began = startedAt[id] ?? DateTime.now();
+      final ended = DateTime.now();
+
+      if (success) {
+        await _storageRepo.deleteSyncItem(id);
+      } else {
+        await _storageRepo.updateSyncItemStatus(
+          id,
+          SyncState.failed,
+          retryCount: (item.retryCount as int) + 1,
+          lastAttempt: ended,
+        );
+      }
+
+      await _storageRepo.addSyncLog(
+        SyncLogModel(
+          id: Ids.generate(),
+          entityType: item.entityType as String,
+          entityId: item.entityId as String,
+          operation: item.action as String,
+          deviceId: _sessionService.deviceId,
+          startedAt: began,
+          completedAt: ended,
+          durationMs: ended.difference(began).inMilliseconds,
+          status: success ? 'SUCCESS' : 'FAILED',
+          retryCount: success
+              ? item.retryCount as int
+              : (item.retryCount as int) + 1,
+          error: error,
+        ),
+      );
+    }
+  }
+
+  // --- Download -------------------------------------------------------------
+
+  /// Fetches this account's records and merges them into local storage.
+  ///
+  /// Local records with unsent changes always win, so pulling can never
+  /// discard work this device has not uploaded yet.
+  Future<int> pullAll({DateTime? since}) async {
+    if (_isPulling) return 0;
+
+    final uid = _sessionService.cloudUid;
+    if (uid == null) return 0;
+
+    _isPulling = true;
+    _emit(
+      _status.copyWith(
+        phase: SyncPhase.syncing,
+        message: 'Fetching your data…',
+      ),
+    );
+
+    var applied = 0;
+    final failures = <String>[];
+    var deniedCount = 0;
+
+    try {
+      for (final entityType in EntityCodec.pullOrder) {
+        final collection = EntityCodec.collectionFor(entityType);
+        try {
+          await _firebaseRepo.fetchCollectionPages(
+            uid: uid,
+            collection: collection,
+            since: since,
+            onPage: (documents) async {
+              for (final document in documents) {
+                final id = _localIdFor(entityType, document);
+                if (id == null) continue;
+                final changed = await _storageRepo.applyRemote(
+                  entityType,
+                  id,
+                  document,
+                );
+                if (changed) applied++;
+              }
+            },
+          );
+        } catch (error) {
+          debugPrint('Pull failed for $entityType: $error');
+          failures.add(entityType);
+          if (_isPermissionDenied(error)) deniedCount++;
+        }
+      }
+
+      await _storageRepo.reconcileAfterPull();
+
+      // A pull where nothing came back is not a success. Reporting one was the
+      // same mistake as the indicator that always read "Synced".
+      if (failures.isEmpty) {
+        _emit(
+          _status.copyWith(
+            phase: SyncPhase.idle,
+            lastSuccess: DateTime.now(),
+            clearMessage: true,
+          ),
+        );
+      } else {
+        _emit(
+          _status.copyWith(
+            phase: SyncPhase.failed,
+            message: deniedCount > 0
+                ? 'This account cannot read this store in the cloud. Check '
+                      'that the security rules are deployed and that the '
+                      'account belongs to this store.'
+                : 'Could not fetch ${failures.length} of '
+                      '${EntityCodec.pullOrder.length} record types.',
+          ),
+        );
+      }
+      return applied;
+    } finally {
+      _isPulling = false;
+    }
+  }
+
+  static bool _isPermissionDenied(Object error) =>
+      error.toString().toLowerCase().contains('permission-denied') ||
+      error.toString().toLowerCase().contains('permission_denied');
+
+  String? _localIdFor(String entityType, Map<String, dynamic> document) {
+    switch (entityType) {
+      case 'SettingsModel':
+        return document['id'] == 'settings' ? 'app_settings' : null;
+      case 'CompanyModel':
+        return document['id'] == 'company' ? 'profile' : null;
+      case 'InvoiceSettingsModel':
+        return document['id'] == 'invoice' ? 'invoice_settings' : null;
+      case 'LoyaltySettingsModel':
+        return document['id'] == 'loyalty' ? 'loyalty_settings' : null;
+      default:
+        final id = document['id'];
+        return id is String && id.isNotEmpty ? id : null;
+    }
+  }
+
+  /// Re-queues everything that gave up, for the "retry failed" action.
+  Future<void> retryFailed() async {
+    await _storageRepo.retryDeadSyncItems();
+    _refreshCounts(phase: SyncPhase.retrying);
+    await processQueue();
   }
 }

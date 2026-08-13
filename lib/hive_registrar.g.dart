@@ -4,21 +4,16 @@
 
 import 'package:hive_ce/hive_ce.dart';
 import 'package:atomid/data/models/action_history_model.dart';
-import 'package:atomid/data/models/activity_log_model.dart';
 import 'package:atomid/data/models/company_model.dart';
 import 'package:atomid/data/models/customer_ledger_model.dart';
 import 'package:atomid/data/models/customer_model.dart';
-import 'package:atomid/data/models/employee_model.dart';
 import 'package:atomid/data/models/expense_model.dart';
 import 'package:atomid/data/models/inventory_movement_model.dart';
 import 'package:atomid/data/models/invoice_settings_model.dart';
-import 'package:atomid/data/models/login_history_model.dart';
 import 'package:atomid/data/models/loyalty_settings_model.dart';
 import 'package:atomid/data/models/loyalty_transaction_model.dart';
-import 'package:atomid/data/models/permission_model.dart';
 import 'package:atomid/data/models/product_model.dart';
 import 'package:atomid/data/models/purchase_model.dart';
-import 'package:atomid/data/models/role_model.dart';
 import 'package:atomid/data/models/sale_model.dart';
 import 'package:atomid/data/models/settings_model.dart';
 import 'package:atomid/data/models/supplier_ledger_model.dart';
@@ -29,24 +24,19 @@ import 'package:atomid/data/models/sync_queue_model.dart';
 extension HiveRegistrar on HiveInterface {
   void registerAdapters() {
     registerAdapter(ActionHistoryAdapter());
-    registerAdapter(ActivityLogModelAdapter());
     registerAdapter(CompanyModelAdapter());
     registerAdapter(CustomerAdapter());
     registerAdapter(CustomerLedgerAdapter());
-    registerAdapter(EmployeeModelAdapter());
     registerAdapter(ExpenseAdapter());
     registerAdapter(ExpenseCategoryAdapter());
     registerAdapter(InventoryMovementAdapter());
     registerAdapter(InvoiceSettingsModelAdapter());
-    registerAdapter(LoginHistoryModelAdapter());
     registerAdapter(LoyaltySettingsModelAdapter());
     registerAdapter(LoyaltyTransactionAdapter());
-    registerAdapter(PermissionAdapter());
     registerAdapter(ProductAdapter());
     registerAdapter(ProductVariantAdapter());
     registerAdapter(PurchaseAdapter());
     registerAdapter(PurchaseItemAdapter());
-    registerAdapter(RoleAdapter());
     registerAdapter(SaleAdapter());
     registerAdapter(SaleItemAdapter());
     registerAdapter(SettingsModelAdapter());
@@ -60,24 +50,19 @@ extension HiveRegistrar on HiveInterface {
 extension IsolatedHiveRegistrar on IsolatedHiveInterface {
   void registerAdapters() {
     registerAdapter(ActionHistoryAdapter());
-    registerAdapter(ActivityLogModelAdapter());
     registerAdapter(CompanyModelAdapter());
     registerAdapter(CustomerAdapter());
     registerAdapter(CustomerLedgerAdapter());
-    registerAdapter(EmployeeModelAdapter());
     registerAdapter(ExpenseAdapter());
     registerAdapter(ExpenseCategoryAdapter());
     registerAdapter(InventoryMovementAdapter());
     registerAdapter(InvoiceSettingsModelAdapter());
-    registerAdapter(LoginHistoryModelAdapter());
     registerAdapter(LoyaltySettingsModelAdapter());
     registerAdapter(LoyaltyTransactionAdapter());
-    registerAdapter(PermissionAdapter());
     registerAdapter(ProductAdapter());
     registerAdapter(ProductVariantAdapter());
     registerAdapter(PurchaseAdapter());
     registerAdapter(PurchaseItemAdapter());
-    registerAdapter(RoleAdapter());
     registerAdapter(SaleAdapter());
     registerAdapter(SaleItemAdapter());
     registerAdapter(SettingsModelAdapter());

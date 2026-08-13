@@ -1,121 +1,126 @@
-import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+
 import 'package:atomid/data/models/product_model.dart';
 import 'package:atomid/presentation/providers/cart_notifier.dart';
 
 void main() {
-  group('CartNotifier Tests', () {
-    late ProviderContainer container;
-    late Product dummyProduct;
-    late ProductVariant dummyVariant;
+  late ProviderContainer container;
+  late Product product;
+  late ProductVariant variant;
 
-    setUp(() {
-      container = ProviderContainer();
-      dummyProduct = Product(
-        id: 'p1',
-        productName: 'Test Product',
-        productCode: 'TP-01',
-        category: 'Test',
-        brand: 'Brand',
-        color: 'Red',
-        createdDate: DateTime.now(),
-        updatedDate: DateTime.now(),
-        variants: [],
-      );
-      dummyVariant = ProductVariant(
-        barcode: '123456',
-        size: 'M',
-        price: 100.0,
-        quantity: 5,
-      );
-    });
+  Product buildProduct(ProductVariant v) => Product(
+    id: 'p1',
+    productName: 'Test Product',
+    productCode: 'TP-01',
+    category: 'Test',
+    brand: 'Brand',
+    color: 'Red',
+    createdDate: DateTime.now(),
+    updatedDate: DateTime.now(),
+    variants: [v],
+  );
 
-    tearDown(() {
-      container.dispose();
-    });
+  setUp(() {
+    container = ProviderContainer();
+    variant = ProductVariant(
+      barcode: '123456',
+      size: 'M',
+      price: 100,
+      quantity: 5,
+    );
+    product = buildProduct(variant);
+  });
 
-    test('should add item to cart', () {
-      final cart = container.read(cartProvider.notifier);
-      
-      cart.addItem(dummyProduct, dummyVariant);
-      
-      final state = container.read(cartProvider);
-      expect(state.length, 1);
-      expect(state.first.quantity, 1);
-      expect(cart.subtotal, 100.0);
-      expect(cart.totalItems, 1);
-    });
+  tearDown(() => container.dispose());
 
-    test('should not add item if out of stock', () {
-      final outOfStockVariant = ProductVariant(
-        barcode: '999',
-        size: 'S',
-        price: 20,
-        quantity: 0,
-      );
-      
-      final cart = container.read(cartProvider.notifier);
-      cart.addItem(dummyProduct, outOfStockVariant);
-      
-      expect(container.read(cartProvider).isEmpty, isTrue);
-    });
+  CartNotifier cart() => container.read(cartProvider.notifier);
 
-    test('should increase quantity if adding existing item', () {
-      final cart = container.read(cartProvider.notifier);
-      cart.addItem(dummyProduct, dummyVariant); // Qty 1
-      cart.addItem(dummyProduct, dummyVariant); // Qty 2
-      
-      final state = container.read(cartProvider);
-      expect(state.length, 1);
-      expect(state.first.quantity, 2);
-    });
+  test('adding an item puts one unit in the basket', () {
+    expect(cart().addItem(product, variant), isTrue);
 
-    test('should not increase quantity beyond stock limit', () {
-      final cart = container.read(cartProvider.notifier);
-      
-      // Stock is 5
-      for (int i = 0; i < 6; i++) {
-        cart.addItem(dummyProduct, dummyVariant);
-      }
-      
-      final state = container.read(cartProvider);
-      expect(state.first.quantity, 5); // Should max out at 5
-    });
+    final items = container.read(cartProvider);
+    expect(items, hasLength(1));
+    expect(items.single.quantity, 1);
+    expect(items.single.total, 100);
+  });
 
-    test('should remove item', () {
-      final cart = container.read(cartProvider.notifier);
-      cart.addItem(dummyProduct, dummyVariant);
-      expect(container.read(cartProvider).length, 1);
-      
-      cart.removeItem(dummyVariant.barcode);
-      expect(container.read(cartProvider).isEmpty, isTrue);
-    });
+  test('adding the same variant twice increases the quantity', () {
+    cart().addItem(product, variant);
+    cart().addItem(product, variant);
 
-    test('should update quantity and cap at stock', () {
-      final cart = container.read(cartProvider.notifier);
-      cart.addItem(dummyProduct, dummyVariant);
-      
-      cart.updateQuantity(dummyVariant.barcode, 3);
-      expect(container.read(cartProvider).first.quantity, 3);
-      
-      cart.updateQuantity(dummyVariant.barcode, 10);
-      expect(container.read(cartProvider).first.quantity, 3); // Unchanged because 10 > 5 (stock)
-      
-      cart.updateQuantity(dummyVariant.barcode, 0);
-      expect(container.read(cartProvider).isEmpty, isTrue); // Removes if qty <= 0
-    });
+    final items = container.read(cartProvider);
+    expect(items, hasLength(1));
+    expect(items.single.quantity, 2);
+    expect(items.single.total, 200);
+  });
 
-    test('validateStock should return error message if stock exceeded', () {
-      final cart = container.read(cartProvider.notifier);
-      cart.addItem(dummyProduct, dummyVariant);
-      
-      expect(cart.validateStock(), isNull);
-      
-      // Forcing invalid state manually to test validation function
-      container.read(cartProvider).first.quantity = 10;
-      
-      final error = cart.validateStock();
-      expect(error, contains('only 5 available'));
-    });
+  test('adding beyond available stock is refused, not silently ignored', () {
+    for (var i = 0; i < 5; i++) {
+      expect(cart().addItem(product, variant), isTrue);
+    }
+    expect(cart().addItem(product, variant), isFalse);
+    expect(container.read(cartProvider).single.quantity, 5);
+  });
+
+  test('an out-of-stock variant cannot be added at all', () {
+    final empty = ProductVariant(
+      barcode: 'EMPTY',
+      size: 'S',
+      price: 50,
+      quantity: 0,
+    );
+    expect(cart().addItem(buildProduct(empty), empty), isFalse);
+    expect(container.read(cartProvider), isEmpty);
+  });
+
+  test('setting quantity to zero removes the line', () {
+    cart().addItem(product, variant);
+    cart().updateQuantity('123456', 0);
+    expect(container.read(cartProvider), isEmpty);
+  });
+
+  test('quantity cannot be raised past the shelf', () {
+    cart().addItem(product, variant);
+    expect(cart().updateQuantity('123456', 6), isFalse);
+    expect(container.read(cartProvider).single.quantity, 1);
+  });
+
+  test('subtotal and item count reflect the basket', () {
+    cart().addItem(product, variant);
+    cart().updateQuantity('123456', 3);
+
+    expect(cart().subtotal, 300);
+    expect(cart().totalItems, 3);
+  });
+
+  test('subtotal is free of floating point noise', () {
+    final priced = ProductVariant(
+      barcode: 'P99',
+      size: 'M',
+      price: 1299.90,
+      quantity: 10,
+    );
+    cart().addItem(buildProduct(priced), priced);
+    cart().updateQuantity('P99', 3);
+
+    expect(cart().subtotal, 3899.70);
+  });
+
+  test('validateStock reports a line that outran its stock', () {
+    cart().addItem(product, variant);
+    cart().updateQuantity('123456', 5);
+
+    expect(cart().validateStock(), isNull);
+
+    // Stock moves underneath an open basket.
+    variant.quantity = 2;
+    expect(cart().validateStock(), contains('only 2 available'));
+  });
+
+  test('clearing empties the basket', () {
+    cart().addItem(product, variant);
+    cart().clearCart();
+    expect(container.read(cartProvider), isEmpty);
   });
 }

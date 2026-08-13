@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:atomid/presentation/providers/app_providers.dart';
-import 'package:atomid/presentation/providers/provider_refresh_helper.dart';
 import 'package:atomid/data/models/product_model.dart';
 import 'package:uuid/uuid.dart';
 import 'package:atomid/data/models/action_history_model.dart';
@@ -9,6 +8,8 @@ import 'package:atomid/presentation/features/price_tag/price_tag_screen.dart';
 import 'package:atomid/presentation/features/products/product_form_screen.dart';
 import 'package:atomid/core/utils/responsive.dart';
 import 'package:atomid/presentation/widgets/adaptive_dialog.dart';
+import 'package:atomid/presentation/widgets/empty_state.dart';
+import 'package:atomid/presentation/features/ocr/ocr_scanner_screen.dart';
 
 class ProductListScreen extends ConsumerStatefulWidget {
   const ProductListScreen({super.key});
@@ -59,15 +60,50 @@ class _ProductListScreenState extends ConsumerState<ProductListScreen> {
         ),
       ),
       body: products.isEmpty
-          ? const Center(child: Text('No products found.'))
+          ? EmptyState(
+              icon: _searchCtrl.text.isEmpty
+                  ? Icons.inventory_2_outlined
+                  : Icons.search_off,
+              title: _searchCtrl.text.isEmpty
+                  ? 'No products yet'
+                  : 'Nothing matches that search',
+              message: _searchCtrl.text.isEmpty
+                  ? 'Add what you sell, with its sizes, prices and barcodes. '
+                      'You can also photograph a price tag to fill the form.'
+                  : 'Try a different name, code or barcode.',
+              actionLabel: _searchCtrl.text.isEmpty && true
+                  ? 'Add your first product'
+                  : null,
+              onAction: _searchCtrl.text.isEmpty && true
+                  ? _showCreateProductDialog
+                  : null,
+            )
           : ResponsiveBuilder(
               mobileBuilder: (context) => _buildMobile(products),
               tabletBuilder: (context) => _buildTablet(products),
               desktopBuilder: (context) => _buildDesktop(products),
             ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _showCreateProductDialog,
-        child: const Icon(Icons.add),
+    floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+            FloatingActionButton.small(
+              heroTag: 'scan-tag',
+              tooltip: 'Read a price tag',
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const OcrScannerScreen()),
+              ),
+              child: const Icon(Icons.document_scanner_outlined),
+            ),
+          const SizedBox(height: 12),
+            FloatingActionButton.extended(
+              heroTag: 'add-product',
+              onPressed: _showCreateProductDialog,
+              icon: const Icon(Icons.add),
+              label: const Text('Add product'),
+            ),
+        ],
       ),
     );
   }
@@ -87,22 +123,22 @@ class _ProductListScreenState extends ConsumerState<ProductListScreen> {
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              IconButton(
-                icon: const Icon(Icons.edit, color: Colors.blue),
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          ProductFormScreen(existingProduct: product),
-                    ),
-                  );
-                },
-              ),
-              IconButton(
-                icon: const Icon(Icons.delete, color: Colors.red),
-                onPressed: () => _deleteProduct(product),
-              ),
+                IconButton(
+                  icon: const Icon(Icons.edit, color: Colors.blue),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            ProductFormScreen(existingProduct: product),
+                      ),
+                    );
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.delete, color: Colors.red),
+                  onPressed: () => _deleteProduct(product),
+                ),
             ],
           ),
           children: product.variants.map((variant) {
@@ -383,7 +419,6 @@ class _ProductListScreenState extends ConsumerState<ProductListScreen> {
       }
 
       await repo.deleteProduct(product.id);
-      ProviderRefreshHelper.invalidateProductProviders(ref);
 
       if (mounted && _selectedProduct?.id == product.id) {
         setState(() => _selectedProduct = null);

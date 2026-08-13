@@ -1,87 +1,34 @@
 import 'package:flutter/material.dart';
-import 'package:atomid/presentation/widgets/app_shell.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:atomid/presentation/providers/app_providers.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:atomid/firebase_options.dart';
 
-class SplashScreen extends ConsumerStatefulWidget {
+import 'package:atomid/core/theme/brand.dart';
+import 'package:atomid/core/theme/theme_provider.dart';
+
+/// Shown while [bootstrap] runs.
+class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
   @override
-  ConsumerState<SplashScreen> createState() => _SplashScreenState();
+  State<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends ConsumerState<SplashScreen>
+class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _scaleAnimation;
-  late Animation<double> _fadeAnimation;
+  late final AnimationController _controller;
+  late final Animation<double> _scale;
+  late final Animation<double> _fade;
 
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 2),
-    );
-    _scaleAnimation = Tween<double>(
-      begin: 0.5,
-      end: 1.0,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutBack));
-    _fadeAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeIn));
-
-    _controller.forward();
-    _initializeApp();
-  }
-
-  String _initStatus = 'Initializing...';
-  String _errorMessage = '';
-
-  Future<void> _initializeApp() async {
-    try {
-      debugPrint('Initializing Firebase...');
-      setState(() => _initStatus = 'Initializing Firebase...');
-      await Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform,
-      );
-      debugPrint('Firebase Initialized');
-
-      debugPrint('Initializing Storage...');
-      setState(() => _initStatus = 'Initializing Storage...');
-      await ref.read(storageRepositoryProvider).init();
-      debugPrint('Storage Initialized');
-
-      debugPrint('Initializing Session...');
-      setState(() => _initStatus = 'Initializing Session...');
-      await ref.read(sessionServiceProvider).init();
-      debugPrint('Session Initialized');
-
-      debugPrint('Starting Sync...');
-      setState(() => _initStatus = 'Starting Sync...');
-      ref.read(syncServiceProvider).start();
-      debugPrint('Sync Started');
-
-      // Add a small delay for the animation to play
-      await Future.delayed(const Duration(milliseconds: 500));
-
-      if (mounted) {
-        Navigator.of(
-          context,
-        ).pushReplacement(MaterialPageRoute(builder: (_) => const AppShell()));
-      }
-    } catch (e, stack) {
-      debugPrint('Startup Error: $e\n$stack');
-      if (mounted) {
-        setState(() {
-          _errorMessage = e.toString();
-          _initStatus = 'Error occurred during startup';
-        });
-      }
-    }
+      duration: const Duration(milliseconds: 900),
+    )..forward();
+    _scale = Tween<double>(
+      begin: 0.85,
+      end: 1,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
+    _fade = CurvedAnimation(parent: _controller, curve: Curves.easeIn);
   }
 
   @override
@@ -92,53 +39,134 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Center(
-        child: AnimatedBuilder(
-          animation: _controller,
-          builder: (context, child) {
-            return FadeTransition(
-              opacity: _fadeAnimation,
-              child: ScaleTransition(
-                scale: _scaleAnimation,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Image.asset(
-                      'assets/images/logo.jpeg', // Make sure this asset exists or handle error
-                      width: 120,
-                      height: 120,
-                      errorBuilder: (context, error, stackTrace) => const Icon(
-                        Icons.store,
-                        size: 120,
-                        color: Colors.amber,
-                      ),
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.lightTheme,
+      darkTheme: AppTheme.darkTheme,
+      home: Scaffold(
+        body: Center(
+          child: FadeTransition(
+            opacity: _fade,
+            child: ScaleTransition(
+              scale: _scale,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const BrandMark(size: 132, padding: 16),
+                  const SizedBox(height: 24),
+                  Text(
+                    Brand.appName,
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.5,
                     ),
-                    if (_errorMessage.isNotEmpty) ...[
-                      const SizedBox(height: 16),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 24),
-                        child: Text(
-                          _errorMessage,
-                          style: const TextStyle(color: Colors.red, fontSize: 14),
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                    ] else ...[
-                      const SizedBox(height: 16),
-                      Text(
-                        _initStatus,
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 16,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
+                  ),
+                  const SizedBox(height: 32),
+                  const SizedBox(
+                    width: 120,
+                    child: LinearProgressIndicator(minHeight: 3),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Opening your store…',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
               ),
-            );
-          },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Shown when local storage could not be opened at all.
+///
+/// This is the only genuinely fatal startup condition: without Hive there is
+/// nowhere to read or write. Everything else degrades to device-only mode.
+class StartupFailureScreen extends StatelessWidget {
+  final Object? error;
+  final VoidCallback onRetry;
+
+  const StartupFailureScreen({
+    super.key,
+    required this.error,
+    required this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.lightTheme,
+      darkTheme: AppTheme.darkTheme,
+      home: Scaffold(
+        body: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(32),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.storage_rounded,
+                    size: 56,
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    'Atomid could not open its database',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'This usually means another copy of Atomid is already '
+                    'running, or the storage folder is not writable. Close '
+                    'any other window and try again.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      height: 1.5,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 28),
+                  FilledButton.icon(
+                    onPressed: onRetry,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Try again'),
+                  ),
+                  if (error != null) ...[
+                    const SizedBox(height: 24),
+                    ExpansionTile(
+                      title: const Text(
+                        'Technical details',
+                        style: TextStyle(fontSize: 13),
+                      ),
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: SelectableText(
+                            error.toString(),
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontFamily: 'monospace',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );

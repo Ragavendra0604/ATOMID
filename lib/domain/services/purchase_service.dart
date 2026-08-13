@@ -1,31 +1,55 @@
+import 'package:atomid/core/utils/app_error.dart';
+import 'package:atomid/core/utils/formatters.dart';
+import 'package:atomid/core/utils/ids.dart';
+import 'package:atomid/data/models/action_history_model.dart';
 import 'package:atomid/data/models/purchase_model.dart';
 import 'package:atomid/data/repositories/storage_repository.dart';
-import 'package:atomid/data/models/action_history_model.dart';
+
+/// Statuses a purchase order can hold, in lifecycle order.
+class PurchaseStatus {
+  static const draft = 'Draft';
+  static const issued = 'Issued';
+  static const received = 'Received';
+  static const cancelled = 'Cancelled';
+
+  static const all = [draft, issued, received, cancelled];
+
+  /// A received order has already moved stock and money; it is read-only.
+  static bool isSettled(String status) => status == received;
+}
 
 class PurchaseService {
   final StorageRepository _repository;
 
   PurchaseService(this._repository);
 
-  Future<void> savePurchase(Purchase purchase, {bool isNew = false}) async {
-    final now = DateTime.now();
-    
-    // Default to received for older items or direct purchases
-    bool wasDraftOrIssued = true;
-    
-    if (!isNew) {
-      final existing = _repository.getPurchaseById(purchase.id);
-      if (existing != null && (existing.status == 'Received' || existing.status == 'Partially Received')) {
-        wasDraftOrIssued = false;
-      }
+  /// Persists a purchase and, when it crosses into [PurchaseStatus.received]
+  /// for the first time, moves stock and credits the supplier ledger.
+  ///
+  /// [previousStatus] must be the status the record held *before* the caller
+  /// mutated it. Re-reading it here does not work: Hive returns the same
+  /// instance the caller just modified, so the transition is invisible and the
+  /// stock-in silently never happens.
+  Future<void> savePurchase(
+    Purchase purchase, {
+    bool isNew = false,
+    String? previousStatus,
+  }) async {
+    if (purchase.items.isEmpty) {
+      throw const AppException('A purchase needs at least one item.');
     }
 
+    final priorStatus = isNew ? null : previousStatus;
+    final becomesReceived =
+        purchase.status == PurchaseStatus.received &&
+        priorStatus != PurchaseStatus.received;
+
+    purchase.updatedAt = DateTime.now();
     await _repository.savePurchase(purchase);
 
-    // If it transitions to Received and hasn't been received before
-    if (purchase.status == 'Received' && wasDraftOrIssued) {
-      // 1. Perform Stock In for all items
-      for (var item in purchase.items) {
+    if (becomesReceived) {
+      for (final item in purchase.items) {
+        item.receivedQuantity = item.quantity;
         await _repository.performStockIn(
           productId: item.productId,
           variantBarcode: item.variantBarcode,
@@ -36,7 +60,6 @@ class PurchaseService {
         );
       }
 
-      // 2. Credit Supplier Ledger
       if (purchase.supplierId.isNotEmpty) {
         await _repository.addSupplierLedgerEntry(
           supplierId: purchase.supplierId,
@@ -44,37 +67,56 @@ class PurchaseService {
           transactionType: 'Purchase',
           referenceId: purchase.purchaseNumber,
           credit: purchase.grandTotal,
-          notes: 'PO #${purchase.purchaseNumber} Received',
+          notes: 'PO #${purchase.purchaseNumber} received',
         );
       }
+
+      // Persist the receivedQuantity values written above.
+      await _repository.savePurchase(purchase);
     }
 
     await _repository.saveHistory(
       ActionHistory(
-        id: '${purchase.id}_purchase_action',
+        id: Ids.generate(),
         barcode: purchase.purchaseNumber,
         productName: 'Purchase from ${purchase.supplierName}',
-        action: 'PO ${isNew ? 'Created' : 'Updated'} (Status: ${purchase.status}, Total: ${purchase.grandTotal.toStringAsFixed(2)})',
-        date: now,
+        action:
+            'PO ${isNew ? 'created' : 'updated'} · ${purchase.status} · '
+            '${Fmt.amount(purchase.grandTotal)}',
+        date: DateTime.now(),
       ),
     );
   }
 
   Future<void> markAsIssued(Purchase purchase) async {
-    purchase.status = 'Issued';
-    purchase.updatedAt = DateTime.now();
-    await savePurchase(purchase);
+    if (purchase.status != PurchaseStatus.draft) {
+      throw const AppException('Only a draft order can be issued.');
+    }
+    final previous = purchase.status;
+    purchase.status = PurchaseStatus.issued;
+    await savePurchase(purchase, previousStatus: previous);
   }
 
   Future<void> markAsReceived(Purchase purchase) async {
-    purchase.status = 'Received';
-    purchase.updatedAt = DateTime.now();
-    
-    // Mark all items as fully received
-    for (var item in purchase.items) {
-      item.receivedQuantity = item.quantity;
+    if (PurchaseStatus.isSettled(purchase.status)) {
+      throw const AppException('This order has already been received.');
     }
-    
-    await savePurchase(purchase);
+    if (purchase.status == PurchaseStatus.cancelled) {
+      throw const AppException('A cancelled order cannot be received.');
+    }
+    final previous = purchase.status;
+    purchase.status = PurchaseStatus.received;
+    await savePurchase(purchase, previousStatus: previous);
+  }
+
+  Future<void> cancel(Purchase purchase) async {
+    if (PurchaseStatus.isSettled(purchase.status)) {
+      throw const AppException(
+        'A received order cannot be cancelled. Record a return instead.',
+      );
+    }
+    final previous = purchase.status;
+    purchase.status = PurchaseStatus.cancelled;
+    await savePurchase(purchase, previousStatus: previous);
   }
 }

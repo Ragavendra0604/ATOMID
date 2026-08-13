@@ -23,15 +23,9 @@ class DefaultFirebaseOptions {
       case TargetPlatform.android:
         return android;
       case TargetPlatform.iOS:
-        throw UnsupportedError(
-          'DefaultFirebaseOptions have not been configured for ios - '
-          'you can reconfigure this by running the FlutterFire CLI again.',
-        );
+        return ios;
       case TargetPlatform.macOS:
-        throw UnsupportedError(
-          'DefaultFirebaseOptions have not been configured for macos - '
-          'you can reconfigure this by running the FlutterFire CLI again.',
-        );
+        return macos;
       case TargetPlatform.windows:
         return windows;
       case TargetPlatform.linux:
@@ -52,16 +46,38 @@ class DefaultFirebaseOptions {
     messagingSenderId: '973739607499',
     projectId: 'atomid-erp',
     authDomain: 'atomid-erp.firebaseapp.com',
+    databaseURL: 'https://atomid-erp-default-rtdb.firebaseio.com',
     storageBucket: 'atomid-erp.firebasestorage.app',
     measurementId: 'G-TG7ETT3T47',
   );
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyCbPHQC_x_lrm2v47RxKyv9zcqTvG2RNCE',
-    appId: '1:973739607499:android:99eded40099858cc03224e',
+    appId: '1:973739607499:android:674ef04a16a8db6c03224e',
     messagingSenderId: '973739607499',
     projectId: 'atomid-erp',
+    databaseURL: 'https://atomid-erp-default-rtdb.firebaseio.com',
     storageBucket: 'atomid-erp.firebasestorage.app',
+  );
+
+  static const FirebaseOptions ios = FirebaseOptions(
+    apiKey: 'AIzaSyB3YwG4s7pF7KfLh9dxJb7CsgPTmpYOU0E',
+    appId: '1:973739607499:ios:d1d69c6a71ce5ae103224e',
+    messagingSenderId: '973739607499',
+    projectId: 'atomid-erp',
+    databaseURL: 'https://atomid-erp-default-rtdb.firebaseio.com',
+    storageBucket: 'atomid-erp.firebasestorage.app',
+    iosBundleId: 'com.atomid.store',
+  );
+
+  static const FirebaseOptions macos = FirebaseOptions(
+    apiKey: 'AIzaSyB3YwG4s7pF7KfLh9dxJb7CsgPTmpYOU0E',
+    appId: '1:973739607499:ios:d1d69c6a71ce5ae103224e',
+    messagingSenderId: '973739607499',
+    projectId: 'atomid-erp',
+    databaseURL: 'https://atomid-erp-default-rtdb.firebaseio.com',
+    storageBucket: 'atomid-erp.firebasestorage.app',
+    iosBundleId: 'com.atomid.store',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
@@ -70,6 +86,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '973739607499',
     projectId: 'atomid-erp',
     authDomain: 'atomid-erp.firebaseapp.com',
+    databaseURL: 'https://atomid-erp-default-rtdb.firebaseio.com',
     storageBucket: 'atomid-erp.firebasestorage.app',
     measurementId: 'G-TXFH3FFNNP',
   );

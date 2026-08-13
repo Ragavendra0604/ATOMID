@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:atomid/core/utils/formatters.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:atomid/data/models/supplier_model.dart';
-import 'package:atomid/presentation/providers/provider_refresh_helper.dart';
 import 'package:atomid/data/models/action_history_model.dart';
 import 'package:atomid/presentation/providers/app_providers.dart';
 import 'package:atomid/presentation/features/suppliers/supplier_form_screen.dart';
@@ -28,7 +28,9 @@ class _SupplierDetailsScreenState extends ConsumerState<SupplierDetailsScreen> {
       orElse: () => widget.supplier,
     );
     final allPurchases = ref.watch(purchasesProvider);
-    final purchases = allPurchases.where((p) => p.supplierId == freshSupplier.id).toList();
+    final purchases = allPurchases
+        .where((p) => p.supplierId == freshSupplier.id)
+        .toList();
     final ledgers = ref.watch(supplierLedgerProvider(freshSupplier.id));
     final settings = ref.watch(settingsProvider);
 
@@ -98,7 +100,6 @@ class _SupplierDetailsScreenState extends ConsumerState<SupplierDetailsScreen> {
                     date: DateTime.now(),
                   ),
                 );
-                ProviderRefreshHelper.invalidateSupplierProviders(ref);
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
@@ -209,7 +210,10 @@ class _SupplierDetailsScreenState extends ConsumerState<SupplierDetailsScreen> {
                           ),
                           _infoRow(
                             'Total Value',
-                            '${settings.currencySymbol}${totalPurchaseValue.toStringAsFixed(2)}',
+                            Fmt.money(
+                              totalPurchaseValue,
+                              settings.currencySymbol,
+                            ),
                           ),
                         ],
                       ),
@@ -267,7 +271,10 @@ class _SupplierDetailsScreenState extends ConsumerState<SupplierDetailsScreen> {
                               '${_formatDate(purchase.purchaseDate)} • ${purchase.items.length} items',
                             ),
                             trailing: Text(
-                              '${settings.currencySymbol}${purchase.grandTotal.toStringAsFixed(0)}',
+                              Fmt.money(
+                                purchase.grandTotal,
+                                settings.currencySymbol,
+                              ),
                               style: const TextStyle(
                                 fontWeight: FontWeight.bold,
                                 fontSize: 16,
@@ -307,7 +314,10 @@ class _SupplierDetailsScreenState extends ConsumerState<SupplierDetailsScreen> {
                             style: TextStyle(color: Colors.grey),
                           ),
                           Text(
-                            '${settings.currencySymbol}${freshSupplier.currentBalance.toStringAsFixed(2)}',
+                            Fmt.money(
+                              freshSupplier.currentBalance,
+                              settings.currencySymbol,
+                            ),
                             style: TextStyle(
                               fontSize: 24,
                               fontWeight: FontWeight.bold,
@@ -370,7 +380,7 @@ class _SupplierDetailsScreenState extends ConsumerState<SupplierDetailsScreen> {
                                   crossAxisAlignment: CrossAxisAlignment.end,
                                   children: [
                                     Text(
-                                      '${isDebit ? '-' : '+'}${settings.currencySymbol}${(isDebit ? l.debit : l.credit).toStringAsFixed(2)}',
+                                      '${isDebit ? '-' : '+'}${Fmt.money(isDebit ? l.debit : l.credit, settings.currencySymbol)}',
                                       style: TextStyle(
                                         fontWeight: FontWeight.bold,
                                         color: isDebit
@@ -379,7 +389,7 @@ class _SupplierDetailsScreenState extends ConsumerState<SupplierDetailsScreen> {
                                       ),
                                     ),
                                     Text(
-                                      'Bal: ${settings.currencySymbol}${l.balance.toStringAsFixed(2)}',
+                                      'Balance ${Fmt.money(l.balance, settings.currencySymbol)}',
                                       style: const TextStyle(
                                         fontSize: 10,
                                         color: Colors.grey,
@@ -496,7 +506,6 @@ class _SupplierDetailsScreenState extends ConsumerState<SupplierDetailsScreen> {
               );
 
               // Refresh
-              ProviderRefreshHelper.invalidateSupplierProviders(ref);
 
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -510,6 +519,12 @@ class _SupplierDetailsScreenState extends ConsumerState<SupplierDetailsScreen> {
           ),
         ],
       ),
-    );
+      // Built per invocation, so without this every payment recorded leaks
+      // three controllers for the life of the session.
+    ).whenComplete(() {
+      amountCtrl.dispose();
+      refCtrl.dispose();
+      notesCtrl.dispose();
+    });
   }
 }

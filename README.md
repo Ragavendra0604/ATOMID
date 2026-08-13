@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/images/logo.jpeg" alt="Atomid Logo" width="120" style="border-radius: 20px;" />
+  <img src="assets/images/logo.png" alt="Atomid Logo" width="120" style="border-radius: 20px;" />
 </p>
 
 <h1 align="center">Atomid</h1>
@@ -33,11 +33,12 @@
 | 🛒 **POS & Billing** | Fast barcode scanning checkout with cart management, discounts, and receipt printing |
 | 📦 **Inventory Management** | Stock-in / stock-out tracking with immutable audit logs |
 | 👥 **Customer CRM** | Customer profiles, ledger history, and loyalty points |
-| 🔄 **Offline-First Sync** | Hive local storage → automatic Firestore sync with exponential backoff retry |
-| 🔐 **RBAC** | Role-based access control — Owner (full access) and Staff (granular permissions) |
+| 🔄 **Two-Way Sync** | Hive local storage ⇄ Firestore, store-scoped, with backoff, dead-letter and conflict resolution |
+| 🔐 **RBAC** | Roles with permission presets, PIN shift sign-in, and an activity log |
 | 📊 **Dashboard & Reports** | Revenue analytics, low-stock alerts, and transaction history |
 | 🧾 **PDF Export** | Generate and print invoices, reports, and barcode sheets |
-| 📱 **Multi-Platform** | Android · iOS · Web · Windows · macOS · Linux |
+| 🧾 **Tax & Loyalty** | Inclusive or exclusive tax, configurable reward points |
+| 📱 **Platforms** | Android · Web · Windows (cloud sync) · iOS/macOS/Linux (device-only until configured) |
 
 ---
 
@@ -60,22 +61,24 @@ printing                → Receipt & document printing
 
 ```
 lib/
-├── core/                    # App-wide utilities
-│   ├── services/            # RBAC, Export services
-│   ├── theme/               # Light / Dark mode config
-│   └── utils/               # Responsive layout builders
+├── core/
+│   ├── services/            # RBAC, PIN hashing, PDF export
+│   ├── theme/               # Light / dark themes
+│   └── utils/               # Formatters, ids, errors, responsive helpers
 ├── data/
 │   ├── models/              # Hive entities (Product, Sale, Customer …)
-│   └── repositories/        # StorageRepository, FirebaseRepository
+│   ├── repositories/        # StorageRepository, FirebaseRepository
+│   └── sync/                # EntityCodec — Firestore encode/decode
 ├── domain/
-│   └── services/            # AuthService, SyncService, CustomerService
+│   ├── pricing.dart         # Pure sale arithmetic (tax, discounts, points)
+│   └── services/            # Sale, Purchase, Customer, Sync, Session, Auth
 ├── presentation/
 │   ├── features/            # Feature modules (billing, products, inventory …)
-│   ├── providers/           # Riverpod state providers
-│   ├── screens/             # Root-level screens
-│   └── widgets/             # Shared components (AppShell, guards)
+│   ├── providers/           # Riverpod providers (topic-driven refresh)
+│   └── widgets/             # AppShell, guards, pickers, empty states
+├── bootstrap.dart           # Composition root — builds every service once
 ├── main.dart                # App entry point
-└── firebase_options.dart    # Multi-platform Firebase config
+└── firebase_options.dart    # Per-platform Firebase config
 ```
 
 ---
@@ -107,9 +110,14 @@ flutter pub run build_runner build --delete-conflicting-outputs
 
 | Platform | Action |
 | :--- | :--- |
-| **Android** | Place `google-services.json` in `android/app/` |
-| **iOS / macOS** | Add `GoogleService-Info.plist` to the Xcode target |
-| **All** | Update or regenerate `lib/firebase_options.dart` if switching Firebase projects |
+| **All** | `flutterfire configure` regenerates `firebase_options.dart` and the native config files |
+| **Android** | `google-services.json` in `android/app/` must list the current `applicationId` |
+| **iOS / macOS** | `GoogleService-Info.plist` added to the Xcode target |
+
+> The app id is **`com.atomid.store`**. Firebase keys its Android config on
+> that exact string — if `google-services.json` was generated for a different
+> one, the build fails with *No matching client found for package name*. Rerun
+> `flutterfire configure` after any change to it.
 
 ### Run
 
@@ -117,10 +125,36 @@ flutter pub run build_runner build --delete-conflicting-outputs
 flutter run
 ```
 
+### Release signing (Android)
+
+The repo ships **without** a keystore, so release builds fall back to the debug
+key and Gradle prints a warning. That is fine for testing and rejected by Play.
+
+Generate one before your first release:
+
+```bash
+keytool -genkey -v -keystore ~/atomid-upload.jks   -keyalg RSA -keysize 2048 -validity 10000 -alias upload
+```
+
+Then create `android/key.properties` (git-ignored):
+
+```properties
+storePassword=<the password you chose>
+keyPassword=<the password you chose>
+keyAlias=upload
+storeFile=C:/Users/you/atomid-upload.jks
+```
+
+> **Back the `.jks` file up somewhere you will still have in five years.** It is
+> the only thing that proves an update comes from you. Play refuses an upload
+> signed with a different key, and there is no recovery — a lost keystore means
+> the app can never be updated again.
+
 ### Build for Production
 
 ```bash
-flutter build apk --release          # Android APK
+flutter build appbundle --release     # Android — what Play wants
+flutter build apk --release           # Android APK (all ABIs, large)
 flutter build appbundle --release     # Android App Bundle
 flutter build ipa --release           # iOS (macOS host required)
 flutter build web --release           # Web
@@ -133,7 +167,12 @@ flutter build linux --release         # Linux
 
 ## 🔄 Offline Sync Architecture
 
-Atomid guarantees full operation without internet. All mutations are queued locally and synced when connectivity is restored.
+Atomid runs fully without internet. Writes are queued locally and uploaded when
+connectivity returns; signing in pulls the store's history down so a second
+device or a reinstall starts populated.
+
+Every cloud document lives under `/stores/{storeId}/…`, so one business's data is
+never reachable from another account.
 
 ```
 ┌──────────────┐       ┌────────────────┐     ┌─────────────────┐
@@ -146,35 +185,62 @@ Atomid guarantees full operation without internet. All mutations are queued loca
                                                    Yes ▼
                                            ┌───────────────────────┐
                                            │  Firestore Batch Sync │
-                                           │  (10 items / batch)   │
+                                           │  (20 items / batch)   │
                                            └───────────┬───────────┘
                                                        │
                                              ┌─────────┴─────────┐
                                              │                   │
                                        ✅ Success           ❌ Failure
-                                       (Remove from         (Exponential backoff
-                                          queue)               retry — max 5)
+                                       (Remove from         (Exponential backoff,
+                                          queue)             5 tries, then parked
+                                                             as DEAD for review)
 ```
 
 ---
 
-## 🔐 Authentication & Authorization
+## 🔐 Account & Sync
 
-### Auth Flow
+Atomid is a **single-user** app. Signing in is not a door into it — every
+screen works signed out, on-device, offline. The account is the key to one
+cloud copy and nothing else.
 
-```
-App Start → Session Check → Valid? → Dashboard
-                         → Invalid? → Login Screen → Firebase Auth → Dashboard
-```
-
-### Role-Based Access
-
-| Role | Access Level |
+| | |
 | :--- | :--- |
-| **Owner** | Full access — bypasses all permission checks |
-| **Staff** | Granular permissions defined per employee |
+| **Signed out** | Everything works. Changes queue locally and wait. |
+| **Signed in** | The queue drains to `/users/{uid}/…` whenever there is a connection. |
 
-Access is enforced via `RbacService` and the `RoleGuardWidget` wrapper at the UI level.
+Security rules are one condition — an account owns its own subtree or it is
+refused:
+
+```
+match /users/{userId}/{document=**} {
+  allow read, write: if request.auth != null && request.auth.uid == userId;
+}
+```
+
+Deploy them before first use, or every sync is rejected:
+
+```bash
+firebase deploy --only firestore:rules
+```
+
+---
+
+## 💾 Backup
+
+Cloud sync is a **mirror**, not a backup: it replicates a deletion just as
+faithfully as a sale. Backups are separate, under *Settings → Backup and
+restore*.
+
+- A full JSON snapshot, built from the same serialiser sync uses, so the two
+  cannot drift apart.
+- Written to a `.part` file and renamed into place — a crash mid-write leaves
+  the previous backup intact rather than a truncated file that looks like one.
+- **Restore is additive**: records with the same id are overwritten, missing
+  ones are created, nothing is deleted. Restoring an old backup cannot destroy
+  newer work.
+- Ten most recent kept. Android writes to external storage so the file
+  survives an uninstall; use **Send a copy** to get it off the device.
 
 ---
 
@@ -192,8 +258,13 @@ dart format .
 ```
 
 Tests are located in:
-- `test/unit/` — Model and service tests
+- `test/unit/` — pricing, sale and purchase services, repository behaviour,
+  sync payload round-trips, RBAC, PIN hashing, formatters
 - `test/widget/` — UI component tests
+- `test/support/` — `TestStore`, a real repository on a temporary Hive directory
+
+CI runs `dart format --set-exit-if-changed`, `flutter analyze --fatal-infos` and
+`flutter test` on every push; the web deploy only runs after CI passes.
 
 ---
 
@@ -211,6 +282,11 @@ Tests are located in:
 ## 📋 Development Conventions
 
 - Always run `build_runner` after modifying annotated Hive models
+- A field added to a model must also be added to `StorageRepository.getEntityJson`
+  **and** `EntityCodec`, or it is silently dropped on sync — `sync_payload_test`
+  guards this
+- Money is formatted through `Fmt`, never interpolated raw
+- Ids come from `Ids.generate()`, never from a timestamp
 - State management lives in `lib/presentation/providers/` (Riverpod)
 - Never commit production Firebase credentials — use environment-specific projects
 - Keep `google-services.json` and `GoogleService-Info.plist` out of public repos
