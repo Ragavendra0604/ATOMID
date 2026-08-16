@@ -45,7 +45,12 @@ void main() {
     store = await TestStore.open();
     cloud = FakeFirebaseRepository();
     final auth = _FakeAuthService(cloud, user: _MockUser());
-    sync = SyncService(store.repository, cloud, auth, _FakeSessionService(auth));
+    sync = SyncService(
+      store.repository,
+      cloud,
+      auth,
+      _FakeSessionService(auth),
+    );
   });
 
   tearDown(() => store.close());
@@ -104,26 +109,28 @@ void main() {
       expect(failures.first.error, contains('boom'));
     });
 
-    test('an item that has exhausted its retries is parked, not retried',
-        () async {
-      await store.addProduct();
-      final item = store.repository.getPendingSyncItems().first;
-      await store.repository.updateSyncItemStatus(
-        item.id,
-        SyncState.failed,
-        retryCount: SyncState.maxRetries,
-        lastAttempt: DateTime.now().subtract(const Duration(days: 1)),
-      );
+    test(
+      'an item that has exhausted its retries is parked, not retried',
+      () async {
+        await store.addProduct();
+        final item = store.repository.getPendingSyncItems().first;
+        await store.repository.updateSyncItemStatus(
+          item.id,
+          SyncState.failed,
+          retryCount: SyncState.maxRetries,
+          lastAttempt: DateTime.now().subtract(const Duration(days: 1)),
+        );
 
-      await sync.processQueue();
+        await sync.processQueue();
 
-      expect(store.repository.getDeadSyncItems(), isNotEmpty);
-      expect(
-        cloud.allWrites.any((w) => w.documentId == item.entityId),
-        isFalse,
-        reason: 'a dead item must not be sent again',
-      );
-    });
+        expect(store.repository.getDeadSyncItems(), isNotEmpty);
+        expect(
+          cloud.allWrites.any((w) => w.documentId == item.entityId),
+          isFalse,
+          reason: 'a dead item must not be sent again',
+        );
+      },
+    );
 
     test('an item still inside its backoff window is not retried', () async {
       await store.addProduct();
@@ -144,20 +151,22 @@ void main() {
       );
     });
 
-    test('a record deleted locally before upload is dropped, not sent',
-        () async {
-      final product = await store.addProduct();
-      await store.repository.deleteProduct(product.id);
+    test(
+      'a record deleted locally before upload is dropped, not sent',
+      () async {
+        final product = await store.addProduct();
+        await store.repository.deleteProduct(product.id);
 
-      await sync.processQueue();
+        await sync.processQueue();
 
-      // The delete is legitimate and still goes up; what must not happen is a
-      // put for a record that no longer exists.
-      final puts = cloud.allWrites.where(
-        (w) => w.documentId == product.id && !w.isDelete,
-      );
-      expect(puts, isEmpty);
-    });
+        // The delete is legitimate and still goes up; what must not happen is a
+        // put for a record that no longer exists.
+        final puts = cloud.allWrites.where(
+          (w) => w.documentId == product.id && !w.isDelete,
+        );
+        expect(puts, isEmpty);
+      },
+    );
 
     test('nothing is uploaded while signed out', () async {
       final auth = _FakeAuthService(cloud, user: _MockUser());
@@ -287,16 +296,18 @@ void main() {
       expect(store.repository.getCustomerById('bulk-customer-749'), isNotNull);
     });
 
-    test('a collection that cannot be read is reported, not swallowed',
-        () async {
-      cloud.failingCollections.add('products');
+    test(
+      'a collection that cannot be read is reported, not swallowed',
+      () async {
+        cloud.failingCollections.add('products');
 
-      await sync.pullAll();
+        await sync.pullAll();
 
-      expect(sync.status.phase, SyncPhase.failed);
-      expect(sync.status.message, isNotNull);
-      expect(sync.status.message, contains('cannot read'));
-    });
+        expect(sync.status.phase, SyncPhase.failed);
+        expect(sync.status.message, isNotNull);
+        expect(sync.status.message, contains('cannot read'));
+      },
+    );
 
     test('unsent local work is never overwritten by a pull', () async {
       final product = await store.addProduct(name: 'Local Wins');

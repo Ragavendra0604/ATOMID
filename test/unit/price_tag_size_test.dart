@@ -16,7 +16,10 @@ void main() {
     });
 
     test('a bigger tag means fewer on a sheet', () {
-      expect(PriceTagSize.small.perPage, greaterThan(PriceTagSize.medium.perPage));
+      expect(
+        PriceTagSize.small.perPage,
+        greaterThan(PriceTagSize.medium.perPage),
+      );
       expect(
         PriceTagSize.medium.perPage,
         greaterThan(PriceTagSize.large.perPage),

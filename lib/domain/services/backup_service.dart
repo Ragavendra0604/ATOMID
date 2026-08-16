@@ -116,9 +116,7 @@ class BackupService {
       payload = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
     } catch (error) {
       debugPrint('Backup parse failed: $error');
-      throw const AppException(
-        'That file is not a readable Atomid backup.',
-      );
+      throw const AppException('That file is not a readable Atomid backup.');
     }
 
     final version = payload['formatVersion'];
@@ -193,9 +191,7 @@ class BackupService {
     return directory;
   }
 
-  Future<List<PlatformFile>> _backupFiles(
-    PlatformDirectory directory,
-  ) async {
+  Future<List<PlatformFile>> _backupFiles(PlatformDirectory directory) async {
     final entries = await directory.list().toList();
     final files = entries
         .whereType<PlatformFile>()

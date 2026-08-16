@@ -84,51 +84,54 @@ void main() {
   tearDown(() => store.close());
 
   group('checkout rollback', () {
-    test('a failure after the ledger write leaves the customer whole', () async {
-      final product = await store.addProduct(price: 500, quantity: 5);
-      final customer = await store.addCustomer();
+    test(
+      'a failure after the ledger write leaves the customer whole',
+      () async {
+        final product = await store.addProduct(price: 500, quantity: 5);
+        final customer = await store.addCustomer();
 
-      await expectLater(
-        service.checkout(
-          CheckoutRequest(
-            items: [
-              CartItem(product: product, variant: product.variants.first),
-            ],
-            customer: customer,
-            paymentMethod: 'Cash',
+        await expectLater(
+          service.checkout(
+            CheckoutRequest(
+              items: [
+                CartItem(product: product, variant: product.variants.first),
+              ],
+              customer: customer,
+              paymentMethod: 'Cash',
+            ),
           ),
-        ),
-        throwsA(isA<AppException>()),
-      );
+          throwsA(isA<AppException>()),
+        );
 
-      final repo = store.repository;
+        final repo = store.repository;
 
-      expect(repo.getAllSales(), isEmpty, reason: 'the sale must be removed');
+        expect(repo.getAllSales(), isEmpty, reason: 'the sale must be removed');
 
-      expect(
-        repo.getLedgerForCustomer(customer.id),
-        isEmpty,
-        reason: 'the ledger entries must be reversed, not left behind',
-      );
+        expect(
+          repo.getLedgerForCustomer(customer.id),
+          isEmpty,
+          reason: 'the ledger entries must be reversed, not left behind',
+        );
 
-      final stored = repo.getCustomerById(customer.id)!;
-      expect(
-        stored.currentBalance,
-        0,
-        reason: 'a rolled-back sale must not leave the customer debited',
-      );
-      expect(
-        stored.lifetimeSpend,
-        0,
-        reason: 'lifetime spend must be put back',
-      );
+        final stored = repo.getCustomerById(customer.id)!;
+        expect(
+          stored.currentBalance,
+          0,
+          reason: 'a rolled-back sale must not leave the customer debited',
+        );
+        expect(
+          stored.lifetimeSpend,
+          0,
+          reason: 'lifetime spend must be put back',
+        );
 
-      expect(
-        repo.getProductById(product.id)!.variants.first.quantity,
-        5,
-        reason: 'stock must be restored',
-      );
-    });
+        expect(
+          repo.getProductById(product.id)!.variants.first.quantity,
+          5,
+          reason: 'stock must be restored',
+        );
+      },
+    );
 
     test('a credit sale that fails leaves no outstanding balance', () async {
       final product = await store.addProduct(price: 500, quantity: 5);
@@ -160,9 +163,7 @@ void main() {
 
     setUp(() async {
       await store.close();
-      legStore = await TestStore.open(
-        repository: _PaymentLegFailsRepository(),
-      );
+      legStore = await TestStore.open(repository: _PaymentLegFailsRepository());
       final session = MockSessionService();
       when(() => session.deviceId).thenReturn('dev_test_abcd');
       legService = SaleService(legStore.repository, session);

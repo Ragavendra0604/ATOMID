@@ -214,9 +214,7 @@ class _ReportsDashboardScreenState
                           ),
                           title: Text(
                             item.key,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                            ),
+                            style: const TextStyle(fontWeight: FontWeight.bold),
                           ),
                           trailing: Text(
                             '${item.value} sold',

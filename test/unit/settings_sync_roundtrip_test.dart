@@ -38,22 +38,19 @@ void main() {
     await drainQueue();
 
     // What another till would publish: the shared trading settings only.
-    final applied = await store.repository.applyRemote(
-      'SettingsModel',
-      'app_settings',
-      {
-        'id': 'settings',
-        'isDarkMode': true,
-        'companyName': 'Renamed From Another Till',
-        'currencySymbol': r'$',
-        'pdfPageSize': 'Letter',
-        'taxMode': 'exclusive',
-        'taxRate': 12.5,
-        'updatedAt': DateTime.now()
-            .add(const Duration(days: 1))
-            .toIso8601String(),
-      },
-    );
+    final applied = await store.repository
+        .applyRemote('SettingsModel', 'app_settings', {
+          'id': 'settings',
+          'isDarkMode': true,
+          'companyName': 'Renamed From Another Till',
+          'currencySymbol': r'$',
+          'pdfPageSize': 'Letter',
+          'taxMode': 'exclusive',
+          'taxRate': 12.5,
+          'updatedAt': DateTime.now()
+              .add(const Duration(days: 1))
+              .toIso8601String(),
+        });
 
     expect(applied, isTrue, reason: 'the remote change should be accepted');
 

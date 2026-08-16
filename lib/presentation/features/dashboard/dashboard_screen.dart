@@ -35,9 +35,7 @@ class DashboardScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(
         title: BrandTitle(name: settings.companyName),
-        actions: [
-          const SyncStatusWidget(),
-        ],
+        actions: [const SyncStatusWidget()],
       ),
       body: products.isEmpty && todaySales.isEmpty
           ? EmptyState(
@@ -374,25 +372,21 @@ class _QuickActions extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final actions = <_Action>[
-        _Action(
-          'New sale',
-          Icons.point_of_sale,
-          const PosScreen(),
-          primary: true,
-        ),
-        _Action(
-          'Sales history',
-          Icons.receipt_long,
-          const SalesHistoryScreen(),
-        ),
-        _Action('Stock in', Icons.add_box_outlined, const StockInScreen()),
+      _Action(
+        'New sale',
+        Icons.point_of_sale,
+        const PosScreen(),
+        primary: true,
+      ),
+      _Action('Sales history', Icons.receipt_long, const SalesHistoryScreen()),
+      _Action('Stock in', Icons.add_box_outlined, const StockInScreen()),
       _Action('Scan', Icons.qr_code_scanner, const BarcodeScannerScreen()),
       _Action('Price tags', Icons.sell_outlined, const BulkGeneratorScreen()),
-        _Action(
-          'Expenses',
-          Icons.account_balance_wallet_outlined,
-          const ExpenseListScreen(),
-        ),
+      _Action(
+        'Expenses',
+        Icons.account_balance_wallet_outlined,
+        const ExpenseListScreen(),
+      ),
       _Action('Activity', Icons.history, const HistoryScreen()),
     ];
 

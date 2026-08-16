@@ -22,10 +22,8 @@ class SyncWrite {
     required Map<String, dynamic> this.data,
   });
 
-  const SyncWrite.delete({
-    required this.collection,
-    required this.documentId,
-  }) : data = null;
+  const SyncWrite.delete({required this.collection, required this.documentId})
+    : data = null;
 
   bool get isDelete => data == null;
 }

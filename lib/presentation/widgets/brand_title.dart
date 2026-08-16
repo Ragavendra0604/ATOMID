@@ -21,17 +21,10 @@ class BrandTitle extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        BrandMark(
-          size: logoSize,
-          padding: logoSize * 0.15,
-        ),
+        BrandMark(size: logoSize, padding: logoSize * 0.15),
         SizedBox(width: spacing),
         Flexible(
-          child: Text(
-            name,
-            style: textStyle,
-            overflow: TextOverflow.ellipsis,
-          ),
+          child: Text(name, style: textStyle, overflow: TextOverflow.ellipsis),
         ),
       ],
     );

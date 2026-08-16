@@ -71,155 +71,155 @@ class _ExpenseListScreenState extends ConsumerState<ExpenseListScreen> {
 
     return Scaffold(
       appBar: AppBar(
-      title: const Text('Expenses'),
-      actions: [
-        PopupMenuButton<String>(
-          icon: const Icon(Icons.filter_list),
-          onSelected: (val) => setState(() => _selectedPeriod = val),
-          itemBuilder: (context) => [
-            const PopupMenuItem(value: 'Today', child: Text('Today')),
-            const PopupMenuItem(value: 'This Week', child: Text('This Week')),
-            const PopupMenuItem(
-              value: 'This Month',
-              child: Text('This Month'),
-            ),
-            const PopupMenuItem(value: 'All Time', child: Text('All Time')),
-          ],
-        ),
-      ],
-    ),
-    body: Column(
-      children: [
-        // Summary Header
-        Container(
-          padding: const EdgeInsets.all(24),
-          width: double.infinity,
-          color: Theme.of(context).primaryColor,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Total Expenses ($_selectedPeriod)',
-                style: TextStyle(
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.onPrimary.withValues(alpha: 0.75),
-                  fontSize: 16,
-                ),
+        title: const Text('Expenses'),
+        actions: [
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.filter_list),
+            onSelected: (val) => setState(() => _selectedPeriod = val),
+            itemBuilder: (context) => [
+              const PopupMenuItem(value: 'Today', child: Text('Today')),
+              const PopupMenuItem(value: 'This Week', child: Text('This Week')),
+              const PopupMenuItem(
+                value: 'This Month',
+                child: Text('This Month'),
               ),
-              const SizedBox(height: 8),
-              Text(
-                Fmt.money(totalAmount, settings.currencySymbol),
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onPrimary,
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+              const PopupMenuItem(value: 'All Time', child: Text('All Time')),
             ],
           ),
-        ),
+        ],
+      ),
+      body: Column(
+        children: [
+          // Summary Header
+          Container(
+            padding: const EdgeInsets.all(24),
+            width: double.infinity,
+            color: Theme.of(context).primaryColor,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Total Expenses ($_selectedPeriod)',
+                  style: TextStyle(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.onPrimary.withValues(alpha: 0.75),
+                    fontSize: 16,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  Fmt.money(totalAmount, settings.currencySymbol),
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onPrimary,
+                    fontSize: 32,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
 
-        Expanded(
-          child: filteredExpenses.isEmpty
-              ? const Center(
-                  child: Text('No expenses found for this period.'),
-                )
-              : ListView.builder(
-                  itemCount: filteredExpenses.length,
-                  itemBuilder: (context, index) {
-                    final expense = filteredExpenses[index];
-                    // Find category to get icon
-                    final cat = categories.firstWhere(
-                      (c) => c.id == expense.categoryId,
-                      orElse: () => ExpenseCategory(id: '', name: 'Unknown'),
-                    );
+          Expanded(
+            child: filteredExpenses.isEmpty
+                ? const Center(
+                    child: Text('No expenses found for this period.'),
+                  )
+                : ListView.builder(
+                    itemCount: filteredExpenses.length,
+                    itemBuilder: (context, index) {
+                      final expense = filteredExpenses[index];
+                      // Find category to get icon
+                      final cat = categories.firstWhere(
+                        (c) => c.id == expense.categoryId,
+                        orElse: () => ExpenseCategory(id: '', name: 'Unknown'),
+                      );
 
-                    return Dismissible(
-                      key: Key(expense.id),
-                      direction: DismissDirection.endToStart,
-                      background: Container(
-                        alignment: Alignment.centerRight,
-                        padding: const EdgeInsets.only(right: 20),
-                        color: Colors.red,
-                        child: const Icon(Icons.delete, color: Colors.white),
-                      ),
-                      confirmDismiss: (direction) async {
-                        return await showDialog(
-                          context: context,
-                          builder: (ctx) => AlertDialog(
-                            title: const Text('Delete Expense?'),
-                            content: const Text(
-                              'Are you sure you want to delete this expense?',
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(ctx, false),
-                                child: const Text('Cancel'),
+                      return Dismissible(
+                        key: Key(expense.id),
+                        direction: DismissDirection.endToStart,
+                        background: Container(
+                          alignment: Alignment.centerRight,
+                          padding: const EdgeInsets.only(right: 20),
+                          color: Colors.red,
+                          child: const Icon(Icons.delete, color: Colors.white),
+                        ),
+                        confirmDismiss: (direction) async {
+                          return await showDialog(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              title: const Text('Delete Expense?'),
+                              content: const Text(
+                                'Are you sure you want to delete this expense?',
                               ),
-                              TextButton(
-                                onPressed: () => Navigator.pop(ctx, true),
-                                child: const Text('Delete'),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                      onDismissed: (direction) async {
-                        await ref
-                            .read(expenseServiceProvider)
-                            .deleteExpense(expense.id);
-                      },
-                      child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: Theme.of(
-                            context,
-                          ).primaryColor.withValues(alpha: 0.1),
-                          child: Icon(
-                            _getIconData(cat.iconName),
-                            color: Theme.of(context).primaryColor,
-                          ),
-                        ),
-                        title: Text(
-                          expense.title,
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        subtitle: Text(
-                          '${expense.categoryName} · ${Fmt.date(expense.date)}',
-                        ),
-                        trailing: Text(
-                          '-${Fmt.money(expense.amount, settings.currencySymbol)}',
-                          style: const TextStyle(
-                            color: Colors.red,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                          ),
-                        ),
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) =>
-                                  ExpenseFormScreen(expense: expense),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(ctx, false),
+                                  child: const Text('Cancel'),
+                                ),
+                                TextButton(
+                                  onPressed: () => Navigator.pop(ctx, true),
+                                  child: const Text('Delete'),
+                                ),
+                              ],
                             ),
                           );
                         },
-                      ),
-                    );
-                  },
-                ),
-        ),
-      ],
-    ),
-    floatingActionButton: FloatingActionButton(
-      onPressed: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const ExpenseFormScreen()),
-        );
-      },
-      child: const Icon(Icons.add),
-    ),
-  );
+                        onDismissed: (direction) async {
+                          await ref
+                              .read(expenseServiceProvider)
+                              .deleteExpense(expense.id);
+                        },
+                        child: ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: Theme.of(
+                              context,
+                            ).primaryColor.withValues(alpha: 0.1),
+                            child: Icon(
+                              _getIconData(cat.iconName),
+                              color: Theme.of(context).primaryColor,
+                            ),
+                          ),
+                          title: Text(
+                            expense.title,
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          subtitle: Text(
+                            '${expense.categoryName} · ${Fmt.date(expense.date)}',
+                          ),
+                          trailing: Text(
+                            '-${Fmt.money(expense.amount, settings.currencySymbol)}',
+                            style: const TextStyle(
+                              color: Colors.red,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    ExpenseFormScreen(expense: expense),
+                              ),
+                            );
+                          },
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const ExpenseFormScreen()),
+          );
+        },
+        child: const Icon(Icons.add),
+      ),
+    );
   }
 }

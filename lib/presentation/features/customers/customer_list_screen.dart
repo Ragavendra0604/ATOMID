@@ -65,9 +65,7 @@ class CustomerListScreen extends ConsumerWidget {
                       Text(
                         'Filter by Group: ',
                         style: TextStyle(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.onSurfaceVariant,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -150,10 +148,7 @@ class CustomerListScreen extends ConsumerWidget {
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
                         Text(
-                          Fmt.money(
-                            c.currentBalance,
-                            settings.currencySymbol,
-                          ),
+                          Fmt.money(c.currentBalance, settings.currencySymbol),
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 16,
@@ -167,9 +162,7 @@ class CustomerListScreen extends ConsumerWidget {
                         Text(
                           c.currentBalance > 0
                               ? 'Due'
-                              : (c.currentBalance < 0
-                                    ? 'Advance'
-                                    : 'Settled'),
+                              : (c.currentBalance < 0 ? 'Advance' : 'Settled'),
                           style: const TextStyle(fontSize: 10),
                         ),
                       ],

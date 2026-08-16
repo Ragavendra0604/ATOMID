@@ -268,9 +268,9 @@ void main() {
       performedAt: 'Main counter',
     );
 
-    final queued = repo
-        .getPendingSyncItems()
-        .firstWhere((i) => i.entityType == 'InventoryMovement');
+    final queued = repo.getPendingSyncItems().firstWhere(
+      (i) => i.entityType == 'InventoryMovement',
+    );
     final restored = EntityCodec.movement(
       repo.getEntityJson('InventoryMovement', queued.entityId)!,
     );

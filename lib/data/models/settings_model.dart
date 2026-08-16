@@ -25,8 +25,6 @@ class SettingsModel extends HiveObject {
   @HiveField(6)
   bool isBiometricEnabled;
 
-
-
   // Fields 7, 8 and 9 held the outbound email credential and the shop join
   // code. They went with OTP sign-in and staff sign-up. The numbers are left
   // unused rather than recycled: Hive resolves fields by index, so reusing one

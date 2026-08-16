@@ -221,18 +221,12 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
         ),
         const SizedBox(height: 24),
         if (_selectedProduct != null) ...[
-          const Text(
-            'Tag Size',
-            style: TextStyle(fontWeight: FontWeight.bold),
-          ),
+          const Text('Tag Size', style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           SegmentedButton<PriceTagSize>(
             segments: PriceTagSize.values
                 .map(
-                  (size) => ButtonSegment(
-                    value: size,
-                    label: Text(size.label),
-                  ),
+                  (size) => ButtonSegment(value: size, label: Text(size.label)),
                 )
                 .toList(),
             selected: {_tagSize},

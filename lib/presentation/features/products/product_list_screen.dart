@@ -69,7 +69,7 @@ class _ProductListScreenState extends ConsumerState<ProductListScreen> {
                   : 'Nothing matches that search',
               message: _searchCtrl.text.isEmpty
                   ? 'Add what you sell, with its sizes, prices and barcodes. '
-                      'You can also photograph a price tag to fill the form.'
+                        'You can also photograph a price tag to fill the form.'
                   : 'Try a different name, code or barcode.',
               actionLabel: _searchCtrl.text.isEmpty && true
                   ? 'Add your first product'
@@ -83,26 +83,26 @@ class _ProductListScreenState extends ConsumerState<ProductListScreen> {
               tabletBuilder: (context) => _buildTablet(products),
               desktopBuilder: (context) => _buildDesktop(products),
             ),
-    floatingActionButton: Column(
+      floatingActionButton: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-            FloatingActionButton.small(
-              heroTag: 'scan-tag',
-              tooltip: 'Read a price tag',
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const OcrScannerScreen()),
-              ),
-              child: const Icon(Icons.document_scanner_outlined),
+          FloatingActionButton.small(
+            heroTag: 'scan-tag',
+            tooltip: 'Read a price tag',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const OcrScannerScreen()),
             ),
+            child: const Icon(Icons.document_scanner_outlined),
+          ),
           const SizedBox(height: 12),
-            FloatingActionButton.extended(
-              heroTag: 'add-product',
-              onPressed: _showCreateProductDialog,
-              icon: const Icon(Icons.add),
-              label: const Text('Add product'),
-            ),
+          FloatingActionButton.extended(
+            heroTag: 'add-product',
+            onPressed: _showCreateProductDialog,
+            icon: const Icon(Icons.add),
+            label: const Text('Add product'),
+          ),
         ],
       ),
     );
@@ -123,22 +123,22 @@ class _ProductListScreenState extends ConsumerState<ProductListScreen> {
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-                IconButton(
-                  icon: const Icon(Icons.edit, color: Colors.blue),
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) =>
-                            ProductFormScreen(existingProduct: product),
-                      ),
-                    );
-                  },
-                ),
-                IconButton(
-                  icon: const Icon(Icons.delete, color: Colors.red),
-                  onPressed: () => _deleteProduct(product),
-                ),
+              IconButton(
+                icon: const Icon(Icons.edit, color: Colors.blue),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          ProductFormScreen(existingProduct: product),
+                    ),
+                  );
+                },
+              ),
+              IconButton(
+                icon: const Icon(Icons.delete, color: Colors.red),
+                onPressed: () => _deleteProduct(product),
+              ),
             ],
           ),
           children: product.variants.map((variant) {

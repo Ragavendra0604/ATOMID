@@ -231,9 +231,7 @@ class _BackupScreenState extends ConsumerState<BackupScreen> {
                         IconButton(
                           tooltip: 'Send a copy',
                           icon: const Icon(Icons.ios_share, size: 20),
-                          onPressed: _busy
-                              ? null
-                              : () => _share(backup),
+                          onPressed: _busy ? null : () => _share(backup),
                         ),
                       IconButton(
                         tooltip: 'Restore',

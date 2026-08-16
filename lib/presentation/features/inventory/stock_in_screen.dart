@@ -178,10 +178,7 @@ class _StockInScreenState extends ConsumerState<StockInScreen> {
                 if (_selectedProduct != null) ...[
                   const Text(
                     'Select Variant',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                   ),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<ProductVariant>(
@@ -245,10 +242,7 @@ class _StockInScreenState extends ConsumerState<StockInScreen> {
                   // Quantity
                   const Text(
                     'Quantity to Add',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                   ),
                   const SizedBox(height: 8),
                   TextFormField(
@@ -265,10 +259,7 @@ class _StockInScreenState extends ConsumerState<StockInScreen> {
                   // Reason
                   const Text(
                     'Reason',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                   ),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(

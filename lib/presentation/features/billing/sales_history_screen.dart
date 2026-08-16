@@ -28,72 +28,72 @@ class _SalesHistoryScreenState extends ConsumerState<SalesHistoryScreen> {
 
     return Scaffold(
       appBar: AppBar(
-      title: const Text('Sales History'),
-      bottom: PreferredSize(
-        preferredSize: const Size.fromHeight(60),
-        child: Padding(
-          padding: const EdgeInsets.all(8.0),
-          child: TextField(
-            decoration: InputDecoration(
-              hintText: 'Search by invoice number or customer...',
-              prefixIcon: const Icon(Icons.search),
-              filled: true,
-              fillColor: Theme.of(context).cardColor,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
+        title: const Text('Sales History'),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(60),
+          child: Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: TextField(
+              decoration: InputDecoration(
+                hintText: 'Search by invoice number or customer...',
+                prefixIcon: const Icon(Icons.search),
+                filled: true,
+                fillColor: Theme.of(context).cardColor,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
               ),
+              onChanged: (val) => setState(() => _searchQuery = val),
             ),
-            onChanged: (val) => setState(() => _searchQuery = val),
           ),
         ),
       ),
-    ),
-    body: filteredSales.isEmpty
-        ? const Center(child: Text('No sales found.'))
-        : ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: filteredSales.length,
-            itemBuilder: (context, index) {
-              final sale = filteredSales[index];
-              return Card(
-                margin: const EdgeInsets.only(bottom: 8),
-                child: ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: Theme.of(
-                      context,
-                    ).colorScheme.primary.withAlpha(40),
-                    child: Icon(
-                      Icons.receipt,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                  ),
-                  title: Text(
-                    sale.invoiceNumber,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  subtitle: Text(
-                    '${sale.date.year}-${sale.date.month.toString().padLeft(2, '0')}-${sale.date.day.toString().padLeft(2, '0')} | Items: ${sale.items.length}',
-                  ),
-                  trailing: Text(
-                    Fmt.money(sale.grandTotal, settings.currencySymbol),
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
-                  ),
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => InvoicePreviewScreen(sale: sale),
+      body: filteredSales.isEmpty
+          ? const Center(child: Text('No sales found.'))
+          : ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: filteredSales.length,
+              itemBuilder: (context, index) {
+                final sale = filteredSales[index];
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: Theme.of(
+                        context,
+                      ).colorScheme.primary.withAlpha(40),
+                      child: Icon(
+                        Icons.receipt,
+                        color: Theme.of(context).colorScheme.primary,
                       ),
-                    );
-                  },
-                ),
-              );
-            },
-          ),
+                    ),
+                    title: Text(
+                      sale.invoiceNumber,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    subtitle: Text(
+                      '${sale.date.year}-${sale.date.month.toString().padLeft(2, '0')}-${sale.date.day.toString().padLeft(2, '0')} | Items: ${sale.items.length}',
+                    ),
+                    trailing: Text(
+                      Fmt.money(sale.grandTotal, settings.currencySymbol),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => InvoicePreviewScreen(sale: sale),
+                        ),
+                      );
+                    },
+                  ),
+                );
+              },
+            ),
     );
   }
 }

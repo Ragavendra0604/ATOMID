@@ -67,9 +67,7 @@ class _SupplierListScreenState extends ConsumerState<SupplierListScreen> {
                       icon: const Icon(Icons.clear),
                       onPressed: () {
                         _searchCtrl.clear();
-                        ref
-                            .read(supplierSearchProvider.notifier)
-                            .setQuery('');
+                        ref.read(supplierSearchProvider.notifier).setQuery('');
                       },
                     ),
                   ),
@@ -84,9 +82,7 @@ class _SupplierListScreenState extends ConsumerState<SupplierListScreen> {
                       Text(
                         'Category: ',
                         style: TextStyle(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.onSurfaceVariant,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -203,10 +199,7 @@ class _SupplierListScreenState extends ConsumerState<SupplierListScreen> {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(
-                    Fmt.money(
-                      supplier.currentBalance,
-                      settings.currencySymbol,
-                    ),
+                    Fmt.money(supplier.currentBalance, settings.currencySymbol),
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 16,
@@ -220,9 +213,7 @@ class _SupplierListScreenState extends ConsumerState<SupplierListScreen> {
                   Text(
                     supplier.currentBalance > 0
                         ? 'To Pay'
-                        : (supplier.currentBalance < 0
-                              ? 'Advance'
-                              : 'Settled'),
+                        : (supplier.currentBalance < 0 ? 'Advance' : 'Settled'),
                     style: const TextStyle(fontSize: 10),
                   ),
                 ],
@@ -253,8 +244,7 @@ class _SupplierListScreenState extends ConsumerState<SupplierListScreen> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) =>
-                          SupplierDetailsScreen(supplier: supplier),
+                      builder: (_) => SupplierDetailsScreen(supplier: supplier),
                     ),
                   ).then((_) => setState(() {}));
                 },
@@ -273,10 +263,7 @@ class _SupplierListScreenState extends ConsumerState<SupplierListScreen> {
                         visualDensity: VisualDensity.compact,
                       )
                     : const Chip(
-                        label: Text(
-                          'Inactive',
-                          style: TextStyle(fontSize: 12),
-                        ),
+                        label: Text('Inactive', style: TextStyle(fontSize: 12)),
                         padding: EdgeInsets.zero,
                         visualDensity: VisualDensity.compact,
                       ),
@@ -302,9 +289,8 @@ class _SupplierListScreenState extends ConsumerState<SupplierListScreen> {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (_) => SupplierFormScreen(
-                              existingSupplier: supplier,
-                            ),
+                            builder: (_) =>
+                                SupplierFormScreen(existingSupplier: supplier),
                           ),
                         ).then((_) => setState(() {}));
                       },

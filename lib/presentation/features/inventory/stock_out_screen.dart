@@ -185,10 +185,7 @@ class _StockOutScreenState extends ConsumerState<StockOutScreen> {
                 if (_selectedProduct != null) ...[
                   const Text(
                     'Select Variant',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                   ),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<ProductVariant>(
@@ -274,10 +271,7 @@ class _StockOutScreenState extends ConsumerState<StockOutScreen> {
                   // Quantity
                   const Text(
                     'Quantity to Remove',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                   ),
                   const SizedBox(height: 8),
                   TextFormField(
@@ -294,10 +288,7 @@ class _StockOutScreenState extends ConsumerState<StockOutScreen> {
                   // Reason
                   const Text(
                     'Reason',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                   ),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(

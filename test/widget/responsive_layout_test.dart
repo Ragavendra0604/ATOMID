@@ -72,8 +72,7 @@ void main() {
           expect(
             error,
             isNull,
-            reason:
-                '${entry.key} does not lay out at $viewport:\n$error',
+            reason: '${entry.key} does not lay out at $viewport:\n$error',
           );
         });
       }

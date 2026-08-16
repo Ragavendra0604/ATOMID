@@ -171,10 +171,7 @@ class ExportService {
       bold = _cachedBoldFont!;
     }
 
-    final theme = pw.ThemeData.withFont(
-      base: regular,
-      bold: bold,
-    );
+    final theme = pw.ThemeData.withFont(base: regular, bold: bold);
     _cachedThemes[fontName] = theme;
     return theme;
   }

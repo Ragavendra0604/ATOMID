@@ -68,7 +68,9 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
         await auth.signUp(email, _password.text);
         // Work captured before the account existed belongs to it, so it goes
         // up with everything else rather than being stranded on the device.
-        await ref.read(storageRepositoryProvider).enqueueAllExistingDataForSync();
+        await ref
+            .read(storageRepositoryProvider)
+            .enqueueAllExistingDataForSync();
       } else {
         await auth.signIn(email, _password.text);
       }
@@ -171,8 +173,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                       ],
                       selected: {_mode},
                       showSelectedIcon: false,
-                      onSelectionChanged: (values) =>
-                          _switchMode(values.first),
+                      onSelectionChanged: (values) => _switchMode(values.first),
                     ),
                     const SizedBox(height: 24),
 
@@ -209,8 +210,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                 ? Icons.visibility_outlined
                                 : Icons.visibility_off_outlined,
                           ),
-                          onPressed: () =>
-                              setState(() => _obscure = !_obscure),
+                          onPressed: () => setState(() => _obscure = !_obscure),
                         ),
                       ),
                       validator: (v) {

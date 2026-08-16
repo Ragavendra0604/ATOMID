@@ -309,10 +309,7 @@ class StorageRepository {
 
   Future<Box<T>> _safeOpenBox<T>(String boxName) async {
     try {
-      return await Hive.openBox<T>(
-        boxName,
-        compactionStrategy: _shouldCompact,
-      );
+      return await Hive.openBox<T>(boxName, compactionStrategy: _shouldCompact);
     } catch (e) {
       debugPrint('Box $boxName failed to open ($e). Attempting recovery...');
     }
@@ -320,10 +317,7 @@ class StorageRepository {
     // Step 1: retry once — most failures here are a transient file lock.
     try {
       await Future.delayed(const Duration(milliseconds: 250));
-      return await Hive.openBox<T>(
-        boxName,
-        compactionStrategy: _shouldCompact,
-      );
+      return await Hive.openBox<T>(boxName, compactionStrategy: _shouldCompact);
     } catch (e) {
       debugPrint(
         'Box $boxName retry failed ($e). Attempting crash recovery...',
@@ -591,9 +585,7 @@ class StorageRepository {
 
     for (final entityType in syncableEntities) {
       final singleton = _singletonKeys[entityType];
-      final ids = singleton != null
-          ? [singleton]
-          : _idsFor(entityType);
+      final ids = singleton != null ? [singleton] : _idsFor(entityType);
 
       final records = <Map<String, dynamic>>[];
       for (final id in ids) {
@@ -681,10 +673,7 @@ class StorageRepository {
       case 'Expense':
         await _expensesBox.put(id, EntityCodec.expense(json));
       case 'ExpenseCategory':
-        await _expenseCategoriesBox.put(
-          id,
-          EntityCodec.expenseCategory(json),
-        );
+        await _expenseCategoriesBox.put(id, EntityCodec.expenseCategory(json));
       case 'InventoryMovement':
         await _movementsBox.put(id, EntityCodec.movement(json));
       case 'LoyaltyTransaction':
@@ -721,11 +710,7 @@ class StorageRepository {
         return false;
     }
 
-    await enqueueSync(
-      entityType: entityType,
-      entityId: id,
-      action: 'UPDATE',
-    );
+    await enqueueSync(entityType: entityType, entityId: id, action: 'UPDATE');
     return true;
   }
 
@@ -995,10 +980,17 @@ class StorageRepository {
       final c = getCustomerById(entityId);
       if (c == null) return null;
       return {
-        'id': c.id, 'code': c.code, 'name': c.name, 'mobile': c.mobile,
-        'gstNumber': c.gstNumber, 'address': c.address, 'creditLimit': c.creditLimit,
-        'creditDays': c.creditDays, 'openingBalance': c.openingBalance,
-        'currentBalance': c.currentBalance, 'status': c.status,
+        'id': c.id,
+        'code': c.code,
+        'name': c.name,
+        'mobile': c.mobile,
+        'gstNumber': c.gstNumber,
+        'address': c.address,
+        'creditLimit': c.creditLimit,
+        'creditDays': c.creditDays,
+        'openingBalance': c.openingBalance,
+        'currentBalance': c.currentBalance,
+        'status': c.status,
         'createdDate': c.createdDate.toIso8601String(),
         'totalRewardPoints': c.totalRewardPoints,
         'lifetimeSpend': c.lifetimeSpend,
@@ -1016,31 +1008,53 @@ class StorageRepository {
       final s = getSaleById(entityId);
       if (s == null) return null;
       return {
-        'id': s.id, 'invoiceNumber': s.invoiceNumber, 'date': s.date.toIso8601String(),
-        'customerId': s.customerId, 'customerName': s.customerName,
-        'subtotal': s.subtotal, 'discountPercent': s.discountPercent,
-        'discountAmount': s.discountAmount, 'taxAmount': s.taxAmount,
-        'grandTotal': s.grandTotal, 'paymentMethod': s.paymentMethod,
-        'notes': s.notes, 'rewardDiscountAmount': s.rewardDiscountAmount,
+        'id': s.id,
+        'invoiceNumber': s.invoiceNumber,
+        'date': s.date.toIso8601String(),
+        'customerId': s.customerId,
+        'customerName': s.customerName,
+        'subtotal': s.subtotal,
+        'discountPercent': s.discountPercent,
+        'discountAmount': s.discountAmount,
+        'taxAmount': s.taxAmount,
+        'grandTotal': s.grandTotal,
+        'paymentMethod': s.paymentMethod,
+        'notes': s.notes,
+        'rewardDiscountAmount': s.rewardDiscountAmount,
         'rewardPointsEarned': s.rewardPointsEarned,
         'isSynced': true,
         'updatedAt': s.updatedAt?.toIso8601String(),
-        'items': s.items.map((i) => {
-          'productId': i.productId, 'productName': i.productName,
-          'productCode': i.productCode, 'variantBarcode': i.variantBarcode,
-          'variantSize': i.variantSize, 'price': i.price, 'quantity': i.quantity,
-          'total': i.total,
-        }).toList(),
+        'items': s.items
+            .map(
+              (i) => {
+                'productId': i.productId,
+                'productName': i.productName,
+                'productCode': i.productCode,
+                'variantBarcode': i.variantBarcode,
+                'variantSize': i.variantSize,
+                'price': i.price,
+                'quantity': i.quantity,
+                'total': i.total,
+              },
+            )
+            .toList(),
       };
     }
     if (entityType == 'Supplier') {
       final s = getSupplierById(entityId);
       if (s == null) return null;
       return {
-        'id': s.id, 'code': s.supplierCode, 'name': s.supplierName,
-        'phone': s.phone, 'email': s.email, 'address': s.address,
-        'gstNumber': s.gstNumber, 'contactPerson': s.contactPerson,
-        'notes': s.notes, 'isActive': s.isActive, 'isSynced': true,
+        'id': s.id,
+        'code': s.supplierCode,
+        'name': s.supplierName,
+        'phone': s.phone,
+        'email': s.email,
+        'address': s.address,
+        'gstNumber': s.gstNumber,
+        'contactPerson': s.contactPerson,
+        'notes': s.notes,
+        'isActive': s.isActive,
+        'isSynced': true,
         'createdDate': s.createdDate.toIso8601String(),
         'updatedDate': s.updatedDate.toIso8601String(),
         'paymentTerms': s.paymentTerms,
@@ -1055,11 +1069,17 @@ class StorageRepository {
       final l = getLoyaltyTransactionById(entityId);
       if (l == null) return null;
       return {
-        'id': l.id, 'customerId': l.customerId, 'saleId': l.saleId,
-        'transactionType': l.transactionType, 'points': l.points,
-        'monetaryValue': l.monetaryValue, 'reference': l.reference,
-        'remarks': l.remarks, 'createdDate': l.createdDate.toIso8601String(),
-        'createdBy': l.createdBy, 'isSynced': true,
+        'id': l.id,
+        'customerId': l.customerId,
+        'saleId': l.saleId,
+        'transactionType': l.transactionType,
+        'points': l.points,
+        'monetaryValue': l.monetaryValue,
+        'reference': l.reference,
+        'remarks': l.remarks,
+        'createdDate': l.createdDate.toIso8601String(),
+        'createdBy': l.createdBy,
+        'isSynced': true,
         'updatedAt': l.updatedAt?.toIso8601String(),
       };
     }
@@ -1067,62 +1087,104 @@ class StorageRepository {
       final p = getProductById(entityId);
       if (p == null) return null;
       return {
-        'id': p.id, 'productName': p.productName, 'productCode': p.productCode,
-        'category': p.category, 'brand': p.brand, 'color': p.color,
+        'id': p.id,
+        'productName': p.productName,
+        'productCode': p.productCode,
+        'category': p.category,
+        'brand': p.brand,
+        'color': p.color,
         'createdDate': p.createdDate.toIso8601String(),
         'isSynced': true,
-        'variants': p.variants.map((v) => {
-          'size': v.size, 'barcode': v.barcode, 'sku': v.sku,
-          'price': v.price,
-          'quantity': v.quantity, 'reorderLevel': v.reorderLevel,
-          'stockIn': v.stockIn, 'stockOut': v.stockOut,
-          'lastStockUpdated': v.lastStockUpdated?.toIso8601String(),
-        }).toList(),
+        'variants': p.variants
+            .map(
+              (v) => {
+                'size': v.size,
+                'barcode': v.barcode,
+                'sku': v.sku,
+                'price': v.price,
+                'quantity': v.quantity,
+                'reorderLevel': v.reorderLevel,
+                'stockIn': v.stockIn,
+                'stockOut': v.stockOut,
+                'lastStockUpdated': v.lastStockUpdated?.toIso8601String(),
+              },
+            )
+            .toList(),
       };
     }
     if (entityType == 'Purchase') {
       final p = getPurchaseById(entityId);
       if (p == null) return null;
       return {
-        'id': p.id, 'purchaseNumber': p.purchaseNumber, 'purchaseDate': p.purchaseDate.toIso8601String(),
-        'supplierId': p.supplierId, 'supplierName': p.supplierName,
-        'subtotal': p.subtotal, 'discount': p.discount,
-        'tax': p.tax, 'grandTotal': p.grandTotal, 'paymentStatus': p.paymentStatus,
+        'id': p.id,
+        'purchaseNumber': p.purchaseNumber,
+        'purchaseDate': p.purchaseDate.toIso8601String(),
+        'supplierId': p.supplierId,
+        'supplierName': p.supplierName,
+        'subtotal': p.subtotal,
+        'discount': p.discount,
+        'tax': p.tax,
+        'grandTotal': p.grandTotal,
+        'paymentStatus': p.paymentStatus,
         'status': p.status,
         'expectedDeliveryDate': p.expectedDeliveryDate?.toIso8601String(),
         'createdDate': p.createdDate.toIso8601String(),
-        'createdBy': p.createdBy, 'deviceId': p.deviceId,
-        'version': p.version, 'isDeleted': p.isDeleted,
-        'notes': p.notes, 'isSynced': true, 'updatedAt': p.updatedAt?.toIso8601String(),
-        'items': p.items.map((i) => {
-          'productId': i.productId, 'productName': i.productName,
-          'variantBarcode': i.variantBarcode, 'variantSize': i.variantSize,
-          'sku': i.sku, 'sellingPrice': i.sellingPrice,
-          'receivedQuantity': i.receivedQuantity,
-          'costPrice': i.costPrice, 'quantity': i.quantity, 'lineTotal': i.lineTotal,
-        }).toList(),
+        'createdBy': p.createdBy,
+        'deviceId': p.deviceId,
+        'version': p.version,
+        'isDeleted': p.isDeleted,
+        'notes': p.notes,
+        'isSynced': true,
+        'updatedAt': p.updatedAt?.toIso8601String(),
+        'items': p.items
+            .map(
+              (i) => {
+                'productId': i.productId,
+                'productName': i.productName,
+                'variantBarcode': i.variantBarcode,
+                'variantSize': i.variantSize,
+                'sku': i.sku,
+                'sellingPrice': i.sellingPrice,
+                'receivedQuantity': i.receivedQuantity,
+                'costPrice': i.costPrice,
+                'quantity': i.quantity,
+                'lineTotal': i.lineTotal,
+              },
+            )
+            .toList(),
       };
     }
     if (entityType == 'Expense') {
       final e = _expensesBox.get(entityId);
       if (e == null) return null;
       return {
-        'id': e.id, 'title': e.title,
-        'categoryId': e.categoryId, 'categoryName': e.categoryName,
-        'amount': e.amount, 'date': e.date.toIso8601String(), 'notes': e.notes,
+        'id': e.id,
+        'title': e.title,
+        'categoryId': e.categoryId,
+        'categoryName': e.categoryName,
+        'amount': e.amount,
+        'date': e.date.toIso8601String(),
+        'notes': e.notes,
         'receiptImagePath': e.receiptImagePath,
         'createdDate': e.createdDate.toIso8601String(),
-        'createdBy': e.createdBy, 'isSynced': true,
+        'createdBy': e.createdBy,
+        'isSynced': true,
       };
     }
     if (entityType == 'InventoryMovement') {
       final m = _movementsBox.get(entityId);
       if (m == null) return null;
       return {
-        'id': m.id, 'productId': m.productId, 'productName': m.productName,
-        'variantBarcode': m.variantBarcode, 'variantSize': m.variantSize,
-        'quantity': m.quantity, 'type': m.type, 'reason': m.reason,
-        'date': m.date.toIso8601String(), 'movementReferenceId': m.movementReferenceId,
+        'id': m.id,
+        'productId': m.productId,
+        'productName': m.productName,
+        'variantBarcode': m.variantBarcode,
+        'variantSize': m.variantSize,
+        'quantity': m.quantity,
+        'type': m.type,
+        'reason': m.reason,
+        'date': m.date.toIso8601String(),
+        'movementReferenceId': m.movementReferenceId,
         'performedAt': m.performedAt,
       };
     }
@@ -1130,10 +1192,14 @@ class StorageRepository {
       final l = _customerLedgersBox.get(entityId);
       if (l == null) return null;
       return {
-        'id': l.id, 'customerId': l.customerId,
+        'id': l.id,
+        'customerId': l.customerId,
         'date': l.date.toIso8601String(),
-        'transactionType': l.transactionType, 'referenceId': l.referenceId,
-        'debit': l.debit, 'credit': l.credit, 'balance': l.balance,
+        'transactionType': l.transactionType,
+        'referenceId': l.referenceId,
+        'debit': l.debit,
+        'credit': l.credit,
+        'balance': l.balance,
         'notes': l.notes,
       };
     }
@@ -1141,10 +1207,14 @@ class StorageRepository {
       final l = _supplierLedgersBox.get(entityId);
       if (l == null) return null;
       return {
-        'id': l.id, 'supplierId': l.supplierId,
+        'id': l.id,
+        'supplierId': l.supplierId,
         'date': l.date.toIso8601String(),
-        'transactionType': l.transactionType, 'referenceId': l.referenceId,
-        'debit': l.debit, 'credit': l.credit, 'balance': l.balance,
+        'transactionType': l.transactionType,
+        'referenceId': l.referenceId,
+        'debit': l.debit,
+        'credit': l.credit,
+        'balance': l.balance,
         'notes': l.notes,
       };
     }
@@ -2346,5 +2416,4 @@ class StorageRepository {
       action: 'DELETE',
     );
   }
-
 }

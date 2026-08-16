@@ -109,60 +109,60 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     _heading('Store'),
-                  TextFormField(
-                    controller: _storeName,
-                    decoration: const InputDecoration(
-                      labelText: 'Store name',
-                      prefixIcon: Icon(Icons.storefront_outlined),
-                      border: OutlineInputBorder(),
+                    TextFormField(
+                      controller: _storeName,
+                      decoration: const InputDecoration(
+                        labelText: 'Store name',
+                        prefixIcon: Icon(Icons.storefront_outlined),
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: (v) => (v == null || v.trim().isEmpty)
+                          ? 'Store name is required'
+                          : null,
                     ),
-                    validator: (v) => (v == null || v.trim().isEmpty)
-                        ? 'Store name is required'
-                        : null,
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _currency,
-                    decoration: const InputDecoration(
-                      labelText: 'Currency symbol',
-                      hintText: '₹, \$, £, €',
-                      prefixIcon: Icon(Icons.payments_outlined),
-                      border: OutlineInputBorder(),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _currency,
+                      decoration: const InputDecoration(
+                        labelText: 'Currency symbol',
+                        hintText: '₹, \$, £, €',
+                        prefixIcon: Icon(Icons.payments_outlined),
+                        border: OutlineInputBorder(),
+                      ),
+                      maxLength: 3,
+                      validator: (v) => (v == null || v.trim().isEmpty)
+                          ? 'Currency symbol is required'
+                          : null,
                     ),
-                    maxLength: 3,
-                    validator: (v) => (v == null || v.trim().isEmpty)
-                        ? 'Currency symbol is required'
-                        : null,
-                  ),
 
-                  _heading('Tax'),
-                  TextFormField(
-                    controller: _taxRate,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
+                    _heading('Tax'),
+                    TextFormField(
+                      controller: _taxRate,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'Tax rate',
+                        suffixText: '%',
+                        prefixIcon: Icon(Icons.percent),
+                        border: OutlineInputBorder(),
+                        helperText: 'Set 0 if you do not charge tax.',
+                      ),
+                      onChanged: (_) => setState(() {}),
+                      validator: (value) {
+                        final parsed = double.tryParse(value?.trim() ?? '');
+                        if (parsed == null) return 'Enter a number';
+                        if (parsed < 0 || parsed > 100) {
+                          return 'Must be between 0 and 100';
+                        }
+                        return null;
+                      },
                     ),
-                    decoration: const InputDecoration(
-                      labelText: 'Tax rate',
-                      suffixText: '%',
-                      prefixIcon: Icon(Icons.percent),
-                      border: OutlineInputBorder(),
-                      helperText: 'Set 0 if you do not charge tax.',
+                    const SizedBox(height: 12),
+                    _TaxModeSelector(
+                      mode: _taxMode,
+                      onChanged: (mode) => setState(() => _taxMode = mode),
                     ),
-                    onChanged: (_) => setState(() {}),
-                    validator: (value) {
-                      final parsed = double.tryParse(value?.trim() ?? '');
-                      if (parsed == null) return 'Enter a number';
-                      if (parsed < 0 || parsed > 100) {
-                        return 'Must be between 0 and 100';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  _TaxModeSelector(
-                    mode: _taxMode,
-                    onChanged: (mode) => setState(() => _taxMode = mode),
-                  ),
 
                     _heading('Appearance'),
                     Card(
@@ -184,10 +184,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             onChanged: (value) async {
                               await ref
                                   .read(storageRepositoryProvider)
-                                  .saveSettings(_draft(isBiometricEnabled: value));
+                                  .saveSettings(
+                                    _draft(isBiometricEnabled: value),
+                                  );
                             },
                             title: const Text('Enable Biometric Login'),
-                            subtitle: const Text('Allow sign-in using fingerprint or face recognition'),
+                            subtitle: const Text(
+                              'Allow sign-in using fingerprint or face recognition',
+                            ),
                             secondary: const Icon(Icons.fingerprint),
                           ),
                         ],
@@ -218,7 +222,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ),
 
                     _heading('Configure'),
-                      _link(
+                    _link(
                       icon: Icons.business_outlined,
                       title: 'Business details',
                       subtitle:
@@ -275,7 +279,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       onTap: () => _open(const BackupScreen()),
                     ),
 
-                      const SizedBox(height: 28),
+                    const SizedBox(height: 28),
                     FilledButton.icon(
                       onPressed: _save,
                       icon: const Icon(Icons.save_outlined),

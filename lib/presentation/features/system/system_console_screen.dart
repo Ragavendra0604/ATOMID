@@ -24,7 +24,10 @@ class SystemConsoleScreen extends ConsumerStatefulWidget {
 class _SystemConsoleScreenState extends ConsumerState<SystemConsoleScreen> {
   bool _busy = false;
 
-  Future<void> _runOperation(String label, Future<void> Function() action) async {
+  Future<void> _runOperation(
+    String label,
+    Future<void> Function() action,
+  ) async {
     if (_busy) return;
     setState(() => _busy = true);
     try {
@@ -166,8 +169,7 @@ class _HealthTab extends ConsumerWidget {
             ),
             const SizedBox(height: 8),
             OutlinedButton.icon(
-              onPressed: () =>
-                  onRun('Clear sync log', repo.clearSyncLogs),
+              onPressed: () => onRun('Clear sync log', repo.clearSyncLogs),
               icon: const Icon(Icons.delete_sweep_outlined),
               label: const Text('Clear sync log'),
             ),
@@ -253,12 +255,12 @@ class _StatusCard extends StatelessWidget {
     final (icon, colour, label) = switch (status.phase) {
       SyncPhase.idle => (Icons.cloud_done_outlined, scheme.primary, 'Healthy'),
       SyncPhase.syncing => (Icons.sync, scheme.primary, 'Syncing'),
-      SyncPhase.retrying => (
-        Icons.schedule,
-        scheme.tertiary,
-        'Retrying',
+      SyncPhase.retrying => (Icons.schedule, scheme.tertiary, 'Retrying'),
+      SyncPhase.failed => (
+        Icons.error_outline,
+        scheme.error,
+        'Needs attention',
       ),
-      SyncPhase.failed => (Icons.error_outline, scheme.error, 'Needs attention'),
       SyncPhase.offline => (
         Icons.cloud_off_outlined,
         scheme.onSurfaceVariant,
