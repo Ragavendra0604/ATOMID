@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 class PlatformIo {
@@ -19,6 +20,11 @@ class PlatformIo {
   static Future<String?> getExternalStorageDirectoryPath() async => null;
 }
 
+class PlatformFileStat {
+  final int size = 0;
+  final DateTime modified = DateTime.fromMillisecondsSinceEpoch(0);
+}
+
 class PlatformFile {
   PlatformFile(String path);
   bool existsSync() => false;
@@ -26,8 +32,12 @@ class PlatformFile {
   Future<void> create({bool recursive = false}) async {}
   void createSync({bool recursive = false}) {}
   String get path => '';
-  Future<void> writeAsBytes(List<int> bytes) async {}
+  Future<void> writeAsBytes(List<int> bytes, {bool flush = false}) async {}
   Future<Uint8List> readAsBytes() async => Uint8List(0);
+  Future<String> readAsString() async => '';
+  Future<PlatformFile> rename(String newPath) async => this;
+  Future<PlatformFileStat> stat() async => PlatformFileStat();
+  Future<void> delete({bool recursive = false}) async {}
 }
 
 class PlatformDirectory {
@@ -37,4 +47,5 @@ class PlatformDirectory {
   void createSync({bool recursive = false}) {}
   Future<void> create({bool recursive = false}) async {}
   String get path => '';
+  Stream<dynamic> list({bool recursive = false, bool followLinks = true}) => const Stream.empty();
 }
