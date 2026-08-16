@@ -47,5 +47,6 @@ class PlatformDirectory {
   void createSync({bool recursive = false}) {}
   Future<void> create({bool recursive = false}) async {}
   String get path => '';
-  Stream<dynamic> list({bool recursive = false, bool followLinks = true}) => const Stream.empty();
+  Stream<dynamic> list({bool recursive = false, bool followLinks = true}) =>
+      const Stream.empty();
 }
