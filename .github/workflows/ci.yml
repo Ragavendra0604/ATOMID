@@ -8,7 +8,7 @@ on:
 
 # Pinned so the toolchain cannot change under the build.
 env:
-  FLUTTER_VERSION: '3.35.0'
+  FLUTTER_VERSION: '3.44.3'
 
 jobs:
   verify:
