@@ -188,6 +188,7 @@ class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen> {
                 },
               ),
         floatingActionButton: FloatingActionButton(
+          heroTag: 'add-purchase',
           onPressed: () {
             Navigator.push(
               context,

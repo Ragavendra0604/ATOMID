@@ -307,6 +307,7 @@ class _SupplierListScreenState extends ConsumerState<SupplierListScreen> {
         },
       ),
       floatingActionButton: FloatingActionButton(
+        heroTag: 'add-supplier',
         onPressed: () {
           Navigator.push(
             context,

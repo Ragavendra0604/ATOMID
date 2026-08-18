@@ -69,13 +69,84 @@ void main() {
 
     expect(restored.productName, product.productName);
     expect(restored.productCode, product.productCode);
-    expect(restored.updatedDate, isNotNull);
+    // Regression: the payload never carried `updatedDate` at all, so the
+    // decoder's `DateTime.now()` fallback made this pass even though the
+    // field was silently missing. Asserting the real value round-trips is
+    // what would have caught it.
+    expect(json['updatedDate'], isNotNull);
+    expect(restored.updatedDate, product.updatedDate);
     expect(restored.isDeleted, isFalse);
     expect(restored.variants.single.price, 249.5);
     expect(restored.variants.single.quantity, 7);
     expect(restored.variants.single.reorderLevel, 3);
     expect(restored.variants.single.sku, product.variants.single.sku);
   });
+
+  test('a stock movement bumps updatedDate so peers can tell it changed', () async {
+    final product = await store.addProduct(quantity: 5);
+    final before = product.updatedDate;
+
+    await repo.performStockIn(
+      productId: product.id,
+      variantBarcode: product.variants.single.barcode,
+      quantity: 3,
+      reason: 'Purchase receipt',
+    );
+
+    final after = repo.getProductById(product.id)!.updatedDate;
+    expect(
+      after.isAfter(before) || after.isAtSameMomentAs(before),
+      isTrue,
+      reason: 'a stock movement is a change other devices need to see',
+    );
+    expect(
+      repo.getEntityJson('Product', product.id)!['updatedDate'],
+      after.toIso8601String(),
+    );
+  });
+
+  test(
+    'a product edited on another device is no longer blocked by a stale '
+    'local copy',
+    () async {
+      // This is the exact shape of the bug: this device already has its own
+      // (older) copy of the product, so a same-priority pull is the one
+      // that has to win on recency, not on merely existing.
+      final product = await store.addProduct(price: 100, quantity: 5);
+      for (final item in repo.getPendingSyncItems()) {
+        await repo.deleteSyncItem(item.id);
+      }
+
+      final remoteJson = repo.getEntityJson('Product', product.id)!;
+      final laterUpdate = product.updatedDate.add(const Duration(minutes: 5));
+      final remotePayload = {
+        ...remoteJson,
+        'id': product.id,
+        'updatedDate': laterUpdate.toIso8601String(),
+        'variants': [
+          {
+            ...(remoteJson['variants'] as List).single as Map,
+            'price': 249.0,
+            'quantity': 2,
+          },
+        ],
+      };
+
+      final applied = await repo.applyRemote(
+        'Product',
+        product.id,
+        remotePayload,
+      );
+
+      expect(
+        applied,
+        isTrue,
+        reason: 'a genuinely newer remote edit must be accepted',
+      );
+      expect(repo.getProductById(product.id)!.variants.single.price, 249.0);
+      expect(repo.getProductById(product.id)!.variants.single.quantity, 2);
+    },
+  );
 
   test('an expense keeps its title', () async {
     final expense = Expense(

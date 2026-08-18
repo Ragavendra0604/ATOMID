@@ -1094,6 +1094,7 @@ class StorageRepository {
         'brand': p.brand,
         'color': p.color,
         'createdDate': p.createdDate.toIso8601String(),
+        'updatedDate': p.updatedDate.toIso8601String(),
         'isSynced': true,
         'variants': p.variants
             .map(
@@ -1393,6 +1394,12 @@ class StorageRepository {
         }
       }
     }
+
+    // Every local write is a change worth telling other devices about.
+    // Stock-in/stock-out mutate the same Product instance in place and would
+    // otherwise leave this timestamp frozen at creation time forever, which
+    // is what let a stale local copy always outrank a genuine remote update.
+    product.updatedDate = DateTime.now();
 
     await _productsBox.put(product.id, product);
 
