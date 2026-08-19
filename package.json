@@ -1,5 +1,14 @@
 {
-  "dependencies": {
-    "source-map": "^0.8.0"
+  "name": "atomid-firestore-rules-tests",
+  "private": true,
+  "description": "Emulator-backed tests for firestore.rules. Not part of the Flutter app.",
+  "type": "module",
+  "scripts": {
+    "test:rules": "firebase emulators:exec --only firestore \"node --test test/firestore-rules/\""
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^4.0.1",
+    "firebase": "^11.0.0",
+    "firebase-tools": "^14.24.0"
   }
 }

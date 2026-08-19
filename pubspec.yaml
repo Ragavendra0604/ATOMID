@@ -44,15 +44,16 @@ dependencies:
   share_plus: ^13.1.0
   google_mlkit_text_recognition: ^0.15.1
   image_picker: ^1.2.2
-  url_launcher: ^6.3.2
   intl: ^0.20.3
   firebase_core: ^4.12.1
   firebase_auth: ^6.5.6
   cloud_firestore: ^6.7.1
   connectivity_plus: ^7.3.1
-  crypto: ^3.0.6
-  local_auth: ^3.0.2
-  http: ^1.6.0
+
+  # Removed as unused: crypto and local_auth were left over from the retired
+  # PIN/RBAC and biometric designs, http and url_launcher were never imported.
+  # local_auth in particular declared biometric permissions on Android and iOS
+  # for a feature that did not exist.
 
 dev_dependencies:
   flutter_test:

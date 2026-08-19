@@ -118,6 +118,12 @@ class FirebaseRepository {
     );
   }
 
+  /// Sends the address-confirmation email for a freshly created account.
+  Future<void> sendEmailVerification(User user) async {
+    _requireFirebase();
+    await user.sendEmailVerification();
+  }
+
   Future<void> resetPassword(String email) async {
     _requireFirebase();
     await _auth!.sendPasswordResetEmail(email: email);

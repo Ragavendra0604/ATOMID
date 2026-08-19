@@ -50,12 +50,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   ///
   /// Constructing a fresh model from only the visible fields silently reset
   /// tax on every save and on every dark-mode toggle.
-  SettingsModel _draft({bool? isDarkMode, bool? isBiometricEnabled}) {
+  SettingsModel _draft({bool? isDarkMode}) {
     return ref
         .read(settingsProvider)
         .copyWith(
           isDarkMode: isDarkMode,
-          isBiometricEnabled: isBiometricEnabled,
           companyName: _storeName.text.trim(),
           currencySymbol: _currency.text.trim(),
           pdfPageSize: _pdfPageSize,
@@ -165,6 +164,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ),
 
                     _heading('Appearance'),
+                    // A "Enable Biometric Login" switch used to sit below dark
+                    // mode. It saved its state, synced it, and was carefully
+                    // preserved across restores — and nothing ever read it.
+                    // There is no lock anywhere in this app, so the control
+                    // told the owner their till was protected when it was not.
+                    // Removed rather than left as a promise the code does not
+                    // keep; see the security note in README.
                     Card(
                       child: Column(
                         children: [
@@ -177,22 +183,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                   ? Icons.dark_mode_outlined
                                   : Icons.light_mode_outlined,
                             ),
-                          ),
-                          const Divider(height: 1),
-                          SwitchListTile(
-                            value: settings.isBiometricEnabled,
-                            onChanged: (value) async {
-                              await ref
-                                  .read(storageRepositoryProvider)
-                                  .saveSettings(
-                                    _draft(isBiometricEnabled: value),
-                                  );
-                            },
-                            title: const Text('Enable Biometric Login'),
-                            subtitle: const Text(
-                              'Allow sign-in using fingerprint or face recognition',
-                            ),
-                            secondary: const Icon(Icons.fingerprint),
                           ),
                         ],
                       ),

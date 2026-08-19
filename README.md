@@ -33,12 +33,45 @@
 | 🛒 **POS & Billing** | Fast barcode scanning checkout with cart management, discounts, and receipt printing |
 | 📦 **Inventory Management** | Stock-in / stock-out tracking with immutable audit logs |
 | 👥 **Customer CRM** | Customer profiles, ledger history, and loyalty points |
-| 🔄 **Two-Way Sync** | Hive local storage ⇄ Firestore, store-scoped, with backoff, dead-letter and conflict resolution |
-| 🔐 **RBAC** | Roles with permission presets, PIN shift sign-in, and an activity log |
+| 🔄 **Two-Way Sync** | Hive local storage ⇄ Firestore, account-scoped, with backoff, dead-letter and conflict resolution |
 | 📊 **Dashboard & Reports** | Revenue analytics, low-stock alerts, and transaction history |
 | 🧾 **PDF Export** | Generate and print invoices, reports, and barcode sheets |
 | 🧾 **Tax & Loyalty** | Inclusive or exclusive tax, configurable reward points |
 | 📱 **Platforms** | Android · Web · Windows (cloud sync) · iOS/macOS/Linux (device-only until configured) |
+
+---
+
+## 🔐 Security model — what this app does and does not do
+
+Stated plainly, because a POS holds customer records and financial history and
+it should be obvious what is protecting them.
+
+**What exists**
+
+- **Cloud isolation.** Everything a device syncs lives under `/users/{uid}/…`
+  in Firestore. The security rule is a single ownership condition, so an
+  account can reach its own data and nothing else. Verified by an automated
+  rules test suite.
+- **Email/password authentication** via Firebase, which gates *cloud sync only*.
+
+**What deliberately does not exist**
+
+- **No app lock.** There is no PIN, password or biometric prompt on launch.
+  Anyone with access to an unlocked device has full access to the app.
+- **No roles or permissions.** This is a single-account product. There is no
+  staff login, no PIN shift sign-in and no per-role permission model. An
+  earlier version had these; they were removed, and the code no longer
+  contains them.
+- **No encryption at rest.** The local Hive database is unencrypted. On
+  Windows it lives under `%USERPROFILE%\AppData\Local\atomid\db`.
+
+These are appropriate for a till that one owner-operator controls physically.
+**If the device is shared with staff, or left unattended in a public part of
+the shop, treat the data on it as readable.** Use the operating system's own
+account lock in that case.
+
+Signing out affects cloud sync only — every screen keeps working offline, by
+design.
 
 ---
 
@@ -62,7 +95,7 @@ printing                → Receipt & document printing
 ```
 lib/
 ├── core/
-│   ├── services/            # RBAC, PIN hashing, PDF export
+│   ├── services/            # PDF export (invoices, receipts, reports, tags)
 │   ├── theme/               # Light / dark themes
 │   └── utils/               # Formatters, ids, errors, responsive helpers
 ├── data/
@@ -259,9 +292,13 @@ dart format .
 
 Tests are located in:
 - `test/unit/` — pricing, sale and purchase services, repository behaviour,
-  sync payload round-trips, RBAC, PIN hashing, formatters
-- `test/widget/` — UI component tests
-- `test/support/` — `TestStore`, a real repository on a temporary Hive directory
+  index consistency after a cloud pull, crash recovery, sync payload
+  round-trips, backup snapshots, formatters
+- `test/widget/` — UI component and responsive-layout tests
+- `test/support/` — `TestStore`, a real repository on a temporary Hive
+  directory, and `FakeFirebaseRepository`, which subclasses the real cloud
+  repository so a Firestore type leaking into the sync engine breaks the build
+- `integration_test/` — boots the shipped `main()` against real Hive
 
 CI runs `dart format --set-exit-if-changed`, `flutter analyze --fatal-infos` and
 `flutter test` on every push; the web deploy only runs after CI passes.

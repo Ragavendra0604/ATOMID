@@ -1,0 +1,1547 @@
+<title>Atomid — Architecture & Code Audit</title>
+<style>
+  :root {
+    --ground: #F7F8F7;
+    --surface: #FFFFFF;
+    --surface-2: #F1F3F2;
+    --ink: #16191A;
+    --ink-soft: #3A4342;
+    --muted: #6B7674;
+    --accent: #2F6F62;
+    --accent-soft: #E4EDEA;
+    --line: #DFE3E1;
+    --line-strong: #C4CBC8;
+    --crit: #B4342A;
+    --high: #B4611B;
+    --med: #7E631C;
+    --low: #4A6670;
+    --good: #2F6F62;
+    --crit-bg: #F7E7E5;
+    --high-bg: #F8ECE1;
+    --med-bg: #F5F0DF;
+    --low-bg: #E8EEF0;
+    --good-bg: #E4EDEA;
+    --shadow: 0 1px 2px rgba(22,25,26,.05), 0 4px 14px rgba(22,25,26,.04);
+    --sans: "Segoe UI Variable Display", "Segoe UI", system-ui, -apple-system, ui-sans-serif, sans-serif;
+    --serif: Georgia, "Iowan Old Style", "Times New Roman", serif;
+    --mono: "Cascadia Mono", ui-monospace, Consolas, "SF Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #101413;
+      --surface: #171C1B;
+      --surface-2: #1D2422;
+      --ink: #E4E8E6;
+      --ink-soft: #BCC5C2;
+      --muted: #8D9996;
+      --accent: #5FA593;
+      --accent-soft: #1C2E2A;
+      --line: #262E2C;
+      --line-strong: #364240;
+      --crit: #E4685C;
+      --high: #E0904F;
+      --med: #C4A24A;
+      --low: #8AA5AF;
+      --good: #5FA593;
+      --crit-bg: #2B1A18;
+      --high-bg: #2A1F16;
+      --med-bg: #262115;
+      --low-bg: #182126;
+      --good-bg: #1C2E2A;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 14px rgba(0,0,0,.25);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #101413;
+    --surface: #171C1B;
+    --surface-2: #1D2422;
+    --ink: #E4E8E6;
+    --ink-soft: #BCC5C2;
+    --muted: #8D9996;
+    --accent: #5FA593;
+    --accent-soft: #1C2E2A;
+    --line: #262E2C;
+    --line-strong: #364240;
+    --crit: #E4685C;
+    --high: #E0904F;
+    --med: #C4A24A;
+    --low: #8AA5AF;
+    --good: #5FA593;
+    --crit-bg: #2B1A18;
+    --high-bg: #2A1F16;
+    --med-bg: #262115;
+    --low-bg: #182126;
+    --good-bg: #1C2E2A;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 14px rgba(0,0,0,.25);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 16.5px;
+    line-height: 1.68;
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { display: grid; grid-template-columns: 1fr; max-width: 1400px; margin: 0 auto; }
+  @media (min-width: 1080px) {
+    .wrap { grid-template-columns: 268px minmax(0,1fr); gap: 48px; padding-right: 32px; }
+  }
+
+  /* ---- TOC rail ---- */
+  nav.toc { display: none; }
+  @media (min-width: 1080px) {
+    nav.toc {
+      display: block; position: sticky; top: 0; align-self: start;
+      max-height: 100vh; overflow-y: auto; padding: 40px 0 40px 28px;
+      border-right: 1px solid var(--line);
+      font-family: var(--sans); font-size: 13px; line-height: 1.45;
+    }
+  }
+  nav.toc .toc-h {
+    font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--muted); font-weight: 640; margin: 0 0 14px;
+  }
+  nav.toc ol { list-style: none; margin: 0; padding: 0; counter-reset: toc; display: flex; flex-direction: column; gap: 1px; }
+  nav.toc li { counter-increment: toc; }
+  nav.toc a {
+    display: grid; grid-template-columns: 26px 1fr; gap: 2px;
+    color: var(--ink-soft); text-decoration: none; padding: 4px 8px 4px 0; border-radius: 4px;
+  }
+  nav.toc a::before { content: counter(toc); color: var(--muted); font-variant-numeric: tabular-nums; font-size: 11px; }
+  nav.toc a:hover { color: var(--accent); background: var(--accent-soft); }
+  nav.toc a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  main { padding: 40px 22px 120px; min-width: 0; max-width: 900px; }
+  @media (min-width: 1080px) { main { padding: 56px 0 140px; } }
+
+  /* ---- masthead ---- */
+  .mast { border-bottom: 2px solid var(--ink); padding-bottom: 22px; margin-bottom: 14px; }
+  .eyebrow {
+    font-family: var(--sans); font-size: 11px; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--accent); font-weight: 650; margin: 0 0 12px;
+  }
+  h1 {
+    font-family: var(--sans); font-weight: 680; letter-spacing: -.024em;
+    font-size: clamp(2rem, 4.4vw, 2.9rem); line-height: 1.06; margin: 0 0 14px; text-wrap: balance;
+  }
+  .standfirst { font-size: 1.06rem; color: var(--ink-soft); margin: 0; max-width: 62ch; }
+  .meta {
+    font-family: var(--sans); font-size: 12.5px; color: var(--muted);
+    display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 0 0 44px; padding-top: 14px;
+  }
+  .meta b { color: var(--ink-soft); font-weight: 620; }
+
+  h2 {
+    font-family: var(--sans); font-weight: 660; letter-spacing: -.018em;
+    font-size: 1.44rem; line-height: 1.2; margin: 68px 0 8px; text-wrap: balance;
+    padding-top: 22px; border-top: 1px solid var(--line);
+  }
+  h2 .num {
+    display: block; font-size: 11px; letter-spacing: .14em; color: var(--muted);
+    font-weight: 640; margin-bottom: 7px; font-variant-numeric: tabular-nums;
+  }
+  h3 {
+    font-family: var(--sans); font-weight: 640; font-size: 1.08rem; letter-spacing: -.008em;
+    margin: 34px 0 6px; text-wrap: balance;
+  }
+  h4 { font-family: var(--sans); font-weight: 640; font-size: .95rem; margin: 22px 0 4px; color: var(--ink-soft); }
+  p { margin: 0 0 14px; max-width: 72ch; }
+  ul, ol { margin: 0 0 14px; padding-left: 22px; max-width: 72ch; }
+  li { margin-bottom: 5px; }
+  li::marker { color: var(--muted); }
+  a { color: var(--accent); }
+  strong { font-weight: 700; color: var(--ink); }
+  hr { border: 0; border-top: 1px solid var(--line); margin: 30px 0; }
+
+  code {
+    font-family: var(--mono); font-size: .845em; background: var(--surface-2);
+    padding: .1em .36em; border-radius: 3px; border: 1px solid var(--line);
+    word-break: break-word;
+  }
+  pre {
+    font-family: var(--mono); font-size: 12.6px; line-height: 1.6; background: var(--surface-2);
+    border: 1px solid var(--line); border-radius: 7px; padding: 14px 16px;
+    overflow-x: auto; margin: 0 0 18px;
+  }
+  pre code { background: none; border: 0; padding: 0; font-size: inherit; }
+
+  /* ---- tables ---- */
+  .tbl { overflow-x: auto; margin: 0 0 20px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-family: var(--sans); font-size: 13.1px; line-height: 1.5; }
+  th, td { text-align: left; padding: 9px 13px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th {
+    font-weight: 640; font-size: 10.5px; letter-spacing: .09em; text-transform: uppercase;
+    color: var(--muted); background: var(--surface-2); white-space: nowrap;
+  }
+  tr:last-child td { border-bottom: 0; }
+  td code { font-size: 11.8px; }
+  .num-col { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  /* ---- findings ---- */
+  .finding {
+    background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--muted);
+    border-radius: 7px; padding: 16px 18px; margin: 0 0 16px; box-shadow: var(--shadow);
+  }
+  .finding.crit { border-left-color: var(--crit); }
+  .finding.high { border-left-color: var(--high); }
+  .finding.med  { border-left-color: var(--med); }
+  .finding.low  { border-left-color: var(--low); }
+  .finding.good { border-left-color: var(--good); }
+  .finding > :last-child { margin-bottom: 0; }
+  .f-head { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; margin-bottom: 9px; }
+  .f-title { font-family: var(--sans); font-weight: 660; font-size: 1rem; letter-spacing: -.008em; margin: 0; flex: 1 1 260px; }
+  .chip {
+    font-family: var(--sans); font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
+    font-weight: 660; padding: 3px 8px; border-radius: 20px; white-space: nowrap;
+  }
+  .chip.crit { background: var(--crit-bg); color: var(--crit); }
+  .chip.high { background: var(--high-bg); color: var(--high); }
+  .chip.med  { background: var(--med-bg);  color: var(--med); }
+  .chip.low  { background: var(--low-bg);  color: var(--low); }
+  .chip.good { background: var(--good-bg); color: var(--good); }
+  .chip.conf { background: var(--surface-2); color: var(--muted); border: 1px solid var(--line); }
+  .f-meta { font-family: var(--mono); font-size: 11.6px; color: var(--muted); margin: 0 0 9px; word-break: break-word; }
+  .finding p, .finding ul { font-size: .95rem; }
+
+  .callout {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 7px;
+    padding: 15px 18px; margin: 0 0 20px;
+  }
+  .callout.accent { background: var(--accent-soft); border-color: transparent; }
+  .callout > :last-child { margin-bottom: 0; }
+  .callout .k {
+    font-family: var(--sans); font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase;
+    font-weight: 650; color: var(--accent); display: block; margin-bottom: 7px;
+  }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 22px; }
+
+  pre.mermaid {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+    padding: 18px; overflow-x: auto; text-align: center; line-height: 1.4;
+  }
+  .fig { font-family: var(--sans); font-size: 12px; color: var(--muted); margin: -8px 0 24px; }
+
+  .kv { display: grid; gap: 0; margin: 0 0 20px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .kv div { display: grid; grid-template-columns: 190px 1fr; gap: 14px; padding: 9px 14px; border-bottom: 1px solid var(--line); background: var(--surface); font-family: var(--sans); font-size: 13.1px; }
+  .kv div:last-child { border-bottom: 0; }
+  .kv dt, .kv b { color: var(--muted); font-weight: 620; font-size: 11px; letter-spacing: .07em; text-transform: uppercase; padding-top: 2px; }
+  @media (max-width: 620px) { .kv div { grid-template-columns: 1fr; gap: 2px; } }
+</style>
+
+<div class="wrap">
+<nav class="toc">
+  <p class="toc-h">Contents</p>
+  <ol>
+    <li><a href="#s1">Executive Summary</a></li>
+    <li><a href="#s2">Scope &amp; Method</a></li>
+    <li><a href="#s3">Project Overview</a></li>
+    <li><a href="#s4">Technology Stack</a></li>
+    <li><a href="#s5">Project Structure</a></li>
+    <li><a href="#s6">Architecture Overview</a></li>
+    <li><a href="#s7">Module Analysis</a></li>
+    <li><a href="#s8">Feature Inventory</a></li>
+    <li><a href="#s9">Feature-to-Code Map</a></li>
+    <li><a href="#s10">Execution Flows</a></li>
+    <li><a href="#s11">Frontend &amp; UI</a></li>
+    <li><a href="#s12">Data &amp; Storage</a></li>
+    <li><a href="#s13">Sync Engine</a></li>
+    <li><a href="#s14">Auth &amp; Authorization</a></li>
+    <li><a href="#s15">Security Review</a></li>
+    <li><a href="#s16">Performance Review</a></li>
+    <li><a href="#s17">Code Quality</a></li>
+    <li><a href="#s18">Testing Review</a></li>
+    <li><a href="#s19">Dependency Review</a></li>
+    <li><a href="#s20">Technical Debt</a></li>
+    <li><a href="#s21">Dead &amp; Unused Code</a></li>
+    <li><a href="#s22">Potential Bugs</a></li>
+    <li><a href="#s23">Architecture Problems</a></li>
+    <li><a href="#s24">Strengths</a></li>
+    <li><a href="#s25">Prioritized Issues</a></li>
+    <li><a href="#s26">Recommendations</a></li>
+    <li><a href="#s27">Refactoring Roadmap</a></li>
+    <li><a href="#s28">Diagrams</a></li>
+    <li><a href="#s29">File Reference</a></li>
+    <li><a href="#s30">Final Assessment</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<header class="mast">
+  <p class="eyebrow">Codebase Audit</p>
+  <h1>Atomid — architecture &amp; code audit</h1>
+  <p class="standfirst">An offline-first retail POS built in Flutter, with a hand-rolled Hive⇄Firestore sync engine. The data and domain layers are unusually well-reasoned; the gaps are concentrated in what happens <em>after</em> a cloud pull, and in a security surface that promises more than it delivers.</p>
+</header>
+<p class="meta">
+  <span><b>Repo</b> C:\Users\HARIRAGAVENDRA\Projects\atomid</span>
+  <span><b>Branch</b> main</span>
+  <span><b>Dart files</b> 145 (~23,200 lines in <code>lib/</code>, excl. generated)</span>
+  <span><b>Tests</b> 310 passing</span>
+  <span><b>Analyzer</b> clean</span>
+</p>
+
+<div class="legend">
+  <span class="chip crit">Critical</span>
+  <span class="chip high">High</span>
+  <span class="chip med">Medium</span>
+  <span class="chip low">Low</span>
+  <span class="chip good">Strength</span>
+  <span class="chip conf">Confirmed / Inferred / Possible</span>
+</div>
+
+<!-- ============ 1 ============ -->
+<h2 id="s1"><span class="num">Section 01</span>Executive Summary</h2>
+
+<p>Atomid is a single-tenant, offline-first point-of-sale and small-business ERP for one shop. It runs entirely on-device against Hive, and treats the cloud as an optional mirror rather than a source of truth. That decision is applied with real discipline: every screen works signed out, and the sync engine is a queue with backoff and a dead-letter state rather than a naive write-through.</p>
+
+<p>The strongest part of this codebase is its <strong>data and domain layer</strong>. <code>StorageRepository</code> is large but coherent, and the reasoning behind non-obvious decisions is written down in comments that explain the failure that motivated them — carried-forward ledger balances, device-tagged invoice numbers, paged Firestore reads that replaced a silent <code>limit(500)</code> truncation. This is materially better than typical application code, and it is the main reason the project is workable at its current size.</p>
+
+<p>The weaknesses cluster in three places:</p>
+
+<ol>
+  <li><strong>Post-pull state is incomplete.</strong> <code>applyRemote</code> writes records into their boxes but never updates the in-memory indexes the till reads from. After a cloud pull — including the very first one on a newly provisioned device — customer phone lookup returns nothing and visit history reads as zero. This is confirmed empirically, not inferred.</li>
+  <li><strong>The security surface overstates itself.</strong> A "Enable Biometric Login" toggle is persisted, synced and preserved across restores, but <code>local_auth</code> is never called anywhere in the codebase. There is no app lock of any kind. The README additionally advertises RBAC that was deliberately removed from the code.</li>
+  <li><strong>Sync is full-refresh only.</strong> The incremental-pull code path exists, is correct, and is never reachable — no caller ever passes <code>since</code>. Every sign-in and every manual refresh re-downloads every collection in full.</li>
+</ol>
+
+<p>None of these are architectural dead ends. The first is a handful of missed index-rebuild calls; the second is a product decision that needs to be made honestly; the third is a one-line plumbing change plus a stored watermark. The architecture underneath them is sound and worth preserving.</p>
+
+<div class="callout accent">
+  <span class="k">Bottom line</span>
+  <p>Ship-worthy foundations with three specific defects that should be closed before this is relied on across more than one device. The codebase does not need a rewrite, or even a significant restructure — it needs the post-pull path finished and the security story made truthful.</p>
+</div>
+
+<!-- ============ 2 ============ -->
+<h2 id="s2"><span class="num">Section 02</span>Scope &amp; Method — what was and wasn't read</h2>
+
+<p>Being precise about this matters more than claiming completeness.</p>
+
+<h3>Read in full, line by line</h3>
+<ul>
+  <li>Entire data layer — <code>storage_repository.dart</code> (2,676 lines), <code>firebase_repository.dart</code>, <code>entity_codec.dart</code>, all 18 model definitions (hand-written portions).</li>
+  <li>Entire domain layer — all 9 services in <code>lib/domain/services/</code>, plus <code>pricing.dart</code>, <code>price_tag_size.dart</code>.</li>
+  <li>Composition and entry — <code>main.dart</code>, <code>bootstrap.dart</code>, <code>app_providers.dart</code> (462 lines).</li>
+  <li>Sync engine — <code>sync_service.dart</code> (480 lines) end to end.</li>
+  <li>Export/PDF — <code>export_service.dart</code> (1,306 lines).</li>
+  <li>Config &amp; infra — <code>pubspec.yaml</code>, <code>firestore.rules</code>, <code>firestore.indexes.json</code>, <code>firebase.json</code>, <code>analysis_options.yaml</code>, CI workflows, README.</li>
+  <li>Core utils — <code>formatters.dart</code>, <code>ids.dart</code>, <code>app_error.dart</code>, <code>cart_notifier.dart</code>.</li>
+  <li>Test inventory — all 32 test file names, plus full reads of ~10 test files.</li>
+</ul>
+
+<h3>Read partially or sampled</h3>
+<ul>
+  <li><strong>Presentation layer (~8,000 lines across 47 screens).</strong> Fully read: <code>reports_dashboard_screen.dart</code>, <code>ocr_scanner_screen.dart</code>, <code>app_shell.dart</code> (navigation core). Targeted reads / greps: <code>settings_screen.dart</code>, <code>checkout_screen.dart</code>, <code>bulk_generator_screen.dart</code>, the three FAB screens, <code>customer_details_screen.dart</code>. The remaining screens — notably <code>purchase_form_screen.dart</code> (845 lines), <code>pos_screen.dart</code> (704), <code>product_form_screen.dart</code> (628), <code>dashboard_screen.dart</code> (531) — were <strong>not</strong> read line by line.</li>
+</ul>
+
+<h3>Deliberately excluded</h3>
+<ul>
+  <li><code>*.g.dart</code> Hive adapters — generated by <code>hive_ce_generator</code>, regenerated in CI; reviewing them audits the generator, not this project.</li>
+  <li><code>lib/firebase_options.dart</code> — generated by <code>flutterfire configure</code>.</li>
+  <li><code>android/</code>, <code>ios/</code>, <code>windows/</code>, <code>linux/</code>, <code>macos/</code>, <code>web/</code> platform folders — largely Flutter scaffolding.</li>
+  <li><code>node_modules/</code>, <code>build/</code>, <code>coverage/</code> — vendor and build output. Note <code>node_modules/</code> and <code>package.json</code> exist at root with no apparent Dart-side consumer (see §21).</li>
+</ul>
+
+<p>Every finding below cites a file and, where useful, a line range. Confidence is labelled explicitly. Where I could verify a suspicion by executing code rather than reading it, I did — one finding in §22 was confirmed by writing a throwaway probe test, running it, and then deleting it.</p>
+
+<!-- ============ 3 ============ -->
+<h2 id="s3"><span class="num">Section 03</span>Project Overview</h2>
+
+<p><strong>What it is:</strong> a cross-platform retail management and point-of-sale application for a single small shop — one account, one business, potentially several devices.</p>
+
+<p><strong>The problem it solves</strong> (strongly inferred from code and the <code>pubspec</code> description "Offline-first retail and point-of-sale for small shops"): a shop till must keep working when the internet does not. Most POS products fail closed when connectivity drops. Atomid inverts that: the local Hive database <em>is</em> the system of record, and Firestore is a replica that catches up later.</p>
+
+<p><strong>Likely users:</strong> the owner-operator of a single retail outlet (clothing/apparel is strongly implied — products carry <code>size</code>, <code>color</code>, <code>brand</code> variants, and the OCR tag reader parses <code>S/M/L/XL/XXL</code>). Currency defaults to <code>₹</code> and GST fields appear throughout, so the target market is India.</p>
+
+<h3>Core workflows</h3>
+<div class="kv">
+  <div><b>Sell</b><span>Scan or search → cart → discount/loyalty → checkout → invoice or thermal receipt</span></div>
+  <div><b>Restock</b><span>Purchase order → issue → receive → stock lands, supplier credited</span></div>
+  <div><b>Know the customer</b><span>Phone lookup → visit history, ledger, loyalty balance, credit limit</span></div>
+  <div><b>Track money</b><span>Customer ledger (receivables), supplier ledger (payables), expenses</span></div>
+  <div><b>Stay safe</b><span>Local JSON backups + optional cloud mirror scoped to one account</span></div>
+</div>
+
+<h3>Architectural principles the code actually follows</h3>
+<ul>
+  <li><strong>Local first, always.</strong> No screen requires network or sign-in. <code>bootstrap()</code> treats Firebase failure as non-fatal (<a href="#"><code>bootstrap.dart:66-78</code></a>).</li>
+  <li><strong>One construction path.</strong> Providers throw <code>UnimplementedError</code> unless injected from <code>bootstrap()</code>, so tests and the app share one object graph (<code>app_providers.dart:41-63</code>).</li>
+  <li><strong>Explain the failure, not the code.</strong> Comments consistently document <em>what broke</em> to motivate a design, e.g. <code>firebase_repository.dart:157-169</code>.</li>
+  <li><strong>Compensate, don't pretend to transact.</strong> Hive has no cross-box transaction, so multi-step operations register undo steps.</li>
+</ul>
+
+<!-- ============ 4 ============ -->
+<h2 id="s4"><span class="num">Section 04</span>Technology Stack</h2>
+
+<div class="tbl">
+<table>
+<thead><tr><th>Layer</th><th>Technology</th><th>Version</th><th>Role — confirmed by code</th></tr></thead>
+<tbody>
+<tr><td>Framework</td><td>Flutter / Dart</td><td class="num-col">3.44.3 / SDK ^3.12.2</td><td>All UI and logic; CI pins the Flutter version</td></tr>
+<tr><td>Local DB</td><td><code>hive_ce</code> / <code>hive_ce_flutter</code></td><td class="num-col">2.19.3 / 2.3.4</td><td>19 typed boxes + 2 untyped; the system of record</td></tr>
+<tr><td>State</td><td><code>flutter_riverpod</code></td><td class="num-col">3.3.2</td><td>Providers + topic-based invalidation</td></tr>
+<tr><td>Cloud DB</td><td><code>cloud_firestore</code></td><td class="num-col">6.7.1</td><td>Replica at <code>/users/{uid}/…</code></td></tr>
+<tr><td>Auth</td><td><code>firebase_auth</code></td><td class="num-col">6.5.6</td><td>Email/password only; gates sync, not the app</td></tr>
+<tr><td>Connectivity</td><td><code>connectivity_plus</code></td><td class="num-col">7.3.1</td><td>Triggers queue drain on reconnect</td></tr>
+<tr><td>PDF</td><td><code>pdf</code> + <code>printing</code></td><td class="num-col">3.13.0 / 5.15.0</td><td>Invoices, thermal receipts, reports, price tags</td></tr>
+<tr><td>Barcodes</td><td><code>barcode_widget</code>, <code>mobile_scanner</code></td><td class="num-col">2.0.4 / 7.2.0</td><td>Code128 rendering; camera scanning</td></tr>
+<tr><td>OCR</td><td><code>google_mlkit_text_recognition</code></td><td class="num-col">0.15.1</td><td>Price-tag reading (mobile only)</td></tr>
+<tr><td>IDs</td><td><code>uuid</code></td><td class="num-col">4.5.3</td><td>v4 for every Hive key / Firestore doc id</td></tr>
+<tr><td>Fonts</td><td><code>google_fonts</code></td><td class="num-col">8.1.0</td><td>PDF fonts only, via <code>PdfGoogleFonts</code></td></tr>
+<tr><td>Packaging</td><td><code>msix</code>, <code>flutter_launcher_icons</code></td><td class="num-col">3.18.0 / 0.14.4</td><td>Windows Store packaging; icon generation</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><strong>Target platforms:</strong> Android, iOS, Web, Windows, macOS, Linux — all six folders present, and the code branches on <code>kIsWeb</code> / <code>PlatformIo</code> for filesystem, OCR and export capability. Web is explicitly degraded: no backup, no PDF export to disk, no OCR.</p>
+
+<p><strong>CI</strong> (<code>.github/workflows/ci.yml</code>): checkout → pinned Flutter → <code>pub get</code> → <code>build_runner</code> → <code>dart format --set-exit-if-changed</code> → <code>flutter analyze --fatal-infos</code> → <code>flutter test --coverage</code>. Format and analysis are enforced gates, not advisory. A second workflow handles web deploy.</p>
+
+<!-- ============ 5 ============ -->
+<h2 id="s5"><span class="num">Section 05</span>Project Structure</h2>
+
+<pre><code>lib/
+├── main.dart                  Entry: error handlers, FutureBuilder over bootstrap()
+├── bootstrap.dart             Composition root — builds every long-lived service
+├── firebase_options.dart      [generated]
+├── core/
+│   ├── constants/             invoice_fonts.dart
+│   ├── services/              export_service.dart  (PDF: invoices, receipts, reports, tags)
+│   ├── theme/                 brand.dart, theme_provider.dart
+│   └── utils/                 formatters, ids, app_error, responsive,
+│                              platform_io{,_native,_web}, image_provider{,_native,_web}
+├── data/
+│   ├── models/                18 Hive models (+ .g.dart adapters)
+│   ├── repositories/          storage_repository.dart (2,676 L) · firebase_repository.dart
+│   └── sync/                  entity_codec.dart  (decode side of the wire format)
+├── domain/
+│   ├── pricing.dart           Pure sale arithmetic
+│   ├── price_tag_size.dart    Tag layout geometry
+│   └── services/              sale, purchase, customer, supplier, expense,
+│                              auth, session, sync, backup
+└── presentation/
+    ├── providers/             app_providers.dart (composition + read models) · cart_notifier.dart
+    ├── widgets/               app_shell (nav), adaptive_dialog, empty_state,
+    │                          responsive_data_table, brand_title
+    └── features/              17 feature folders, 47 screens
+
+test/
+├── support/                   test_store.dart · fake_firebase_repository.dart · screen_harness.dart
+├── unit/                      27 files
+└── widget/                    2 files
+integration_test/              app_startup_test.dart  (real app, real Hive, real Firebase)</code></pre>
+
+<p>The layering is <strong>data → domain → presentation</strong>, and it is respected: no file in <code>data/</code> imports from <code>presentation/</code> or <code>domain/services/</code>. One deliberate exception — <code>sale_service.dart</code> imports <code>cart_notifier.dart</code> from <code>presentation/providers/</code> for the <code>CartItem</code> type (<code>sale_service.dart:11</code>). That is a layering inversion; see §23.</p>
+
+<!-- ============ 6 ============ -->
+<h2 id="s6"><span class="num">Section 06</span>Architecture Overview</h2>
+
+<p>This is a <strong>layered, offline-first, single-tenant client application</strong> with an optional replication tail. There is no backend of the project's own — Firestore is the entire server side, and all business logic lives on the client.</p>
+
+<pre class="mermaid">
+graph TB
+    subgraph UI["Presentation"]
+        SHELL["AppShell<br/>IndexedStack + rail/bar"]
+        SCREENS["47 feature screens"]
+        CART["CartNotifier"]
+    end
+    subgraph PROV["Providers — app_providers.dart"]
+        DV["DataVersionNotifier<br/>topic → version counter"]
+        READ["Read providers<br/>products, sales, customers…"]
+    end
+    subgraph DOMAIN["Domain services"]
+        SALE["SaleService"]
+        PUR["PurchaseService"]
+        CUST["CustomerService"]
+        SYNC["SyncService"]
+        AUTH["AuthService"]
+        SESS["SessionService"]
+        BACK["BackupService"]
+    end
+    subgraph DATA["Data"]
+        STORE["StorageRepository<br/>19 typed + 2 untyped boxes"]
+        CODEC["EntityCodec"]
+        FB["FirebaseRepository"]
+    end
+    subgraph EXT["External"]
+        HIVE[("Hive — on disk")]
+        FS[("Firestore<br/>/users/{uid}/…")]
+        FA["Firebase Auth"]
+    end
+
+    SCREENS --> READ
+    SCREENS --> SALE & PUR & CUST & BACK
+    CART --> SALE
+    READ --> DV
+    DV -. "changes stream" .- STORE
+    READ --> STORE
+    SALE & PUR & CUST & BACK --> STORE
+    SYNC --> STORE
+    SYNC --> FB
+    SYNC --> CODEC
+    STORE --> CODEC
+    STORE --> HIVE
+    FB --> FS
+    AUTH --> FB
+    FB --> FA
+    SESS --> AUTH
+</pre>
+<p class="fig">Figure 1 — Layer map. The dashed edge is the change-notification stream that drives UI invalidation; every other edge is a direct call.</p>
+
+<h3>The two mechanisms worth understanding first</h3>
+
+<h4>1. Topic-based invalidation</h4>
+<p>Every mutation funnels through <code>StorageRepository.enqueueSync()</code>, which does two jobs: it queues the cloud write <em>and</em> emits the affected <code>DataTopic</code>s on a broadcast stream (<code>storage_repository.dart:506-511</code>). <code>DataVersionNotifier</code> listens and bumps a per-topic counter; read providers call <code>_watch(ref, topic)</code> to subscribe to just their slice.</p>
+<p>This is a good design. It removes the classic bug where a screen forgets to invalidate after a write — the comment at <code>app_providers.dart:66-70</code> says exactly that was the previous arrangement. The mapping lives in one switch (<code>_topicsFor</code>, <code>storage_repository.dart:545-573</code>), so a sale correctly invalidates sales, inventory <em>and</em> products.</p>
+
+<h4>2. Compensating transactions</h4>
+<p>Hive cannot transact across boxes. A checkout touches five. <code>SaleService.checkout()</code> therefore builds a list of undo closures as it goes and replays them in reverse on failure (<code>sale_service.dart:113-152</code>, <code>_unwind</code> at <code>:305-313</code>). A durable journal backs this up for process-death (see §13). <code>PurchaseService._receive()</code> uses the same pattern.</p>
+
+<h3>Notably absent</h3>
+<ul>
+  <li><strong>No router.</strong> Navigation is an <code>IndexedStack</code> index plus <code>Navigator.push(MaterialPageRoute(...))</code>. No deep links, no URL routing on web.</li>
+  <li><strong>No background workers or scheduled jobs.</strong> Sync is a <code>Timer.periodic</code> every 2 minutes plus event triggers, all in-process (<code>sync_service.dart:162</code>).</li>
+  <li><strong>No caching layer</strong> beyond in-memory indexes and one derived-totals cache.</li>
+  <li><strong>No structured logging or telemetry.</strong> <code>debugPrint</code> throughout; a <code>SyncLogModel</code> box is the only persistent diagnostic trail.</li>
+</ul>
+
+<!-- ============ 7 ============ -->
+<h2 id="s7"><span class="num">Section 07</span>Module-by-Module Analysis</h2>
+
+<h3>7.1 <code>StorageRepository</code> — the hub</h3>
+<div class="kv">
+  <div><b>File</b><span><code>lib/data/repositories/storage_repository.dart</code> — 2,676 lines</span></div>
+  <div><b>Depends on</b><span>All 18 models, <code>EntityCodec</code>, <code>Ids</code>, <code>Fmt</code>, <code>AppException</code>, <code>PlatformIo</code>, Hive</span></div>
+  <div><b>Depended on by</b><span>Every domain service, every read provider — the single most connected file in the project</span></div>
+</div>
+
+<p><strong>Responsibilities:</strong> box lifecycle and crash recovery; CRUD for every entity; three in-memory indexes; the sync queue; the wire-format <em>encode</em> side (<code>getEntityJson</code>); conflict resolution (<code>applyRemote</code>); backup snapshot export/import; document numbering; ledger balance arithmetic; loyalty point recomputation; inventory valuation; the checkout journal.</p>
+
+<p><strong>Assessment.</strong> This is a God object by size, and it is <em>substantially better</em> than that label usually implies. The internal organisation is disciplined — clearly banded sections, a consistent enqueue-then-notify pattern, and genuinely excellent comments. Splitting it would be a large, risky refactor for modest gain; see §21 on what not to touch.</p>
+
+<p>Its real weakness is not size but <strong>a split-brain between stored state and derived state</strong>. Three in-memory structures — <code>_barcodeIndex</code>, <code>_mobileIndex</code>/<code>_indexedMobile</code>, <code>_salesByCustomer</code>, plus <code>_customerBalances</code>/<code>_supplierBalances</code> and the <code>_todayCache</code>/<code>_costPriceIndex</code> caches — must be kept in step with the boxes by hand. Local writes do this correctly. <strong>Remote writes do not</strong> (§22, finding B-1).</p>
+
+<h4>Notable methods</h4>
+<div class="tbl">
+<table>
+<thead><tr><th>Method</th><th>Lines</th><th>Why it matters</th></tr></thead>
+<tbody>
+<tr><td><code>init()</code></td><td class="num-col">185-310</td><td>Opens 21 boxes concurrently (deliberate — comment explains sequential opens froze the splash), rebuilds indexes, resets stuck sync items, runs checkout recovery</td></tr>
+<tr><td><code>_safeOpenBox()</code></td><td class="num-col">330-366</td><td>4-step escalation: open → retry → crashRecovery → rebuild + record loss in <code>recoveredBoxes</code>. Data loss is surfaced to the user, never silent</td></tr>
+<tr><td><code>enqueueSync()</code></td><td class="num-col">493-543</td><td>Dedupes pending writes per record; DELETE always wins over pending CREATE/UPDATE; emits UI topics</td></tr>
+<tr><td><code>getEntityJson()</code></td><td class="num-col">~1030-1258</td><td>Encode side of the wire format. Must mirror <code>EntityCodec</code>; <code>sync_payload_test.dart</code> guards the round trip</td></tr>
+<tr><td><code>applyRemote()</code></td><td class="num-col">1289-1393</td><td>Conflict resolution — pending-local-change wins, then LWW on <code>updatedAt</code>. <strong>Does not rebuild indexes</strong></td></tr>
+<tr><td><code>addLedgerEntry()</code></td><td class="num-col">2372-2412</td><td>Carries balance forward from cache rather than replaying history — O(1) per transaction</td></tr>
+<tr><td><code>recoverInterruptedCheckouts()</code></td><td class="num-col">~1900-1960</td><td>Reference-driven, idempotent unwind of a crashed checkout</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>7.2 <code>SaleService</code> — checkout</h3>
+<p><code>lib/domain/services/sale_service.dart</code> (337 L). Owns the checkout transaction. Validates stock (summing per-variant so a duplicated line can't oversell), enforces credit limits, prices via <code>SalePricing</code>, then writes sale → stock-out per line → ledger → loyalty → lifetime spend, registering an undo for each. Opens a durable journal before the first write and closes it after the last.</p>
+<p><strong>Edge cases handled:</strong> empty cart; product or variant deleted since it entered the basket; insufficient stock; credit sale without a customer; credit limit breach; walk-in (no customer) skipping all ledger/loyalty work; discount capped so it can't push a part-redeemed bill negative.</p>
+<p><strong>Assessment:</strong> the best-designed service in the project. Clear single responsibility, explicit failure semantics, well tested (<code>sale_service_test.dart</code>, <code>sale_rollback_test.dart</code>, <code>checkout_crash_recovery_test.dart</code>).</p>
+
+<h3>7.3 <code>SyncService</code> — replication</h3>
+<p><code>lib/domain/services/sync_service.dart</code> (480 L). Upload is queue-driven in batches of 20 with exponential backoff (<code>2^retryCount × 30s</code>, <code>:321-326</code>) and a dead state after 5 retries. Download is a full pull on sign-in and on demand. Emits a <code>SyncStatus</code> the UI subscribes to.</p>
+<p><strong>Assessment:</strong> genuinely good scheduling logic, and the <code>SyncWrite</code> abstraction (<code>firebase_repository.dart:12-29</code>) keeps Firestore types out of the engine so batching decisions are testable without a live project — <code>fake_firebase_repository.dart</code> subclasses the real repository so a leak of Firestore types breaks compilation. Two defects: the incremental path is unreachable (§21), and a pull leaves derived state stale (§22).</p>
+
+<h3>7.4 <code>PurchaseService</code> — receiving</h3>
+<p><code>lib/domain/services/purchase_service.dart</code> (207 L). Status machine Draft → Issued → Received, with Cancelled as a side exit. Receiving is the only transition with side effects: stock-in per line plus a supplier ledger credit. Validates every line up front, holds the status back until receiving fully succeeds, and unwinds on failure.</p>
+<p><strong>Assumption worth knowing:</strong> <code>previousStatus</code> must be passed by the caller, because Hive returns the same instance the caller mutated — re-reading cannot detect the transition. This is documented at <code>:31-34</code> and is a real trap for anyone adding a call site.</p>
+
+<h3>7.5 <code>CustomerService</code>, <code>SupplierService</code>, <code>ExpenseService</code></h3>
+<p>Thin. <code>CustomerService</code> (131 L) adds phone normalisation, registration-by-mobile, duplicate detection and merge. <code>SupplierService</code> (61 L) and <code>ExpenseService</code> (63 L) are near-pass-throughs to the repository that mostly add an <code>ActionHistory</code> write — arguably not earning their existence, though they do give the UI a stable seam.</p>
+
+<h3>7.6 <code>AuthService</code> / <code>SessionService</code></h3>
+<p><code>AuthService</code> (59 L) wraps Firebase Auth and guards every call with <code>_requireAvailable()</code>. Its class comment is the clearest statement of the security model in the project: <em>"Signing in is not a permission boundary — every screen works without it."</em></p>
+<p><code>SessionService</code> (100 L) persists a per-install device id used to tag offline document numbers so two devices cannot both issue invoice 0001. It has its own untyped Hive box with independent recovery logic — a small duplication of <code>_safeOpenBox</code>.</p>
+
+<h3>7.7 <code>BackupService</code></h3>
+<p>(220 L) Point-in-time JSON snapshots, distinct from sync — the class comment articulates why: <em>"Cloud sync is a live mirror, not a backup: it faithfully replicates a mistake."</em> Writes to a staging file then renames, so a crash leaves the previous backup intact. Keeps 10, prunes the rest, never fails the operation over pruning. Android writes to external storage specifically because app-private storage dies with an uninstall.</p>
+
+<h3>7.8 <code>ExportService</code></h3>
+<p>(1,306 L, <code>lib/core/services/</code>) Pure static PDF generation: invoice, thermal receipt (80mm roll), sales/inventory/purchase/supplier/valuation reports, single and bulk price tags. Caches fonts, themes and the logo in statics.</p>
+<p><strong>Assessment:</strong> the weakest-structured large file. Entirely static with mutable static caches (<code>_cachedThemes</code>, <code>_resourcesLoaded</code>), which makes it untestable in isolation and gives it process-lifetime state. It is also the only major module with no test coverage.</p>
+
+<!-- ============ 8 ============ -->
+<h2 id="s8"><span class="num">Section 08</span>Feature Inventory</h2>
+
+<div class="tbl">
+<table>
+<thead><tr><th>Feature</th><th>Status</th><th>Entry point</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td>POS / billing</td><td><span class="chip good">Complete</span></td><td><code>pos_screen.dart</code> → <code>checkout_screen.dart</code></td><td>Barcode + search, cart, discount %, loyalty redemption, 4 payment methods</td></tr>
+<tr><td>Checkout transaction</td><td><span class="chip good">Complete</span></td><td><code>SaleService.checkout()</code></td><td>Compensating rollback + durable crash journal</td></tr>
+<tr><td>Invoice / receipt PDF</td><td><span class="chip good">Complete</span></td><td><code>invoice_preview_screen.dart</code></td><td>A4 invoice + 80mm thermal; UPI QR; configurable font/footer/T&amp;C</td></tr>
+<tr><td>Product catalogue</td><td><span class="chip good">Complete</span></td><td><code>product_list_screen.dart</code></td><td>Multi-variant (size/colour/barcode/price/qty/reorder level)</td></tr>
+<tr><td>Stock in / out</td><td><span class="chip good">Complete</span></td><td><code>stock_in_screen.dart</code>, <code>stock_out_screen.dart</code></td><td>Every movement written to an immutable movement log</td></tr>
+<tr><td>Inventory dashboard</td><td><span class="chip good">Complete</span></td><td><code>inventory_dashboard_screen.dart</code></td><td>Low stock, out of stock, valuation (cost vs retail)</td></tr>
+<tr><td>Customer CRM</td><td><span class="chip good">Complete</span></td><td><code>customer_list_screen.dart</code></td><td>Phone lookup, groups, tags, credit limit, visit stats</td></tr>
+<tr><td>Customer ledger</td><td><span class="chip good">Complete</span></td><td><code>customer_details_screen.dart</code></td><td>Running balance carried forward; recalculable</td></tr>
+<tr><td>Customer merge</td><td><span class="chip good">Complete</span></td><td><code>customer_details_screen.dart:174</code></td><td>Ledger reassignment fixed this session; previously lost history</td></tr>
+<tr><td>Loyalty points</td><td><span class="chip good">Complete</span></td><td><code>loyalty_settings_screen.dart</code></td><td>Earn/redeem with caps; balance re-derived from transactions</td></tr>
+<tr><td>Suppliers + ledger</td><td><span class="chip good">Complete</span></td><td><code>supplier_list_screen.dart</code></td><td>Soft delete so deletions propagate</td></tr>
+<tr><td>Purchase orders</td><td><span class="chip good">Complete</span></td><td><code>purchase_list_screen.dart</code></td><td>Draft→Issued→Received; receiving is atomic-with-rollback</td></tr>
+<tr><td>Expenses</td><td><span class="chip good">Complete</span></td><td><code>expense_list_screen.dart</code></td><td>Categories seeded on first run</td></tr>
+<tr><td>Reports</td><td><span class="chip med">Partial</span></td><td><code>reports_dashboard_screen.dart</code></td><td>4 metrics + top-5 sellers only; timeframe boundaries imprecise (§22 B-7)</td></tr>
+<tr><td>Price tags / barcodes</td><td><span class="chip good">Complete</span></td><td><code>price_tag_screen.dart</code>, <code>bulk_generator_screen.dart</code></td><td>Code128; A4/Letter aware; capped at 1000 tags</td></tr>
+<tr><td>OCR tag reader</td><td><span class="chip med">Partial</span></td><td><code>ocr_scanner_screen.dart</code></td><td>Best-effort regex parse of price/code/size; mobile only; always human-reviewed</td></tr>
+<tr><td>Cloud sync</td><td><span class="chip med">Partial</span></td><td><code>SyncService</code></td><td>Works; full-refresh only, and leaves indexes stale (§22 B-1)</td></tr>
+<tr><td>Backup / restore</td><td><span class="chip good">Complete</span></td><td><code>backup_screen.dart</code></td><td>Not available on web (explicit message)</td></tr>
+<tr><td>System console</td><td><span class="chip good">Complete</span></td><td><code>system_console_screen.dart</code></td><td>Sync log, failures, retry, re-fetch</td></tr>
+<tr><td>Company / invoice settings</td><td><span class="chip good">Complete</span></td><td><code>company_profile_screen.dart</code></td><td>Syncs as <code>config</code> singletons</td></tr>
+<tr><td>Dark mode</td><td><span class="chip good">Complete</span></td><td><code>settings_screen.dart</code></td><td>Persisted and synced</td></tr>
+<tr><td><strong>Biometric login</strong></td><td><span class="chip crit">Non-functional</span></td><td><code>settings_screen.dart:182</code></td><td><strong>Toggle persists and syncs; nothing ever reads it. <code>local_auth</code> never imported.</strong> See §15</td></tr>
+<tr><td><strong>RBAC / roles / PIN</strong></td><td><span class="chip low">Removed</span></td><td>—</td><td>Deliberately removed from code; <strong>still advertised in README</strong></td></tr>
+<tr><td>Incremental pull</td><td><span class="chip low">Dead code</span></td><td><code>fetchCollectionPages(since:)</code></td><td>Implemented and correct; no caller passes <code>since</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<!-- ============ 9 ============ -->
+<h2 id="s9"><span class="num">Section 09</span>Feature-to-Code Map</h2>
+
+<div class="tbl">
+<table>
+<thead><tr><th>Feature</th><th>UI</th><th>Domain</th><th>Data / boxes</th><th>Cloud collection</th></tr></thead>
+<tbody>
+<tr><td>Checkout</td><td><code>pos_screen</code>, <code>checkout_screen</code>, <code>cart_notifier</code></td><td><code>SaleService</code>, <code>SalePricing</code></td><td><code>sales</code>, <code>products</code>, <code>inventory_movements</code>, <code>customer_ledgers</code>, <code>loyalty_transactions</code>, <code>checkout_journal</code></td><td><code>sales</code></td></tr>
+<tr><td>Products</td><td><code>product_list</code>, <code>product_form</code></td><td>—</td><td><code>products</code> + <code>_barcodeIndex</code></td><td><code>products</code></td></tr>
+<tr><td>Stock movement</td><td><code>stock_in</code>, <code>stock_out</code>, <code>inventory_movement</code></td><td><code>StorageRepository.performStockIn/Out</code></td><td><code>products</code>, <code>inventory_movements</code>, <code>history</code></td><td><code>inventoryMovements</code></td></tr>
+<tr><td>Customers</td><td><code>customer_list/form/details</code>, <code>customer_lookup_field</code></td><td><code>CustomerService</code></td><td><code>customers</code> + <code>_mobileIndex</code>, <code>_salesByCustomer</code></td><td><code>customers</code></td></tr>
+<tr><td>Customer ledger</td><td><code>customer_details</code></td><td><code>StorageRepository.addLedgerEntry</code></td><td><code>customer_ledgers</code> + <code>_customerBalances</code></td><td><code>customerLedgers</code></td></tr>
+<tr><td>Loyalty</td><td><code>reward_discount_widget</code>, <code>loyalty_settings</code></td><td><code>SalePricing</code></td><td><code>loyalty_transactions</code>, <code>loyalty_settings</code></td><td><code>loyaltyTransactions</code>, <code>config/loyalty</code></td></tr>
+<tr><td>Purchases</td><td><code>purchase_list/form/details</code></td><td><code>PurchaseService</code></td><td><code>purchases</code>, <code>products</code>, <code>supplier_ledgers</code></td><td><code>purchases</code></td></tr>
+<tr><td>Suppliers</td><td><code>supplier_list/form/details</code></td><td><code>SupplierService</code></td><td><code>suppliers</code>, <code>supplier_ledgers</code></td><td><code>suppliers</code>, <code>supplierLedgers</code></td></tr>
+<tr><td>Expenses</td><td><code>expense_list</code>, <code>expense_form</code></td><td><code>ExpenseService</code></td><td><code>expenses</code>, <code>expense_categories</code></td><td><code>expenses</code>, <code>expenseCategories</code></td></tr>
+<tr><td>Sync</td><td><code>sync_status_widget</code>, <code>system_console</code></td><td><code>SyncService</code></td><td><code>sync_queue</code>, <code>sync_logs</code></td><td>all</td></tr>
+<tr><td>Auth</td><td><code>auth_screen</code></td><td><code>AuthService</code>, <code>SessionService</code></td><td><code>session</code></td><td>Firebase Auth</td></tr>
+<tr><td>Backup</td><td><code>backup_screen</code></td><td><code>BackupService</code></td><td>all (via <code>exportSnapshot</code>)</td><td>—</td></tr>
+<tr><td>PDF</td><td><code>invoice_preview</code>, <code>price_tag</code>, <code>bulk_generator</code>, <code>reports</code></td><td><code>ExportService</code></td><td>read-only</td><td>—</td></tr>
+</tbody>
+</table>
+</div>
+
+<!-- ============ 10 ============ -->
+<h2 id="s10"><span class="num">Section 10</span>Major Execution Flows</h2>
+
+<h3>10.1 Cold start</h3>
+<pre><code>main()                                    main.dart:11
+  ├─ WidgetsFlutterBinding.ensureInitialized()
+  ├─ FlutterError.onError / PlatformDispatcher.onError → debugPrint
+  └─ runApp(AtomidBootstrap)
+       └─ initState → bootstrap()          bootstrap.dart:48
+            ├─ Firebase.initializeApp()    :66-78   (UnsupportedError + generic catch → cloudReady=false)
+            ├─ storageRepo.init()          storage_repository.dart:185
+            │    ├─ Hive.init(path)                (OneDrive-avoidance on Windows, :202-209)
+            │    ├─ registerAdapters()             (guarded — throws if run twice)
+            │    ├─ 21 × _safeOpenBox (concurrent) (:235-264)
+            │    ├─ _rebuildBarcodeIndex / _rebuildCustomerIndexes / _rebuildLedgerBalances
+            │    ├─ resetStuckSyncItems()          (SYNCING → PENDING after a kill)
+            │    └─ recoverInterruptedCheckouts()  (unwind crashed sales; failure never blocks startup)
+            ├─ sessionService.init()               (device id, persisted)
+            ├─ storageRepo.deviceId = …            (document numbering tag)
+            ├─ ProviderContainer(overrides: 5 services)
+            ├─ ExpenseService.seedDefaultCategories()
+            └─ if (cloudReady) syncService.start()
+       └─ FutureBuilder → SplashScreen | AppShell | error+retry</code></pre>
+<p>The retry path matters: startup failure renders an error screen with a working retry button rather than a red exception — <code>main.dart:48-50</code> and the comment above <code>AtomidBootstrap</code> note this was previously fatal.</p>
+
+<h3>10.2 Checkout — the critical path</h3>
+<pre class="mermaid">
+sequenceDiagram
+    participant U as Cashier
+    participant POS as pos_screen
+    participant CO as checkout_screen
+    participant SS as SaleService
+    participant SR as StorageRepository
+    participant SY as SyncService
+
+    U->>POS: scan / tap product
+    POS->>POS: cart.addItem() — refuses if variant.quantity exhausted
+    U->>CO: open checkout
+    CO->>SS: preview(request) → SalePricing.compute
+    U->>CO: confirm (guarded by _isProcessing)
+    CO->>SS: checkout(request)
+    SS->>SS: _assertStockAvailable (sums per variant)
+    SS->>SS: _assertCreditAllowed
+    SS->>SR: openCheckoutJournal(saleId, …) + flush
+    SS->>SR: saveSale                      [undo: deleteSale]
+    loop each cart line
+        SS->>SR: performStockOut           [undo: performStockIn]
+    end
+    alt customer attached
+        SS->>SR: addLedgerEntry (debit)    [undo: deleteLedgerEntry]
+        opt not credit
+            SS->>SR: addLedgerEntry (credit)
+        end
+        SS->>SR: addLoyaltyTransaction     [undo: deleteLoyaltyTransaction]
+        SS->>SR: lifetimeSpend += total    [undo: restore previous]
+    end
+    SS->>SR: closeCheckoutJournal
+    SR-->>SY: enqueueSync × N (priority 1 for Sale)
+    SY->>SY: batch ≤20 → commitBatch → delete queue items
+</pre>
+<p class="fig">Figure 2 — Checkout. Every <code>[undo: …]</code> is pushed as the write lands, so a failure on step <em>n</em> unwinds steps 1…<em>n</em>−1 in reverse.</p>
+
+<h3>10.3 Sign-in and first pull</h3>
+<pre><code>auth_screen → AuthService.signIn → FirebaseAuth
+   → authStateChanges fires
+      ├─ SessionService._sessionChanges  (UI re-resolves cloud state)
+      └─ SyncService listener            sync_service.dart:153-160
+           ├─ pullAll()                  ← always full; `since` never passed
+           │    └─ for each of 15 types in EntityCodec.pullOrder
+           │         └─ fetchCollectionPages(pageSize: 300, orderBy documentId)
+           │              └─ onPage → applyRemote(type, id, doc)
+           │                   ├─ skip if a pending queue item exists for this record
+           │                   ├─ skip if remote.updatedAt !isAfter local
+           │                   └─ box.put(...) + _notify(topic)
+           └─ processQueue()
+      → reconcileAfterPull()  ← rebuilds barcode index + balances,
+                                 but NOT _mobileIndex / _salesByCustomer   ⚠ B-1</code></pre>
+
+<h3>10.4 Upload</h3>
+<p>Triggers: connectivity regained, auth state change, 2-minute timer, or manual. <code>processQueue</code> is reentrancy-guarded by <code>_isSyncing</code>. Per batch of 20 it skips items over the retry ceiling or inside their backoff window, marks the rest <code>SYNCING</code>, builds <code>SyncWrite</code>s, commits atomically, then on success deletes the queue item and on failure increments <code>retryCount</code>. Every outcome writes a <code>SyncLogModel</code> — this is what the System Console reads.</p>
+
+<!-- ============ 11 ============ -->
+<h2 id="s11"><span class="num">Section 11</span>Frontend &amp; UI Analysis</h2>
+
+<h3>Structure</h3>
+<p><code>AppShell</code> (<code>presentation/widgets/app_shell.dart</code>, 312 L) is the only persistent chrome. It renders three layouts from one <code>ResponsiveBuilder</code>: <code>NavigationBar</code> + "More" sheet on mobile, collapsed <code>NavigationRail</code> on tablet, extended rail on desktop (<code>:193-199</code>).</p>
+<p>Screens live in an <code>IndexedStack</code>, but only ones actually visited are constructed — <code>:182-191</code>. The comment explains why: handing it all eight destinations meant the first frame after startup built every list, dashboard and report before the user had looked at any of them. That is a real, well-reasoned optimisation.</p>
+
+<h3>Design system</h3>
+<ul>
+  <li><code>core/theme/brand.dart</code> + <code>theme_provider.dart</code> — Material 3 with a seeded <code>ColorScheme</code>, dark by default (<code>SettingsModel.isDarkMode</code> defaults <code>true</code>).</li>
+  <li><code>core/utils/responsive.dart</code> — breakpoint helper driving <code>ResponsiveBuilder</code>.</li>
+  <li>Shared widgets: <code>adaptive_dialog</code>, <code>empty_state</code>, <code>responsive_data_table</code>, <code>brand_title</code>.</li>
+</ul>
+
+<h3>State handling</h3>
+<p>Loading, empty and error states are handled unevenly. Empty states are well served by a dedicated <code>EmptyState</code> widget. Loading is mostly local <code>bool _isLoading</code> + <code>CircularProgressIndicator</code>. Errors surface through <code>ScaffoldMessenger</code> snackbars. There is no global error boundary below the bootstrap level — a throw inside a screen produces Flutter's red error widget.</p>
+
+<h3>Responsiveness &amp; accessibility</h3>
+<p><strong>Responsiveness is genuinely well covered</strong> — <code>test/widget/responsive_layout_test.dart</code> renders 9 screens at 13 viewport sizes from 320×640 to 1920×1080 (234 of the 310 tests). That is unusual rigour.</p>
+<p><strong>Accessibility is not addressed.</strong> No <code>Semantics</code> widgets, no explicit labels on icon-only controls beyond tooltips, no contrast audit, no reduced-motion handling. <span class="chip conf">Confirmed by absence</span></p>
+
+<h3>UI inconsistencies found</h3>
+<ul>
+  <li><strong>Duplicate loyalty maths in the UI path.</strong> <code>loyalty_settings_screen.dart:272-276</code> and <code>checkout_screen.dart:146</code> both call <code>SalePricing</code> directly — correct — while two unused duplicates sit in <code>StorageRepository</code> (§21).</li>
+  <li><strong>Mixed dialog idioms:</strong> <code>adaptive_dialog.dart</code> exists, but several screens call <code>showDialog</code> directly.</li>
+  <li><strong>Concurrency guards are per-screen.</strong> <code>checkout_screen</code> has <code>_isProcessing</code>; <code>bulk_generator</code> has <code>_isLoading</code>. There is no shared pattern, so a new screen can easily omit it and allow double submission.</li>
+  <li><code>bulk_generator_screen.dart:57</code> and <code>:108</code> call <code>ref.watch(companyProvider)</code> inside an async callback rather than <code>ref.read</code> — a Riverpod anti-pattern that can register unwanted dependencies. <span class="chip conf">Confirmed</span></li>
+</ul>
+
+<!-- ============ 12 ============ -->
+<h2 id="s12"><span class="num">Section 12</span>Data &amp; Storage Analysis</h2>
+
+<h3>Storage technology</h3>
+<p>Hive CE — a schemaless key-value store with generated binary adapters. There is no SQL, no migrations framework, no foreign keys and no indexes in the database sense. Every "index" is a Dart <code>Map</code> rebuilt at startup.</p>
+
+<h3>Boxes</h3>
+<div class="tbl">
+<table>
+<thead><tr><th>Box</th><th>Type</th><th>Key</th><th>Syncs?</th></tr></thead>
+<tbody>
+<tr><td><code>products</code></td><td><code>Product</code></td><td>uuid</td><td>Yes</td></tr>
+<tr><td><code>sales</code></td><td><code>Sale</code></td><td>uuid</td><td>Yes (priority 1)</td></tr>
+<tr><td><code>customers</code></td><td><code>Customer</code></td><td>uuid</td><td>Yes</td></tr>
+<tr><td><code>suppliers</code></td><td><code>Supplier</code></td><td>uuid</td><td>Yes</td></tr>
+<tr><td><code>purchases</code></td><td><code>Purchase</code></td><td>uuid</td><td>Yes</td></tr>
+<tr><td><code>expenses</code>, <code>expense_categories</code></td><td><code>Expense</code>, <code>ExpenseCategory</code></td><td>uuid / fixed</td><td>Yes</td></tr>
+<tr><td><code>inventory_movements</code></td><td><code>InventoryMovement</code></td><td>uuid</td><td>Yes</td></tr>
+<tr><td><code>customer_ledgers</code>, <code>supplier_ledgers</code></td><td>ledger models</td><td>uuid</td><td>Yes</td></tr>
+<tr><td><code>loyalty_transactions</code></td><td><code>LoyaltyTransaction</code></td><td>uuid</td><td>Yes</td></tr>
+<tr><td><code>settings</code>, <code>company</code>, <code>invoice_settings</code>, <code>loyalty_settings</code></td><td>config models</td><td>fixed singleton key</td><td>Yes → <code>config</code></td></tr>
+<tr><td><code>history</code></td><td><code>ActionHistory</code></td><td>uuid</td><td><strong>No</strong> — device-local, capped at 2000</td></tr>
+<tr><td><code>sync_queue</code>, <code>sync_logs</code></td><td>sync models</td><td>uuid</td><td>No — machinery</td></tr>
+<tr><td><code>session</code></td><td>untyped</td><td><code>deviceId</code></td><td>No — per-install</td></tr>
+<tr><td><code>checkout_journal</code></td><td>untyped (JSON string)</td><td>saleId</td><td>No — scratch</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>Relationships</h3>
+<p>All relationships are by string id with <strong>no referential integrity</strong>. A <code>Sale</code> holds <code>customerId</code> and denormalised <code>customerName</code>; <code>SaleItem</code> holds <code>productId</code> + <code>variantBarcode</code> plus denormalised name, code and price. This denormalisation is correct for a POS — an invoice must not change when a product is later renamed or repriced.</p>
+<p>The cost is orphan tolerance: deleting a product leaves historical sale lines pointing at nothing. The code handles this at read time (checks for null and reports a clear message) rather than preventing it.</p>
+
+<pre class="mermaid">
+erDiagram
+    CUSTOMER ||--o{ SALE : "customerId"
+    CUSTOMER ||--o{ CUSTOMER_LEDGER : "customerId"
+    CUSTOMER ||--o{ LOYALTY_TX : "customerId"
+    SALE ||--|{ SALE_ITEM : embedded
+    SALE ||--o{ INVENTORY_MOVEMENT : "movementReferenceId"
+    SALE ||--o{ LOYALTY_TX : "saleId"
+    PRODUCT ||--|{ PRODUCT_VARIANT : embedded
+    PRODUCT ||--o{ INVENTORY_MOVEMENT : "productId"
+    SUPPLIER ||--o{ PURCHASE : "supplierId"
+    SUPPLIER ||--o{ SUPPLIER_LEDGER : "supplierId"
+    PURCHASE ||--|{ PURCHASE_ITEM : embedded
+    PURCHASE ||--o{ INVENTORY_MOVEMENT : "movementReferenceId"
+    EXPENSE_CATEGORY ||--o{ EXPENSE : "categoryId"
+</pre>
+<p class="fig">Figure 3 — Entity relationships. All are id-string references; "embedded" means stored inside the parent record, not a separate box.</p>
+
+<h3>Derived state and its invalidation</h3>
+<div class="tbl">
+<table>
+<thead><tr><th>Structure</th><th>Rebuilt by</th><th>Invalidated on remote pull?</th></tr></thead>
+<tbody>
+<tr><td><code>_barcodeIndex</code></td><td><code>init</code>, <code>saveProduct</code>, <code>applyRemote(Product)</code>, <code>reconcileAfterPull</code></td><td><span class="chip good">Yes</span></td></tr>
+<tr><td><code>_customerBalances</code> / <code>_supplierBalances</code></td><td><code>init</code>, ledger writes, <code>reconcileAfterPull</code></td><td><span class="chip good">Yes</span></td></tr>
+<tr><td><code>_costPriceIndex</code></td><td><code>savePurchase</code>, <code>applyRemote(Purchase)</code>, <code>reconcileAfterPull</code></td><td><span class="chip good">Yes</span></td></tr>
+<tr><td><code>_todayCache</code></td><td>any <code>DataTopic.sales</code> notify</td><td><span class="chip good">Yes</span></td></tr>
+<tr><td><code>_mobileIndex</code> / <code>_indexedMobile</code></td><td><code>init</code> only, + <code>saveCustomer</code></td><td><span class="chip crit">No</span></td></tr>
+<tr><td><code>_salesByCustomer</code></td><td><code>init</code> only, + <code>saveSale</code></td><td><span class="chip crit">No</span></td></tr>
+</tbody>
+</table>
+</div>
+<p>The last two rows are finding <strong>B-1</strong> in §22 — the single most consequential defect in this report.</p>
+
+<h3>Data integrity mechanisms that work well</h3>
+<ul>
+  <li><code>Fmt.round2()</code> applied at every arithmetic boundary so float drift never reaches a ledger (<code>formatters.dart:48</code>).</li>
+  <li>UUID v4 keys — the comment at <code>ids.dart:5-8</code> records that millisecond timestamps used to be keys and silently overwrote records created in the same millisecond.</li>
+  <li>Ledger balances carried forward, with <code>recalculateCustomerLedger()</code> as the repair path for out-of-order writes.</li>
+  <li>Loyalty balance always re-derived from transactions (<code>_recomputeRewardPoints</code>), never incremented in place.</li>
+  <li>Device-tagged document numbers (<code>INV-20260819-A3F1-0001</code>) so offline devices cannot collide.</li>
+</ul>
+
+<h3>Query cost</h3>
+<p>Most list reads are <strong>full box scans plus a sort</strong> on every invalidation — <code>getAllSales</code>, <code>getPurchases</code>, <code>getSuppliers</code>, <code>getAllMovements</code>, <code>getHistory</code>, <code>searchProducts</code>, <code>searchCustomers</code>. Fine at a few thousand records; see §16.</p>
+
+<!-- ============ 13 ============ -->
+<h2 id="s13"><span class="num">Section 13</span>Sync Engine — detailed</h2>
+
+<h3>Wire format</h3>
+<p>Encode lives in <code>StorageRepository.getEntityJson()</code>; decode lives in <code>EntityCodec</code>. They are two hand-written mirrors of one format, which is a real hazard — a field added to one and not the other vanishes silently. The codec's own comment names two historical instances (<code>Expense.title</code>, <code>Purchase.status</code>). <code>test/unit/sync_payload_test.dart</code> now guards the round trip. <span class="chip good">Mitigated</span></p>
+
+<h3>Conflict resolution</h3>
+<pre><code>applyRemote(type, id, json):
+  1. if any sync_queue item exists for (type,id) and status != DEAD  → REJECT remote
+  2. remoteUpdatedAt = json.updatedAt ?? updatedDate ?? createdDate
+     localUpdatedAt  = _localUpdatedAt(type, id)
+     if both non-null and !remote.isAfter(local)                     → REJECT remote
+  3. otherwise decode and put</code></pre>
+<p>Rule 1 is the important one: unsent local work always beats the cloud, so a pull can never destroy something this device hasn't uploaded. That is the right priority for offline-first.</p>
+
+<div class="finding med">
+  <div class="f-head"><p class="f-title">LWW guard is inactive for 8 of 15 syncable types</p><span class="chip med">Medium</span><span class="chip conf">Confirmed</span></div>
+  <p class="f-meta">storage_repository.dart:1261-1280 — <code>_localUpdatedAt</code></p>
+  <p><code>_localUpdatedAt</code> returns a timestamp only for Product, Customer, Supplier, Sale, Purchase, LoyaltyTransaction and Expense. For <strong>CustomerLedger, SupplierLedger, InventoryMovement, ExpenseCategory</strong> and the four config singletons it returns <code>null</code>, so step 2 is skipped entirely and any remote copy overwrites local unconditionally (once step 1 passes).</p>
+  <p>For immutable-by-nature records (movements, ledger rows) this is mostly harmless — they are append-only, so an overwrite writes the same values. For <strong>config singletons it is a genuine last-pull-wins</strong>: settings, company profile, invoice settings and loyalty rules are all mutable and all unprotected by recency. Two devices editing tax rate will see the most recently <em>pulled</em> value win rather than the most recently <em>edited</em> one.</p>
+</div>
+
+<h3>Firestore layout</h3>
+<pre><code>/users/{uid}/
+   products/{uuid}          customers/{uuid}        sales/{uuid}
+   suppliers/{uuid}         purchases/{uuid}        expenses/{uuid}
+   expenseCategories/{id}   inventoryMovements/{uuid}
+   loyaltyTransactions/{uuid}
+   customerLedgers/{uuid}   supplierLedgers/{uuid}
+   config/{settings|company|invoice|loyalty}</code></pre>
+<p>Every document written by <code>commitBatch</code> gains <code>syncedAt</code> (server timestamp) and <code>sourceDevice</code>, merged rather than replaced (<code>firebase_repository.dart:70-74</code>).</p>
+
+<h3>Paging</h3>
+<p><code>fetchCollectionPages</code> pages at 300 by <code>FieldPath.documentId</code>, applying each page as it arrives so peak memory is one page. Its comment records that this replaced a single <code>limit(500)</code> with no <code>orderBy</code> — which silently truncated any shop with more than 500 products <em>and</em> returned a non-deterministic subset. That fix is a good catch and well documented.</p>
+
+<h3>Backoff and dead-lettering</h3>
+<p><code>2^retryCount × 30s</code>, ceiling of 5 retries, then <code>DEAD</code>. Dead items are excluded from normal processing, counted in <code>SyncStatus.dead</code>, surfaced in the System Console, and re-queueable via <code>retryFailed()</code>. Permission-denied is detected by string matching (<code>:454-456</code>) — fragile, but it only drives a message, not control flow.</p>
+
+<h3>Crash-safety of checkout (the durable journal)</h3>
+<p>Added this session. Before the first write, a row is written to <code>checkout_journal</code> and flushed; it is removed on success or after an in-memory unwind. Anything left at startup is a checkout the process didn't survive, and <code>recoverInterruptedCheckouts()</code> reverses it.</p>
+<p>The design choice worth preserving: the journal stores almost nothing — sale id, invoice number, customer id, and the customer's pre-sale <code>lifetimeSpend</code>. Recovery finds everything else by querying what <em>references</em> the sale (movements by <code>movementReferenceId</code>, ledger rows by <code>referenceId</code>, loyalty rows by <code>saleId</code>). A step-by-step log would be wrong precisely when the crash falls between doing a step and recording it; reference-driven recovery is accurate wherever the crash landed, and idempotent because each movement is deleted as it is reversed.</p>
+<p><strong>Residual exposure:</strong> a crash between the two writes inside a single <code>performStockOut</code> (product save, then movement record) — microseconds, versus the whole multi-write checkout previously. Closing it entirely would need a WAL inside Hive.</p>
+
+<!-- ============ 14 ============ -->
+<h2 id="s14"><span class="num">Section 14</span>Authentication &amp; Authorization</h2>
+
+<h3>The model, stated plainly</h3>
+<p>There is <strong>one account and no authorization model at all</strong>. This is deliberate and documented in three places: <code>auth_service.dart:7-11</code>, <code>session_service.dart:11-16</code>, and the comment block in <code>firestore.rules</code>. A previous store-and-membership design with roles was removed.</p>
+
+<ul>
+  <li><strong>Authentication:</strong> Firebase email/password only. No OAuth, no MFA, no email verification enforcement.</li>
+  <li><strong>Authorization (cloud):</strong> one rule — <code>request.auth.uid == userId</code> on <code>/users/{userId}/{document=**}</code>, with a catch-all deny. This is correct, minimal and easy to verify.</li>
+  <li><strong>Authorization (app):</strong> none. Signing in gates cloud sync only. Every screen, every record, every export works signed out.</li>
+</ul>
+
+<pre class="mermaid">
+flowchart LR
+    A["App launch"] --> B{"Firebase<br/>initialised?"}
+    B -->|No| C["Device-only mode<br/>full app access"]
+    B -->|Yes| D{"Signed in?"}
+    D -->|No| C
+    D -->|Yes| E["pullAll() + processQueue()"]
+    E --> F["Cloud mirror active<br/>/users/uid/**"]
+    C --> G["All features available<br/>no lock, no roles"]
+    F --> G
+</pre>
+<p class="fig">Figure 4 — Auth flow. Note that every path converges on full access; authentication never gates functionality.</p>
+
+<p>For a single owner-operator on a personal device this is a defensible trade-off. It becomes a problem the moment the device is shared with staff — and the Settings screen actively suggests it is protected when it is not (§15).</p>
+
+<!-- ============ 15 ============ -->
+<h2 id="s15"><span class="num">Section 15</span>Security Review</h2>
+
+<div class="finding crit">
+  <div class="f-head"><p class="f-title">S-1 · "Enable Biometric Login" is a switch wired to nothing</p><span class="chip crit">Critical</span><span class="chip conf">Confirmed</span></div>
+  <p class="f-meta">settings_screen.dart:182-196 · settings_model.dart:26 · storage_repository.dart:716,1370</p>
+  <p><strong>Evidence.</strong> The toggle renders with the title "Enable Biometric Login" and subtitle "Allow sign-in using fingerprint or face recognition". Its value is persisted to <code>SettingsModel.isBiometricEnabled</code>, deliberately preserved across cloud pulls and backup restores (two separate carve-outs treat it as per-device state worth protecting). Yet a repository-wide search shows <code>local_auth</code> is imported in <strong>zero</strong> files under <code>lib/</code>, and <code>LocalAuthentication</code> appears nowhere. The <code>local_auth: ^3.0.2</code> dependency is declared and unused.</p>
+  <p><strong>Why it matters.</strong> This is worse than a missing feature — it is a false assurance. A shop owner who enables it will reasonably believe the till requires a fingerprint. It does not; there is no lock screen anywhere in the app. Anyone with physical access has full access to all customer PII, ledgers and financial history, and can export any of it to PDF.</p>
+  <p><strong>Fix.</strong> Either implement it (a <code>LocalAuthentication.authenticate()</code> gate in <code>AtomidBootstrap</code> before <code>AppShell</code> renders, honouring the flag) or remove the toggle and the dependency. Do not leave it as-is. Removal is ~15 minutes; implementation is a half-day including the "no biometrics enrolled" and "authentication unavailable" paths.</p>
+</div>
+
+<div class="finding high">
+  <div class="f-head"><p class="f-title">S-2 · No app-level lock; all business data readable on an unlocked device</p><span class="chip high">High</span><span class="chip conf">Confirmed</span></div>
+  <p class="f-meta">auth_service.dart:7-11 · main.dart:57-70 · app_shell.dart</p>
+  <p>Hive data is stored unencrypted (<code>Hive.openBox</code> without <code>encryptionCipher</code>). On Windows the path is <code>%USERPROFILE%\AppData\Local\atomid\db</code> or the app-support directory — readable by any process running as that user. Combined with no app lock, physical or filesystem access yields the complete customer database, ledgers and sales history.</p>
+  <p><strong>Judgement.</strong> Defensible for a personal single-owner device; not defensible if staff share the till, which is the normal retail case. Mitigations in rough order of value: implement S-1 properly; add <code>HiveAesCipher</code> with a key in platform secure storage; add an idle auto-lock.</p>
+</div>
+
+<div class="finding med">
+  <div class="f-head"><p class="f-title">S-3 · No email verification, no password policy, no rate limiting</p><span class="chip med">Medium</span><span class="chip conf">Confirmed</span></div>
+  <p class="f-meta">auth_service.dart:33-42 · firebase_repository.dart:110-119</p>
+  <p><code>signUp</code> calls <code>createUserWithEmailAndPassword</code> and checks only that a user came back. No <code>sendEmailVerification</code>, no client-side password strength requirement. Firebase enforces a 6-character minimum and its own abuse throttling, so this is bounded — but an unverified address means account recovery may not reach the real owner, and this account is the sole key to the entire cloud copy.</p>
+</div>
+
+<div class="finding med">
+  <div class="f-head"><p class="f-title">S-4 · Firestore rules are correct but entirely untested</p><span class="chip med">Medium</span><span class="chip conf">Confirmed</span></div>
+  <p class="f-meta">firestore.rules · no rules test suite present</p>
+  <p>The rule itself is minimal and sound — <code>request.auth != null &amp;&amp; request.auth.uid == userId</code> over <code>/users/{userId}/{document=**}</code>, with an explicit catch-all deny. But there is no <code>@firebase/rules-unit-testing</code> suite and nothing in CI deploys or verifies them. A future edit could widen access with no signal. <em>(This may explain the stray <code>package.json</code>/<code>node_modules</code> at the repo root — possibly an abandoned rules-testing setup. Unable to determine.)</em></p>
+</div>
+
+<div class="finding low">
+  <div class="f-head"><p class="f-title">S-5 · Firebase config committed — expected, but worth stating</p><span class="chip low">Low</span><span class="chip conf">Confirmed</span></div>
+  <p class="f-meta">lib/firebase_options.dart · android/app/google-services.json</p>
+  <p>API keys and app ids for project <code>atomid-erp</code> are in the repo. This is normal and correct for Firebase client apps — these identify, they do not authorize; the rules do. Flagged only so it is not mistaken for a leak. <strong>No action needed.</strong> Do confirm App Check is considered if the project ever becomes public.</p>
+</div>
+
+<div class="finding low">
+  <div class="f-head"><p class="f-title">S-6 · Error text passed through to the UI unfiltered in places</p><span class="chip low">Low</span><span class="chip conf">Possible</span></div>
+  <p class="f-meta">sync_service.dart:279 · various screens</p>
+  <p>Raw <code>error.toString()</code> is stored in <code>SyncLogModel.error</code> and shown in the System Console. Firebase exceptions can include internal identifiers. Low impact given single-user, on-device display — but it is a place where backend detail reaches the screen.</p>
+</div>
+
+<h3>Checked and found clean</h3>
+<ul>
+  <li><strong>Injection:</strong> not applicable — no SQL, no dynamic query construction. Firestore access is via typed APIs with a fixed path shape.</li>
+  <li><strong>XSS/CSRF:</strong> not applicable to a Flutter canvas app; no <code>WebView</code>, no HTML rendering, no cookie auth.</li>
+  <li><strong>SSRF:</strong> no user-controlled URLs are fetched. <code>http</code> is declared but unused.</li>
+  <li><strong>Deserialization:</strong> <code>EntityCodec</code> is defensive throughout — <code>_str</code>/<code>_dbl</code>/<code>_int</code>/<code>_bool</code>/<code>_date</code> all type-check and fall back rather than cast. A malformed cloud document degrades to defaults instead of throwing. This is genuinely well done.</li>
+  <li><strong>File handling:</strong> backup restore parses JSON inside a try/catch, gates on <code>formatVersion</code>, and rejects a newer format with a clear message. Backup writes go to a staging file then rename.</li>
+  <li><strong>Path traversal:</strong> file names are app-generated from timestamps and uuids, not user input.</li>
+</ul>
+
+<!-- ============ 16 ============ -->
+<h2 id="s16"><span class="num">Section 16</span>Performance Review</h2>
+
+<h3>Confirmed issues</h3>
+
+<div class="finding high">
+  <div class="f-head"><p class="f-title">P-1 · Every pull re-downloads every collection in full</p><span class="chip high">High</span><span class="chip conf">Confirmed</span></div>
+  <p class="f-meta">sync_service.dart:158, 377 · sync_status_widget.dart:185 · system_console_screen.dart:166</p>
+  <p><code>pullAll({DateTime? since})</code> supports incremental sync, and <code>fetchCollectionPages</code> implements the <code>since</code> branch correctly. <strong>No caller ever passes it</strong> — all three call sites use <code>pullAll()</code>. Every sign-in and every manual refresh therefore fetches all 15 collections in their entirety, 300 documents per round trip.</p>
+  <p>For a shop with two years of sales this is thousands of reads per sign-in, with direct Firestore cost and a long "Fetching your data…" state. Fix: persist a <code>lastPulledAt</code> watermark and pass it. Note the <code>since</code> branch orders by <code>updatedAt</code>, which is written as an ISO-8601 string — lexicographic ordering matches chronological for that format, so the comparison is valid, but any record written before <code>updatedAt</code> existed would be skipped, which is exactly why the full path exists as the fallback.</p>
+</div>
+
+<div class="finding med">
+  <div class="f-head"><p class="f-title">P-2 · List providers rescan and re-sort whole boxes on every topic change</p><span class="chip med">Medium</span><span class="chip conf">Confirmed</span></div>
+  <p class="f-meta">storage_repository.dart — getAllSales, getPurchases, getSuppliers, getAllMovements, getHistory</p>
+  <p>Each returns <code>box.values.toList()..sort(...)</code> — O(n log n) per invalidation, and a sale invalidates three topics at once. <code>_todayTotals</code> is properly cached (with a midnight-rollover guard), and <code>_costPriceIndex</code> and <code>_barcodeIndex</code> are memoised, so the pattern is understood — it just hasn't been applied to the list reads. Worth profiling before optimising; likely invisible under ~5,000 records.</p>
+</div>
+
+<div class="finding med">
+  <div class="f-head"><p class="f-title">P-3 · <code>reconcileAfterPull</code> fires all 11 topics, invalidating everything at once</p><span class="chip med">Medium</span><span class="chip conf">Confirmed</span></div>
+  <p class="f-meta">storage_repository.dart:1405-1407</p>
+  <p>After a pull, every read provider in the app recomputes. Combined with P-2 and a full pull (P-1), a sign-in on a large dataset triggers a rebuild storm. Individually reasonable; compounding.</p>
+</div>
+
+<h3>Areas worth profiling, not yet problems</h3>
+<ul>
+  <li><code>exportSnapshot()</code> materialises the entire database as JSON in memory before writing, and pretty-prints it. Deliberate (documented as "salvageable by a human") but memory scales with the whole dataset.</li>
+  <li><code>_nextCounter()</code> scans every sale's invoice number to compute the next one — O(n) per checkout. Invisible at thousands, not at millions.</li>
+  <li><code>getMovementByReference</code>/<code>getMovementsByReference</code> linear-scan the movements box; called during checkout recovery only.</li>
+  <li>Bulk price tags cap at 1,000 — a sensible guard already in place (<code>bulk_generator_screen.dart:95-102</code>).</li>
+</ul>
+
+<h3>Done well</h3>
+<ul>
+  <li>21 boxes opened concurrently rather than sequentially, with a comment explaining the frozen-splash symptom that motivated it.</li>
+  <li><code>IndexedStack</code> builds only visited screens.</li>
+  <li>Hive compaction strategy tuned rather than defaulted (<code>_shouldCompact</code>: &gt;60 frames and &gt;50% dead).</li>
+  <li>Sync pages results and applies per page, so peak memory is one page.</li>
+  <li><code>currencySymbolProvider</code> uses <code>select</code> so symbol-only consumers don't rebuild on unrelated settings changes.</li>
+</ul>
+
+<!-- ============ 17 ============ -->
+<h2 id="s17"><span class="num">Section 17</span>Code Quality Review</h2>
+
+<h3>What is strong</h3>
+<p><strong>The commenting is the standout quality of this codebase.</strong> Comments consistently explain the failure that motivated a design rather than restating the code. A representative sample:</p>
+<ul>
+  <li><code>ids.dart:5-8</code> — why UUIDs replaced millisecond timestamps (silent overwrites within one millisecond).</li>
+  <li><code>firebase_repository.dart:157-169</code> — why paging replaced <code>limit(500)</code> (silent truncation <em>and</em> non-deterministic subset).</li>
+  <li><code>purchase_service.dart:31-34</code> — why <code>previousStatus</code> must be passed in (Hive returns the mutated instance).</li>
+  <li><code>app_shell.dart:176-181</code> — why only visited screens are built.</li>
+  <li><code>backup_service.dart:25-34</code> — why backup is not the same thing as sync.</li>
+</ul>
+<p>This is the difference between a codebase a new engineer can join and one they must archaeologically reconstruct. It should be treated as a standard to maintain, not an accident.</p>
+
+<p>Also strong: consistent naming; <code>AppException</code> used uniformly for user-facing errors; pure functions isolated where it matters (<code>SalePricing</code>, <code>Fmt</code>, <code>PriceTagSize</code>); null-safety used properly with few force-unwraps.</p>
+
+<h3>What is weak</h3>
+<ul>
+  <li><strong><code>StorageRepository</code> at 2,676 lines</strong> holds persistence, business rules, sync queueing, conflict resolution, backup serialisation and document numbering. Coherent, but a single point of contention.</li>
+  <li><strong>Two hand-written mirrors of the wire format</strong> (<code>getEntityJson</code> ↔ <code>EntityCodec</code>). Test-guarded, but structurally fragile.</li>
+  <li><strong><code>ExportService</code>: 1,306 lines of statics with mutable static caches.</strong> Untestable without a Flutter binding; no tests exist for it.</li>
+  <li><strong>Type erosion in the sync engine.</strong> <code>_documentIdFor(dynamic item)</code> and <code>_recordOutcome(List&lt;dynamic&gt; slice, …)</code> use <code>dynamic</code> with casts (<code>item.entityType as String</code>) where <code>SyncQueueItem</code> would do. <code>sync_service.dart:306, 328-368</code>.</li>
+  <li><strong>Layering inversion:</strong> <code>domain/services/sale_service.dart</code> imports <code>presentation/providers/cart_notifier.dart</code> for <code>CartItem</code>.</li>
+  <li><strong>Swallowed exceptions</strong> in several places — <code>export_service.dart:34, 46</code> (<code>catch (_) {}</code> with no logging), <code>session_service.dart:63-66</code>. Defensible individually; collectively they hide diagnostics.</li>
+  <li><strong>Thin services that mostly forward</strong> (<code>ExpenseService</code>, <code>SupplierService</code>) add indirection without much behaviour.</li>
+  <li><strong>Magic values:</strong> history cap <code>2000</code>, batch size <code>20</code>, backoff <code>30</code>, page size <code>300</code>, tag cap <code>1000</code>, retry ceiling <code>5</code>. Most are named constants; a few are inline literals.</li>
+</ul>
+
+<h3>Files most in need of attention</h3>
+<div class="tbl">
+<table>
+<thead><tr><th>File</th><th>Lines</th><th>Concern</th></tr></thead>
+<tbody>
+<tr><td><code>storage_repository.dart</code></td><td class="num-col">2,676</td><td>Size and responsibility breadth — but well organised; see §24 before refactoring</td></tr>
+<tr><td><code>export_service.dart</code></td><td class="num-col">1,306</td><td>All-static, mutable static caches, zero tests, heavy duplication between the 5 report generators</td></tr>
+<tr><td><code>purchase_form_screen.dart</code></td><td class="num-col">845</td><td>Largest screen; not read in this pass — flagged by size alone</td></tr>
+<tr><td><code>pos_screen.dart</code></td><td class="num-col">704</td><td>Critical path screen; contains its own <code>SalePricing.compute</code> call parallel to checkout's</td></tr>
+</tbody>
+</table>
+</div>
+
+<!-- ============ 18 ============ -->
+<h2 id="s18"><span class="num">Section 18</span>Testing Review</h2>
+
+<p><strong>310 tests, all passing.</strong> The suite's design is better than its raw count suggests, but the count is also misleading — 234 of the 310 are the responsive-layout matrix (9 screens × 13 viewports × 2 assertions).</p>
+
+<h3>Test architecture</h3>
+<ul>
+  <li><code>test/support/test_store.dart</code> — spins a <strong>real</strong> <code>StorageRepository</code> on a temp Hive directory. This is the key decision: the repository owns the behaviour that actually breaks, so tests exercise it for real rather than mocking it away. It also accepts a subclass, which is how failure-injection tests work.</li>
+  <li><code>test/support/fake_firebase_repository.dart</code> — subclasses the real <code>FirebaseRepository</code> so a Firestore type leaking back into the sync engine breaks compilation. Records committed batches for assertion.</li>
+  <li><code>integration_test/app_startup_test.dart</code> — boots the shipped <code>main()</code> on real hardware, walks every navigation destination, asserts no exception. Its comment explains why <code>pumpAndSettle</code> can't be used (the splash animates forever).</li>
+</ul>
+
+<h3>Coverage by area</h3>
+<div class="tbl">
+<table>
+<thead><tr><th>Area</th><th>Coverage</th><th>Files</th></tr></thead>
+<tbody>
+<tr><td>Sale pricing / tax / loyalty maths</td><td><span class="chip good">Strong</span></td><td><code>pricing_test</code></td></tr>
+<tr><td>Checkout rollback (exception path)</td><td><span class="chip good">Strong</span></td><td><code>sale_rollback_test</code>, <code>sale_service_test</code></td></tr>
+<tr><td>Checkout crash recovery</td><td><span class="chip good">Strong</span></td><td><code>checkout_crash_recovery_test</code> (6 tests, incl. real restart)</td></tr>
+<tr><td>Purchase receive + rollback</td><td><span class="chip good">Strong</span></td><td><code>purchase_service_test</code>, <code>purchase_receive_rollback_test</code></td></tr>
+<tr><td>Customer merge / ledger</td><td><span class="chip good">Strong</span></td><td><code>customer_merge_ledger_test</code></td></tr>
+<tr><td>Customer lookup / normalisation</td><td><span class="chip good">Strong</span></td><td><code>customer_lookup_test</code></td></tr>
+<tr><td>Sync payload round trip</td><td><span class="chip good">Strong</span></td><td><code>sync_payload_test</code>, <code>settings_sync_roundtrip_test</code></td></tr>
+<tr><td>Sync scheduling / backoff</td><td><span class="chip med">Partial</span></td><td><code>sync_service_test</code></td></tr>
+<tr><td>Derived-total caching</td><td><span class="chip good">Strong</span></td><td><code>today_totals_test</code></td></tr>
+<tr><td>Backup snapshot</td><td><span class="chip med">Partial</span></td><td><code>backup_snapshot_test</code> — snapshot only, no file I/O round trip</td></tr>
+<tr><td>Models / formatters</td><td><span class="chip good">Strong</span></td><td>7 model tests, <code>formatters_test</code></td></tr>
+<tr><td>Responsive layout</td><td><span class="chip good">Strong</span></td><td><code>responsive_layout_test</code></td></tr>
+<tr><td><strong>Post-pull index consistency</strong></td><td><span class="chip crit">None</span></td><td>— this gap is exactly where B-1 lives</td></tr>
+<tr><td><strong>PDF / ExportService</strong></td><td><span class="chip crit">None</span></td><td>1,306 lines untested</td></tr>
+<tr><td><strong>Firestore rules</strong></td><td><span class="chip crit">None</span></td><td>no rules test suite</td></tr>
+<tr><td>Screen behaviour (beyond render)</td><td><span class="chip high">Minimal</span></td><td>Only <code>invoice_settings_screen_test</code> asserts behaviour</td></tr>
+<tr><td>OCR parsing</td><td><span class="chip high">None</span></td><td><code>_parseText</code> regexes untested</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout">
+  <span class="k">The most important gap</span>
+  <p>No test asserts that in-memory indexes stay consistent with box contents after <code>applyRemote</code>. That is precisely the blind spot B-1 occupies — the existing tests all write through the local path, which <em>does</em> maintain indexes. A single test calling <code>applyRemote</code> then <code>getCustomerByMobile</code> would have caught it.</p>
+</div>
+
+<!-- ============ 19 ============ -->
+<h2 id="s19"><span class="num">Section 19</span>Dependency Review</h2>
+
+<div class="finding med">
+  <div class="f-head"><p class="f-title">D-1 · Four declared dependencies are never imported</p><span class="chip med">Medium</span><span class="chip conf">Confirmed</span></div>
+  <p class="f-meta">pubspec.yaml — verified by searching for <code>package:&lt;name&gt;/</code> across <code>lib/</code></p>
+  <div class="tbl"><table>
+    <thead><tr><th>Package</th><th>Version</th><th>Files importing</th><th>Note</th></tr></thead>
+    <tbody>
+      <tr><td><code>local_auth</code></td><td class="num-col">^3.0.2</td><td class="num-col">0</td><td>The biometric feature it was added for was never built — see S-1</td></tr>
+      <tr><td><code>crypto</code></td><td class="num-col">^3.0.6</td><td class="num-col">0</td><td>Likely left from the removed PIN/RBAC design</td></tr>
+      <tr><td><code>http</code></td><td class="num-col">^1.6.0</td><td class="num-col">0</td><td>No direct HTTP anywhere; Firebase SDKs bring their own</td></tr>
+      <tr><td><code>url_launcher</code></td><td class="num-col">^6.3.2</td><td class="num-col">0</td><td>No external links opened</td></tr>
+    </tbody>
+  </table></div>
+  <p>Each carries platform plugin registration, permissions and binary size. <code>local_auth</code> in particular requests biometric permissions on Android/iOS for a feature that doesn't exist — a reviewer or store submission may ask why.</p>
+</div>
+
+<div class="finding low">
+  <div class="f-head"><p class="f-title">D-2 · Stray Node.js artefacts at repo root with no Dart-side consumer</p><span class="chip low">Low</span><span class="chip conf">Possible</span></div>
+  <p class="f-meta">package.json · package-lock.json · node_modules/</p>
+  <p>Present but unreferenced by any workflow or build step I read. Most plausibly an abandoned <code>firebase-tools</code> or rules-testing setup. Worth confirming and either wiring into CI (ideal — it would close S-4) or deleting.</p>
+</div>
+
+<h3>Dependencies that are well-chosen</h3>
+<p><code>hive_ce</code> (the community-maintained fork, correct given original Hive is unmaintained), <code>flutter_riverpod</code> 3.x, the Firebase suite at current majors, <code>mocktail</code> over <code>mockito</code> (no codegen). All versions are recent majors. <strong>I did not run <code>flutter pub outdated</code> and make no claim about which have newer releases</strong>, and I found no evidence of any known-vulnerable package.</p>
+
+<h3>Coupling</h3>
+<p>Firebase coupling is well contained behind <code>FirebaseRepository</code> and the <code>SyncWrite</code> value type — the sync engine never imports <code>cloud_firestore</code>. Hive coupling is <em>not</em> contained: <code>Box&lt;T&gt;</code> appears throughout <code>StorageRepository</code>, and models extend <code>HiveObject</code>. Replacing Hive would be a major undertaking; replacing Firestore would not. Given the offline-first thesis, that is arguably the right way round.</p>
+
+<!-- ============ 20 ============ -->
+<h2 id="s20"><span class="num">Section 20</span>Technical Debt Register</h2>
+
+<div class="tbl">
+<table>
+<thead><tr><th>Item</th><th>Cost today</th><th>Cost if left</th><th>Effort</th></tr></thead>
+<tbody>
+<tr><td>Dual wire-format mirrors (<code>getEntityJson</code> ↔ <code>EntityCodec</code>)</td><td>Low — test-guarded</td><td>High — silent field loss on every model change</td><td>High (codegen)</td></tr>
+<tr><td>Manual index maintenance</td><td><strong>Already causing B-1</strong></td><td>High — recurs with every new index</td><td>Low–Medium</td></tr>
+<tr><td><code>StorageRepository</code> size</td><td>Low</td><td>Medium — merge contention, onboarding</td><td>High</td></tr>
+<tr><td><code>ExportService</code> static design + no tests</td><td>Medium</td><td>Medium — invoice bugs reach customers</td><td>Medium</td></tr>
+<tr><td>Unused dependencies</td><td>Low</td><td>Low</td><td>Trivial</td></tr>
+<tr><td>README documents removed RBAC</td><td>Medium — misleads readers</td><td>Medium</td><td>Trivial</td></tr>
+<tr><td>Incremental pull unreachable</td><td>Medium — Firestore cost</td><td>High as data grows</td><td>Low</td></tr>
+<tr><td><code>dynamic</code> in sync engine</td><td>Low</td><td>Low</td><td>Trivial</td></tr>
+<tr><td><code>CartItem</code> layering inversion</td><td>Low</td><td>Low</td><td>Low</td></tr>
+<tr><td>No accessibility work</td><td>Unknown</td><td>Medium — may block store listing</td><td>Medium</td></tr>
+</tbody>
+</table>
+</div>
+
+<!-- ============ 21 ============ -->
+<h2 id="s21"><span class="num">Section 21</span>Dead, Unused &amp; Redundant Code</h2>
+
+<div class="finding med">
+  <div class="f-head"><p class="f-title">DC-1 · Duplicate loyalty rules in <code>StorageRepository</code> — dead and divergent</p><span class="chip med">Medium</span><span class="chip conf">Confirmed</span></div>
+  <p class="f-meta">storage_repository.dart:2608-2628 vs domain/pricing.dart:60-85</p>
+  <p><code>calculateEarnedPoints()</code> and <code>calculateMaxRedemptionValue()</code> have <strong>zero callers</strong> in <code>lib/</code> or <code>test/</code>. Everything uses <code>SalePricing</code>. The duplicates have already drifted: the repository versions omit the <code>pointRedemptionValue &lt;= 0</code> guard and skip <code>Fmt.round2</code>, so a future caller reaching for the "obvious" repository method would get subtly different money. Delete both.</p>
+</div>
+
+<div class="finding med">
+  <div class="f-head"><p class="f-title">DC-2 · Incremental-pull code path is unreachable</p><span class="chip med">Medium</span><span class="chip conf">Confirmed</span></div>
+  <p class="f-meta">firebase_repository.dart:185-188 · all 3 <code>pullAll</code> call sites</p>
+  <p>The <code>since != null</code> branch is fully implemented and correct, and nothing can reach it. Either wire it up (see P-1 — this is the fix, not a deletion) or remove it. Leaving working-but-unreachable code invites someone to assume incremental sync is active.</p>
+</div>
+
+<h3>Other unused or vestigial items</h3>
+<ul>
+  <li><code>local_auth</code>, <code>crypto</code>, <code>http</code>, <code>url_launcher</code> — declared, never imported (D-1).</li>
+  <li><code>package.json</code>, <code>package-lock.json</code>, <code>node_modules/</code> — no consumer found (D-2).</li>
+  <li><code>SettingsModel.isBiometricEnabled</code> — written, synced, restore-protected, <strong>never read by any logic</strong> (S-1).</li>
+  <li><code>AppShell._visibleDestinations()</code> (<code>:166-167</code>) returns <code>_destinations</code> unchanged — a vestige of role-based filtering, with a comment saying so. Harmless; a clean removal.</li>
+  <li><code>FirebaseRepository.syncDocument()</code> and <code>userDoc()</code> — no callers found in <code>lib/</code>. <span class="chip conf">Confirmed</span></li>
+  <li><code>Docs/erp_product_blueprint.md</code> — a planning document; not read for this audit, and may describe intent that no longer matches the code (as the README does).</li>
+</ul>
+
+<!-- ============ 22 ============ -->
+<h2 id="s22"><span class="num">Section 22</span>Potential Bugs</h2>
+
+<div class="finding crit">
+  <div class="f-head"><p class="f-title">B-1 · A cloud pull leaves customer lookup and visit history broken</p><span class="chip crit">Critical</span><span class="chip conf">Confirmed by execution</span></div>
+  <p class="f-meta">storage_repository.dart:1289-1393 (<code>applyRemote</code>) · :1396-1408 (<code>reconcileAfterPull</code>) · :296 (only call to <code>_rebuildCustomerIndexes</code>)</p>
+
+  <p><strong>The defect.</strong> <code>applyRemote</code> writes each pulled record into its box and notifies the UI. For <code>Product</code> it also calls <code>_rebuildBarcodeIndex()</code>; for <code>Purchase</code> it clears <code>_costPriceIndex</code>. For <code>Customer</code> it clears the balance cache but <strong>never calls <code>_indexCustomerMobile</code></strong>, and for <code>Sale</code> it <strong>never calls <code>_indexSale</code></strong>. <code>reconcileAfterPull()</code>, which runs after every pull, rebuilds the barcode index and both balance maps but <strong>does not call <code>_rebuildCustomerIndexes()</code></strong> — the only method that populates <code>_mobileIndex</code> and <code>_salesByCustomer</code>, and it is called from exactly one place: <code>init()</code>.</p>
+
+  <p><strong>Verification.</strong> I wrote a throwaway probe against a real <code>TestStore</code>, ran it, and deleted it. It pulled one customer and one sale via <code>applyRemote</code>, then called <code>reconcileAfterPull()</code>:</p>
+  <pre><code>getAllCustomers()                    = 1      ← record IS in the box
+getCustomerByMobile('9876543210')    = null   ← the till's primary lookup FAILS
+getCustomerStats('remote-c1').visits = 0      ← visit history lost
+getSalesForCustomer('remote-c1')     = 0      ← sales history lost</code></pre>
+
+  <p><strong>User-visible failure.</strong> Install on a second device (or reinstall), sign in, wait for the pull. The customer list looks correct and complete. Then a customer walks up and the cashier types their phone number into the POS lookup — <em>no match</em>. The cashier creates a duplicate customer record, with a fresh ledger and zero loyalty points, for someone who has shopped there for years. Their credit limit check now runs against a zero balance. The customer's own detail screen shows "First visit" and no purchase history.</p>
+
+  <p><strong>Why it has gone unnoticed.</strong> It self-heals on the next app restart, because <code>init()</code> rebuilds both indexes from the boxes. So the window is "from the first pull until the app is next relaunched" — which is precisely the new-device setup session, and precisely when a shop is least likely to trust its own judgement about what looks wrong. Every existing test writes through <code>saveCustomer</code>/<code>saveSale</code>, which <em>do</em> maintain the indexes, so the suite is blind to it.</p>
+
+  <p><strong>Fix.</strong> Two options. Minimal: add <code>_indexCustomerMobile(customer)</code> to the <code>Customer</code> case and <code>_indexSale(sale, isNew: true)</code> to the <code>Sale</code> case in <code>applyRemote</code>. Safer: add <code>_rebuildCustomerIndexes()</code> to <code>reconcileAfterPull()</code> — one line, covers both, and matches how <code>_rebuildBarcodeIndex()</code> is already handled there. I would do both, and add the regression test described in §18. <strong>Effort: Low. Priority: do this first.</strong></p>
+</div>
+
+<div class="finding med">
+  <div class="f-head"><p class="f-title">B-2 · Config singletons resolve by last-pull, not last-edit</p><span class="chip med">Medium</span><span class="chip conf">Confirmed</span></div>
+  <p class="f-meta">storage_repository.dart:1261-1280</p>
+  <p>See §13. <code>_localUpdatedAt</code> returns null for settings, company, invoice and loyalty config, so the recency comparison is skipped and remote always wins. Two devices editing tax rate or loyalty rules can silently clobber each other. Config models carry no <code>updatedAt</code> field at all, so fixing this needs a model change plus adapter regeneration.</p>
+</div>
+
+<div class="finding med">
+  <div class="f-head"><p class="f-title">B-3 · Report date-range boundaries include up to a day of extra data</p><span class="chip med">Medium</span><span class="chip conf">Confirmed</span></div>
+  <p class="f-meta">storage_repository.dart:2069-2075 (<code>getSalesByDateRange</code>) · reports_dashboard_screen.dart:36-40</p>
+  <p><code>getSalesByDateRange</code> tests <code>isAfter(start − 1 day) &amp;&amp; isBefore(end + 1 day)</code>, which pulls in sales from the day before <code>start</code> and the day after <code>end</code>. Separately, the "This Week" filter computes <code>now.subtract(Duration(days: now.weekday − 1))</code> — retaining the current time of day rather than snapping to midnight — then subtracts another full day. A "this week" revenue figure can therefore include part of the previous Sunday.</p>
+  <p>These are reporting figures a shop owner may reconcile against cash. Normalise both ends to midnight and use inclusive comparisons.</p>
+</div>
+
+<div class="finding med">
+  <div class="f-head"><p class="f-title">B-4 · Multi-device credit limit race</p><span class="chip med">Medium</span><span class="chip conf">Confirmed</span></div>
+  <p class="f-meta">sale_service.dart:192-211</p>
+  <p><code>_assertCreditAllowed</code> checks against the local copy of <code>currentBalance</code>. Two tills selling to the same credit customer before either syncs can each pass independently and jointly exceed the limit. <strong>Accepted by the owner for now</strong> — the deployment is a single shop. Revisit if a second till is added; the fix is credit reservation or post-hoc flagging, not a tighter check.</p>
+</div>
+
+<div class="finding low">
+  <div class="f-head"><p class="f-title">B-5 · Loyalty balance silently clamps at zero</p><span class="chip low">Low</span><span class="chip conf">Confirmed</span></div>
+  <p class="f-meta">storage_repository.dart:2591-2601 (<code>_recomputeRewardPoints</code>)</p>
+  <p>If summed transactions go negative the total is set to 0 with no record of the discrepancy. The comment acknowledges the choice ("not throwing here allows corrections"), but a customer whose points went negative through a data issue loses the evidence. Consider logging an <code>ActionHistory</code> entry when the clamp fires.</p>
+</div>
+
+<div class="finding low">
+  <div class="f-head"><p class="f-title">B-6 · Action history is device-local and never synced</p><span class="chip low">Low</span><span class="chip conf">Confirmed</span></div>
+  <p class="f-meta">storage_repository.dart — <code>history</code> box absent from <code>syncableEntities</code></p>
+  <p>The audit trail — including the "interrupted sale reversed" notices written by crash recovery — exists only on the device that produced it, and is capped at 2,000 entries. Arguably intentional (the code calls it "a convenience log, not a ledger"), but it means the record of an automatic sale reversal can be lost, and is invisible from any other device.</p>
+</div>
+
+<div class="finding low">
+  <div class="f-head"><p class="f-title">B-7 · <code>ActionHistory</code> id reuses the movement id</p><span class="chip low">Low</span><span class="chip conf">Confirmed</span></div>
+  <p class="f-meta">storage_repository.dart:1518-1526 and the stock-out equivalent</p>
+  <p>Stock in/out write history with <code>id: movement.id</code>. No collision today (movement ids are fresh v4 UUIDs), but it couples two record spaces for no benefit and would break if a movement ever wrote two history entries.</p>
+</div>
+
+<!-- ============ 23 ============ -->
+<h2 id="s23"><span class="num">Section 23</span>Architecture Problems</h2>
+
+<h3>A-1 · Derived state is maintained by hand, in two places, with no shared discipline</h3>
+<p>This is the root cause behind B-1 and the highest-leverage structural issue in the codebase. Every write path must remember to update up to six in-memory structures, and there are two families of write path — local (<code>saveX</code>) and remote (<code>applyRemote</code>) — which have <em>diverged</em>. Local paths are correct; remote paths are partially correct.</p>
+<p><strong>Recommendation:</strong> make index maintenance a single function keyed by entity type, called by both families. Something like <code>_reindex(entityType, id)</code> invoked at the end of both <code>saveX</code> and <code>applyRemote</code>. This converts "remember six things at every call site" into "one call, one place" and structurally prevents the class of bug rather than fixing one instance.</p>
+
+<h3>A-2 · The wire format is hand-mirrored</h3>
+<p>Encode and decode are separate hand-written functions in separate files that must agree field for field. The round-trip test is a good mitigation but it is a smoke alarm, not a sprinkler — it catches the omission after someone makes it. Longer term, generating both from the model annotations (or hand-writing one and deriving the other) removes the class entirely. <strong>High effort; not urgent.</strong></p>
+
+<h3>A-3 · Domain depends on presentation for one type</h3>
+<p><code>sale_service.dart:11</code> imports <code>CartItem</code> from <code>presentation/providers/cart_notifier.dart</code>. Move <code>CartItem</code> into <code>domain/</code> (it is a pure value type — product, variant, quantity, computed total). Low effort, restores the layering.</p>
+
+<h3>A-4 · No abstraction boundary around Hive</h3>
+<p>Models extend <code>HiveObject</code> and <code>Box&lt;T&gt;</code> is used directly throughout the repository. This is a deliberate-looking trade — it keeps the code simple and Hive is the system of record, so the coupling is to the thing that matters least to change. Noted rather than criticised, but it does mean the repository cannot be unit-tested without a real Hive directory (which <code>TestStore</code> handles well).</p>
+
+<h3>A-5 · One user is assumed everywhere, and that assumption is now load-bearing</h3>
+<p>Roles, memberships and store scoping were removed. The Firestore rule, <code>SessionService</code>, and <code>AppShell._visibleDestinations()</code> all encode "one user" directly. This is fine and simplifying <em>today</em>, but it is worth being conscious that reintroducing staff accounts would touch the rules, the sync path scoping, the session model and the navigation — it is not a feature that can be bolted on.</p>
+
+<!-- ============ 24 ============ -->
+<h2 id="s24"><span class="num">Section 24</span>Strengths — what should NOT be changed</h2>
+
+<div class="finding good">
+  <div class="f-head"><p class="f-title">The comment culture</p><span class="chip good">Preserve</span></div>
+  <p>Comments explain the failure that motivated the design. This is rare and extremely valuable. Any refactor that strips these comments makes the codebase materially worse even if the code gets shorter. <strong>Treat them as source.</strong></p>
+</div>
+
+<div class="finding good">
+  <div class="f-head"><p class="f-title">The compensating-transaction pattern in <code>SaleService</code> and <code>PurchaseService</code></p><span class="chip good">Preserve</span></div>
+  <p>Correct response to Hive's lack of cross-box transactions, applied consistently, and now backed by a durable journal for process death. Don't replace this with something clever; extend the same pattern to any new multi-step operation.</p>
+</div>
+
+<div class="finding good">
+  <div class="f-head"><p class="f-title">Topic-based invalidation</p><span class="chip good">Preserve</span></div>
+  <p>Removes a whole class of stale-UI bug by making invalidation a property of the write rather than a responsibility of the reader. The single <code>_topicsFor</code> mapping is the right shape.</p>
+</div>
+
+<div class="finding good">
+  <div class="f-head"><p class="f-title"><code>TestStore</code> and <code>FakeFirebaseRepository</code></p><span class="chip good">Preserve</span></div>
+  <p>Testing against a real repository on a temp directory, and a fake that subclasses the real cloud repository so type leaks break the build, is a better testing strategy than heavy mocking would give. Keep new tests on this foundation.</p>
+</div>
+
+<div class="finding good">
+  <div class="f-head"><p class="f-title"><code>SyncWrite</code> as a boundary type</p><span class="chip good">Preserve</span></div>
+  <p>Keeping Firestore types out of the sync engine makes every scheduling decision testable offline. Resist any shortcut that reaches for <code>WriteBatch</code> directly.</p>
+</div>
+
+<div class="finding good">
+  <div class="f-head"><p class="f-title">Defensive decoding in <code>EntityCodec</code></p><span class="chip good">Preserve</span></div>
+  <p>Every field is type-checked with a fallback, so a malformed or partial cloud document degrades gracefully instead of throwing mid-pull. This is what lets a schema evolve without breaking older clients.</p>
+</div>
+
+<div class="finding good">
+  <div class="f-head"><p class="f-title"><code>_safeOpenBox</code>'s graduated recovery</p><span class="chip good">Preserve</span></div>
+  <p>Retry → crash recovery → rebuild, with the loss recorded in <code>recoveredBoxes</code> and shown to the user. Data loss is never silent. Do not simplify this into a single try/catch.</p>
+</div>
+
+<h3>Where refactoring would create more risk than value</h3>
+<ul>
+  <li><strong>Splitting <code>StorageRepository</code>.</strong> It is large but coherent, heavily depended upon, and well tested through <code>TestStore</code>. A split would touch every service and provider for organisational benefit only. Fix A-1 <em>inside</em> it instead.</li>
+  <li><strong>Replacing Hive.</strong> The coupling is deep and the current behaviour (including compaction tuning and crash recovery) is tuned. No evidence this is a problem.</li>
+  <li><strong>Rewriting the sync engine.</strong> The scheduling, backoff, dead-lettering and paging are all sound. It needs two fixes (B-1, P-1), not a redesign.</li>
+</ul>
+
+<!-- ============ 25 ============ -->
+<h2 id="s25"><span class="num">Section 25</span>Prioritized Issues</h2>
+
+<h3>Critical</h3>
+<div class="tbl"><table>
+<thead><tr><th>ID</th><th>Issue</th><th>Location</th><th>Effort</th></tr></thead>
+<tbody>
+<tr><td><strong>B-1</strong></td><td>Cloud pull leaves customer lookup and visit history broken until restart</td><td><code>storage_repository.dart:1289-1408</code></td><td>Low</td></tr>
+<tr><td><strong>S-1</strong></td><td>Biometric login toggle is functionally inert — false security assurance</td><td><code>settings_screen.dart:182</code></td><td>Low (remove) / Medium (implement)</td></tr>
+</tbody>
+</table></div>
+
+<h3>High</h3>
+<div class="tbl"><table>
+<thead><tr><th>ID</th><th>Issue</th><th>Location</th><th>Effort</th></tr></thead>
+<tbody>
+<tr><td><strong>S-2</strong></td><td>No app lock; unencrypted local DB holds all customer PII and financials</td><td>app-wide</td><td>Medium</td></tr>
+<tr><td><strong>P-1</strong></td><td>Every pull is a full re-download; incremental path unreachable</td><td><code>sync_service.dart:158</code></td><td>Low</td></tr>
+<tr><td><strong>A-1</strong></td><td>Derived-state maintenance duplicated across local and remote write paths</td><td><code>storage_repository.dart</code></td><td>Medium</td></tr>
+<tr><td><strong>DOC-1</strong></td><td>README advertises RBAC, PIN sign-in and activity log — none exist</td><td><code>README.md</code></td><td>Trivial</td></tr>
+</tbody>
+</table></div>
+
+<h3>Medium</h3>
+<div class="tbl"><table>
+<thead><tr><th>ID</th><th>Issue</th><th>Location</th><th>Effort</th></tr></thead>
+<tbody>
+<tr><td><strong>B-2</strong></td><td>Config singletons resolve last-pull-wins, not last-edit-wins</td><td><code>storage_repository.dart:1261</code></td><td>Medium</td></tr>
+<tr><td><strong>B-3</strong></td><td>Report date ranges include up to a day of extra data on each end</td><td><code>storage_repository.dart:2069</code>, <code>reports_dashboard:36</code></td><td>Low</td></tr>
+<tr><td><strong>B-4</strong></td><td>Multi-device credit limit race <em>(accepted for single-till use)</em></td><td><code>sale_service.dart:192</code></td><td>Medium</td></tr>
+<tr><td><strong>S-3</strong></td><td>No email verification on the account that owns all cloud data</td><td><code>auth_service.dart:33</code></td><td>Low</td></tr>
+<tr><td><strong>S-4</strong></td><td>Firestore rules never tested or deployed by CI</td><td><code>firestore.rules</code></td><td>Medium</td></tr>
+<tr><td><strong>D-1</strong></td><td>Four unused dependencies, one requesting biometric permissions</td><td><code>pubspec.yaml</code></td><td>Trivial</td></tr>
+<tr><td><strong>DC-1</strong></td><td>Dead, divergent duplicates of loyalty maths</td><td><code>storage_repository.dart:2608</code></td><td>Trivial</td></tr>
+<tr><td><strong>T-1</strong></td><td><code>ExportService</code> — 1,306 lines, zero tests, produces customer-facing documents</td><td><code>export_service.dart</code></td><td>Medium</td></tr>
+<tr><td><strong>P-2/P-3</strong></td><td>Full box rescans per invalidation; all topics fired after pull</td><td><code>storage_repository.dart</code></td><td>Medium</td></tr>
+</tbody>
+</table></div>
+
+<h3>Low</h3>
+<div class="tbl"><table>
+<thead><tr><th>ID</th><th>Issue</th><th>Effort</th></tr></thead>
+<tbody>
+<tr><td><strong>B-5</strong></td><td>Loyalty clamp to zero leaves no trace</td><td>Trivial</td></tr>
+<tr><td><strong>B-6</strong></td><td>Action history never syncs; crash-reversal notices are device-local</td><td>Low</td></tr>
+<tr><td><strong>B-7</strong></td><td><code>ActionHistory</code> id reuses movement id</td><td>Trivial</td></tr>
+<tr><td><strong>A-3</strong></td><td><code>CartItem</code> imported from presentation into domain</td><td>Low</td></tr>
+<tr><td><strong>D-2</strong></td><td>Stray <code>node_modules/</code> and <code>package.json</code></td><td>Trivial</td></tr>
+<tr><td><strong>Q-1</strong></td><td><code>dynamic</code> where <code>SyncQueueItem</code> would do</td><td>Trivial</td></tr>
+<tr><td><strong>Q-2</strong></td><td><code>ref.watch</code> in async callbacks in <code>bulk_generator_screen</code></td><td>Trivial</td></tr>
+<tr><td><strong>UI-1</strong></td><td>No accessibility semantics anywhere</td><td>Medium</td></tr>
+</tbody>
+</table></div>
+
+<!-- ============ 26 ============ -->
+<h2 id="s26"><span class="num">Section 26</span>Recommendations</h2>
+
+<h3>R-1 · Rebuild indexes after a pull <span class="chip crit">Critical</span></h3>
+<div class="kv">
+  <div><b>Current</b><span><code>applyRemote</code> updates boxes; <code>_mobileIndex</code> and <code>_salesByCustomer</code> are only ever built in <code>init()</code></span></div>
+  <div><b>Problem</b><span>Customer phone lookup and visit history are silently broken from the first pull until the next app launch</span></div>
+  <div><b>Evidence</b><span>Probe output in §22 B-1 — lookup returns <code>null</code> for a record that is demonstrably in the box</span></div>
+  <div><b>Fix</b><span>Add <code>_rebuildCustomerIndexes()</code> to <code>reconcileAfterPull()</code>; also call <code>_indexCustomerMobile</code> / <code>_indexSale</code> from the corresponding <code>applyRemote</code> cases so single-record applies stay correct too</span></div>
+  <div><b>Affected</b><span><code>storage_repository.dart</code> only</span></div>
+  <div><b>Effort</b><span>Low — under an hour including a regression test</span></div>
+  <div><b>Side effects</b><span>A full rebuild on every pull is O(customers + sales). Acceptable; a pull is already the most expensive operation in the app</span></div>
+</div>
+
+<h3>R-2 · Resolve the biometric toggle honestly <span class="chip crit">Critical</span></h3>
+<p>Make a decision and make the UI match it. <strong>Remove</strong> (trivial): delete the <code>SwitchListTile</code>, the <code>local_auth</code> dependency, and — carefully, since it is a persisted Hive field — either keep <code>isBiometricEnabled</code> as a dormant field or plan an adapter change. <strong>Implement</strong> (half-day): gate <code>AppShell</code> behind <code>LocalAuthentication.authenticate()</code> when the flag is set, handling "no biometrics enrolled", "hardware unavailable", and a fallback path so a failed sensor cannot lock the owner out of their own till. If implementing, do S-2's encryption at the same time — a lock over an unencrypted database is thin.</p>
+
+<h3>R-3 · Turn on incremental pull <span class="chip high">High</span></h3>
+<p>Store a <code>lastPulledAt</code> watermark (the <code>session</code> box is the natural home) and pass it to <code>pullAll(since:)</code>, falling back to a full pull when it is absent or after a schema change. Keep the full path available behind the System Console's "Re-fetch store data" action, which is exactly what it is for. <strong>Effort: Low.</strong> Watch for the caveat already noted in the code — records written before <code>updatedAt</code> existed would be skipped by the incremental query, so the first pull after upgrading must remain full.</p>
+
+<h3>R-4 · Correct the README <span class="chip high">High</span></h3>
+<p>Remove the RBAC / PIN shift sign-in / activity-log row from the feature table, and either remove or accurately describe biometric login. The code went out of its way to document <em>why</em> multi-user was removed; the README still sells it. A reader trusting the README will make wrong architectural assumptions on day one.</p>
+
+<h3>R-5 · Centralise index maintenance <span class="chip high">High</span></h3>
+<p>Introduce a single <code>_reindex(String entityType, String id)</code> and call it from the tail of both <code>saveX</code> and <code>applyRemote</code>. This is the structural fix behind R-1 — it prevents the next index from developing the same split. <strong>Effort: Medium.</strong> Do it after R-1, not instead of it.</p>
+
+<h3>R-6 · Close the report date-range sloppiness <span class="chip med">Medium</span></h3>
+<p>Normalise <code>start</code> to <code>DateTime(y,m,d)</code> and <code>end</code> to end-of-day, and use inclusive comparisons rather than ±1 day. Fix the "This Week" computation to snap to midnight. These figures get reconciled against cash; being a day out is worse than being approximate.</p>
+
+<h3>R-7 · Get <code>ExportService</code> under test <span class="chip med">Medium</span></h3>
+<p>It generates the documents customers physically receive, and it has no coverage. Start with golden-value tests on the money and totals sections of <code>generateInvoicePdf</code> — extract the totals computation into a testable pure function rather than trying to assert on rendered PDF bytes. The five report generators also share ~80% structure and could collapse into one parameterised builder.</p>
+
+<h3>R-8 · Add Firestore rules tests to CI <span class="chip med">Medium</span></h3>
+<p>The stray <code>package.json</code> suggests this was started. <code>@firebase/rules-unit-testing</code> against the emulator, asserting that user A cannot read user B's subtree and that the catch-all denies. Wire into <code>ci.yml</code>. This is the only automated protection the cloud data has.</p>
+
+<h3>R-9 · Delete dead code and unused dependencies <span class="chip low">Low</span></h3>
+<p>Remove <code>calculateEarnedPoints</code>/<code>calculateMaxRedemptionValue</code> (DC-1), <code>syncDocument</code>/<code>userDoc</code> if confirmed unused, <code>_visibleDestinations</code>, and the four unused packages. Confirm the Node artefacts before deleting — they may belong to R-8.</p>
+
+<!-- ============ 27 ============ -->
+<h2 id="s27"><span class="num">Section 27</span>Refactoring Roadmap</h2>
+
+<div class="tbl"><table>
+<thead><tr><th>Phase</th><th>Work</th><th>Why this order</th></tr></thead>
+<tbody>
+<tr>
+  <td><strong>1 — Correctness</strong><br><span class="chip crit">Do first</span></td>
+  <td>R-1 (index rebuild + regression test) · R-6 (date ranges) · R-9 (dead code)</td>
+  <td>B-1 actively corrupts the customer workflow on new devices. Everything else can wait behind it. All three are low-effort and low-risk.</td>
+</tr>
+<tr>
+  <td><strong>2 — Truthfulness</strong><br><span class="chip crit">Do next</span></td>
+  <td>R-2 (biometric decision) · R-4 (README) · dependency cleanup</td>
+  <td>These are about the product not lying to its owner or its next engineer. Cheap, and they change what people believe about the system.</td>
+</tr>
+<tr>
+  <td><strong>3 — Cost &amp; scale</strong></td>
+  <td>R-3 (incremental pull) · P-2/P-3 profiling</td>
+  <td>Firestore cost and pull latency grow with the shop's history. Fix before the dataset makes it painful, not after.</td>
+</tr>
+<tr>
+  <td><strong>4 — Structural</strong></td>
+  <td>R-5 (centralise reindexing) · A-3 (move <code>CartItem</code>) · sync engine typing</td>
+  <td>Prevents the recurrence of the class of bug fixed in phase 1. Worth doing once phase 1 has proven the shape of the problem.</td>
+</tr>
+<tr>
+  <td><strong>5 — Assurance</strong></td>
+  <td>R-7 (<code>ExportService</code> tests) · R-8 (rules tests) · screen behaviour tests</td>
+  <td>Closes the three largest coverage holes. Deliberately last because the code is stable — this protects it rather than fixing it.</td>
+</tr>
+<tr>
+  <td><strong>6 — Optional</strong></td>
+  <td>S-2 (encryption at rest) · B-2 (config <code>updatedAt</code>) · accessibility</td>
+  <td>Each needs a product decision first: is the till shared, will there be a second device, is there a store-listing requirement?</td>
+</tr>
+</tbody>
+</table></div>
+
+<p><strong>Explicitly not recommended:</strong> splitting <code>StorageRepository</code>, replacing Hive, rewriting the sync engine, or introducing a router. None of these are supported by the evidence, and each would put well-tested working behaviour at risk for structural taste.</p>
+
+<!-- ============ 28 ============ -->
+<h2 id="s28"><span class="num">Section 28</span>Architecture Diagrams</h2>
+
+<h3>Module dependency graph</h3>
+<pre class="mermaid">
+graph LR
+    MAIN["main.dart"] --> BOOT["bootstrap.dart"]
+    BOOT --> STORE["StorageRepository"]
+    BOOT --> FB["FirebaseRepository"]
+    BOOT --> AUTH["AuthService"]
+    BOOT --> SESS["SessionService"]
+    BOOT --> SYNC["SyncService"]
+    BOOT --> PROV["app_providers"]
+
+    PROV --> SALE["SaleService"]
+    PROV --> PUR["PurchaseService"]
+    PROV --> CUST["CustomerService"]
+    PROV --> SUP["SupplierService"]
+    PROV --> EXP["ExpenseService"]
+    PROV --> BACK["BackupService"]
+
+    SALE --> STORE
+    SALE --> PRICE["SalePricing"]
+    SALE -.->|"layering inversion"| CART["CartItem<br/>(presentation)"]
+    PUR --> STORE
+    CUST --> STORE
+    SUP --> STORE
+    EXP --> STORE
+    BACK --> STORE
+    SYNC --> STORE
+    SYNC --> FB
+    SYNC --> CODEC["EntityCodec"]
+    STORE --> CODEC
+    STORE --> MODELS["18 Hive models"]
+    CODEC --> MODELS
+    AUTH --> FB
+    SESS --> AUTH
+    SCREENS["47 screens"] --> PROV
+    SCREENS --> EXPORT["ExportService"]
+
+    style CART stroke-dasharray: 4 3
+    style STORE stroke-width:3px
+</pre>
+<p class="fig">Figure 5 — Module graph. <code>StorageRepository</code> (bold) is the hub; the dashed edge is the one layering violation.</p>
+
+<h3>Sync state machine</h3>
+<pre class="mermaid">
+stateDiagram-v2
+    [*] --> PENDING: enqueueSync()
+    PENDING --> SYNCING: processQueue picks up
+    SYNCING --> [*]: commit OK — item deleted
+    SYNCING --> FAILED: commit threw
+    FAILED --> PENDING: backoff elapsed<br/>(2^n × 30s)
+    FAILED --> DEAD: retryCount ≥ 5
+    DEAD --> PENDING: retryFailed() from System Console
+    SYNCING --> PENDING: app killed mid-upload<br/>(resetStuckSyncItems on next init)
+</pre>
+<p class="fig">Figure 6 — Sync queue lifecycle. The bottom edge is why <code>resetStuckSyncItems()</code> exists: <code>SYNCING</code> is not otherwise recoverable.</p>
+
+<h3>Checkout crash recovery</h3>
+<pre class="mermaid">
+flowchart TD
+    A["App starts — init()"] --> B{"checkout_journal<br/>rows present?"}
+    B -->|No| Z["Normal startup"]
+    B -->|Yes| C["For each open row"]
+    C --> D["Reverse stock:<br/>movements by movementReferenceId<br/>→ performStockIn, then delete original"]
+    D --> E["Delete ledger rows<br/>by referenceId = invoiceNumber"]
+    E --> F["Delete loyalty rows<br/>by saleId"]
+    F --> G["Restore lifetimeSpend<br/>from journalled value"]
+    G --> H["Delete the sale"]
+    H --> I["Write ActionHistory:<br/>'interrupted sale reversed'"]
+    I --> J["Delete journal row"]
+    J --> Z
+    C -.->|"throws"| K["Leave row in place —<br/>retried next launch"]
+</pre>
+<p class="fig">Figure 7 — Recovery is reference-driven, so it is accurate wherever the crash landed, and idempotent because originals are deleted as they are reversed.</p>
+
+<!-- ============ 29 ============ -->
+<h2 id="s29"><span class="num">Section 29</span>File-Level Reference</h2>
+
+<p>Core files only — the 47 presentation screens are summarised in §9 rather than listed individually.</p>
+
+<div class="tbl">
+<table>
+<thead><tr><th>File</th><th>Purpose</th><th>Depends on</th><th>Used by</th><th>Importance</th></tr></thead>
+<tbody>
+<tr><td><code>main.dart</code></td><td>Entry point; global error handlers; startup <code>FutureBuilder</code> with retry</td><td><code>bootstrap</code>, theme, <code>AppShell</code></td><td>—</td><td><span class="chip high">Critical</span></td></tr>
+<tr><td><code>bootstrap.dart</code></td><td>Composition root — the single construction path for all long-lived services</td><td>All repositories + services</td><td><code>main</code>, integration test</td><td><span class="chip high">Critical</span></td></tr>
+<tr><td><code>data/repositories/storage_repository.dart</code></td><td>All persistence, indexes, sync queue, conflict resolution, backup serialisation, doc numbering, checkout journal</td><td>Models, <code>EntityCodec</code>, Hive, <code>Ids</code>, <code>Fmt</code></td><td>Everything</td><td><span class="chip high">Critical</span></td></tr>
+<tr><td><code>data/repositories/firebase_repository.dart</code></td><td>Firestore/Auth boundary; <code>SyncWrite</code> value type; paged reads</td><td>Firebase SDKs</td><td><code>SyncService</code>, <code>AuthService</code></td><td><span class="chip high">Critical</span></td></tr>
+<tr><td><code>data/sync/entity_codec.dart</code></td><td>Decode side of the wire format; collection names; pull order</td><td>All models</td><td><code>StorageRepository</code>, <code>SyncService</code></td><td><span class="chip high">Critical</span></td></tr>
+<tr><td><code>domain/services/sync_service.dart</code></td><td>Upload queue with backoff/dead-letter; full pull; status stream</td><td>Both repositories, <code>EntityCodec</code>, connectivity</td><td><code>bootstrap</code>, sync UI</td><td><span class="chip high">Critical</span></td></tr>
+<tr><td><code>domain/services/sale_service.dart</code></td><td>Checkout transaction with compensating rollback + journal</td><td><code>StorageRepository</code>, <code>SalePricing</code>, <code>CartItem</code></td><td>POS, checkout screens</td><td><span class="chip high">Critical</span></td></tr>
+<tr><td><code>domain/pricing.dart</code></td><td>Pure sale arithmetic — discount, tax modes, loyalty caps</td><td><code>Fmt</code>, settings models</td><td><code>SaleService</code>, POS, checkout, loyalty settings</td><td><span class="chip high">Critical</span></td></tr>
+<tr><td><code>domain/services/purchase_service.dart</code></td><td>PO status machine; receiving with pre-validation and rollback</td><td><code>StorageRepository</code></td><td>Purchase screens</td><td><span class="chip med">High</span></td></tr>
+<tr><td><code>domain/services/customer_service.dart</code></td><td>Phone normalisation, registration, duplicate detection, merge</td><td><code>StorageRepository</code>, <code>SessionService</code></td><td>Customer screens, POS lookup</td><td><span class="chip med">High</span></td></tr>
+<tr><td><code>domain/services/backup_service.dart</code></td><td>Point-in-time JSON snapshots; staged write; 10-file retention</td><td><code>StorageRepository</code>, <code>PlatformIo</code></td><td>Backup screen</td><td><span class="chip med">High</span></td></tr>
+<tr><td><code>domain/services/auth_service.dart</code></td><td>Firebase Auth wrapper; availability guards</td><td><code>FirebaseRepository</code></td><td><code>SessionService</code>, auth screen</td><td><span class="chip med">High</span></td></tr>
+<tr><td><code>domain/services/session_service.dart</code></td><td>Per-install device id for offline doc numbering; auth change stream</td><td><code>AuthService</code>, Hive</td><td><code>bootstrap</code>, <code>SyncService</code></td><td><span class="chip med">High</span></td></tr>
+<tr><td><code>presentation/providers/app_providers.dart</code></td><td>Composition + ~40 read providers + topic invalidation</td><td>All services</td><td>Every screen</td><td><span class="chip high">Critical</span></td></tr>
+<tr><td><code>presentation/providers/cart_notifier.dart</code></td><td>Cart state; stock-aware add/update</td><td><code>Product</code>, <code>Fmt</code></td><td>POS, checkout, <code>SaleService</code></td><td><span class="chip med">High</span></td></tr>
+<tr><td><code>presentation/widgets/app_shell.dart</code></td><td>Navigation shell; responsive bar/rail; lazy <code>IndexedStack</code></td><td>Feature screens, <code>Responsive</code></td><td><code>main</code></td><td><span class="chip med">High</span></td></tr>
+<tr><td><code>core/services/export_service.dart</code></td><td>All PDF generation — invoice, receipt, 5 reports, price tags</td><td><code>pdf</code>, <code>printing</code>, models</td><td>Invoice, price tag, reports screens</td><td><span class="chip med">High</span></td></tr>
+<tr><td><code>core/utils/formatters.dart</code></td><td>Money/date/count formatting; <code>round2</code> used at every money boundary</td><td><code>intl</code></td><td>Everywhere</td><td><span class="chip med">High</span></td></tr>
+<tr><td><code>core/utils/ids.dart</code></td><td>UUID v4 keys; device short-code for doc numbers</td><td><code>uuid</code></td><td>Everywhere</td><td><span class="chip med">High</span></td></tr>
+<tr><td><code>core/utils/platform_io*.dart</code></td><td>Conditional-import filesystem abstraction (web vs native)</td><td><code>path_provider</code></td><td>Backup, export, storage init</td><td><span class="chip low">Medium</span></td></tr>
+<tr><td><code>firestore.rules</code></td><td>The entire cloud authorization model — one ownership condition</td><td>—</td><td>Firestore</td><td><span class="chip high">Critical</span></td></tr>
+<tr><td><code>test/support/test_store.dart</code></td><td>Real repository on a temp Hive dir; accepts failure-injecting subclasses</td><td><code>StorageRepository</code></td><td>Most unit tests</td><td><span class="chip med">High</span></td></tr>
+<tr><td><code>test/support/fake_firebase_repository.dart</code></td><td>Subclassed cloud repo recording batches; breaks build on type leaks</td><td><code>FirebaseRepository</code></td><td>Sync tests</td><td><span class="chip med">High</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<!-- ============ 30 ============ -->
+<h2 id="s30"><span class="num">Section 30</span>Final Assessment</h2>
+
+<p>Atomid is a <strong>well-built application with a clear thesis, executed with unusual discipline in its data and domain layers, and let down in three specific and fixable places.</strong></p>
+
+<p>The offline-first commitment is real, not marketing. The app genuinely works with no network and no account, and the code repeatedly chooses the harder correct path — compensating transactions instead of hoping writes succeed, graduated box recovery instead of deleting on first error, paged cloud reads instead of a convenient <code>limit()</code>, backups deliberately separated from sync because a mirror replicates mistakes. Several of these read as lessons learned the hard way and then written down, which is the best possible state for a codebase to be in.</p>
+
+<p>What holds it back is not architecture but <strong>completeness at the seams</strong>. The remote write path was built after the local one and never quite caught up: it updates storage but not the derived state the till reads from, and the result is a confirmed defect that breaks customer lookup at exactly the moment a new device is provisioned. The security surface has the opposite problem — a control exists in the UI with no implementation behind it, which is worse than having no control at all. And a well-written incremental sync path sits unreachable behind a parameter nobody passes.</p>
+
+<p>None of that requires a rewrite. The critical fix is roughly a one-line change plus a regression test. The second is a product decision followed by either a deletion or a half-day of work. The third is a stored timestamp.</p>
+
+<div class="callout accent">
+  <span class="k">If you do only three things</span>
+  <ol style="margin-bottom:0">
+    <li><strong>Rebuild the customer indexes after a pull</strong> (R-1) — this is actively wrong today, silently, on new devices.</li>
+    <li><strong>Make the biometric toggle honest</strong> (R-2) — implement it or remove it, but do not ship a security control that does nothing.</li>
+    <li><strong>Fix the README</strong> (R-4) — it currently promises a permission model the code deliberately removed.</li>
+  </ol>
+</div>
+
+<hr>
+
+<h3>What I understand about this project — in plain language</h3>
+
+<p>Atomid is a cash register and back-office for one small shop, most likely a clothing store in India. It runs on a PC or phone in the shop, and the important design decision is that <strong>it does not need the internet</strong>. Everything — every sale, every stock change, every customer — is written to a database on the device itself. That local copy is the real one.</p>
+
+<p>If the shop has an internet connection and the owner signs in, the app also keeps a copy in the cloud, so a second device or a replacement PC can pick up where the last one left off. But the cloud copy is a mirror, not the master. If the connection dies mid-day, nothing stops; changes pile up in a queue and go up later, retrying with increasing patience and eventually giving up loudly rather than silently.</p>
+
+<p>The shop owner can: ring up sales by scanning barcodes, apply discounts and loyalty points, print an A4 invoice or a thermal receipt; track stock with a full history of every movement; keep customer records with phone lookup, purchase history, credit limits and running balances; raise purchase orders to suppliers and receive them into stock; record expenses; print barcode price tags; and take local backups.</p>
+
+<p>The code is organised in three layers — storage, business rules, screens — and that separation is respected. The trickiest part is that the local database can't do "all of these changes together or none of them", which matters because a single sale changes five different things at once. The developers solved this by recording how to undo each step as they go, and by writing a small note to disk before starting so that if the power is cut mid-sale, the app finds the note on restart and reverses the half-finished sale rather than leaving the books wrong.</p>
+
+<p>Three things are currently wrong. <strong>First and most serious:</strong> when the app downloads data from the cloud, it puts the records away correctly but forgets to rebuild its quick-lookup shortcuts — so on a freshly set-up second device, typing a customer's phone number finds nothing, even though the customer is right there in the database. It fixes itself when the app is next restarted, which is why it hasn't been noticed. <strong>Second:</strong> the Settings screen has a "Enable Biometric Login" switch that saves its setting and syncs it to the cloud, but nothing in the app ever checks it — there is no fingerprint lock, and in fact no lock of any kind. <strong>Third:</strong> every time it syncs, it re-downloads everything rather than just what changed, which will get slow and expensive as the shop's history grows.</p>
+
+<p>Everything else is in good shape, and the comments left in the code explaining <em>why</em> things are the way they are make it a genuinely pleasant codebase to pick up.</p>
+
+</main>
+</div>

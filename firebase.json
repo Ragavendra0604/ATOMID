@@ -1,1 +1,37 @@
-{"firestore":{"rules":"firestore.rules","indexes":"firestore.indexes.json"},"flutter":{"platforms":{"android":{"default":{"projectId":"atomid-erp","appId":"1:973739607499:android:674ef04a16a8db6c03224e","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"atomid-erp","configurations":{"android":"1:973739607499:android:674ef04a16a8db6c03224e","ios":"1:973739607499:ios:d1d69c6a71ce5ae103224e","macos":"1:973739607499:ios:d1d69c6a71ce5ae103224e","web":"1:973739607499:web:302575d73f299ece03224e","windows":"1:973739607499:web:434fcecdb64c597103224e"}}}}}}
+{
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "atomid-erp",
+          "appId": "1:973739607499:android:674ef04a16a8db6c03224e",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "atomid-erp",
+          "configurations": {
+            "android": "1:973739607499:android:674ef04a16a8db6c03224e",
+            "ios": "1:973739607499:ios:d1d69c6a71ce5ae103224e",
+            "macos": "1:973739607499:ios:d1d69c6a71ce5ae103224e",
+            "web": "1:973739607499:web:302575d73f299ece03224e",
+            "windows": "1:973739607499:web:434fcecdb64c597103224e"
+          }
+        }
+      }
+    }
+  },
+  "emulators": {
+    "firestore": {
+      "port": 8080
+    },
+    "ui": {
+      "enabled": false
+    }
+  }
+}

@@ -45,3 +45,31 @@ jobs:
           name: coverage
           path: coverage/lcov.info
           if-no-files-found: ignore
+
+  # The cloud half of the security model. Runs separately because it needs the
+  # Firestore emulator — and therefore a JVM — rather than the Flutter
+  # toolchain. Without this, a rule change that widened access to every
+  # account's data would reach production with nothing to catch it.
+  firestore-rules:
+    name: Firestore security rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      # The emulator is a Java process; the runner image ships a JDK, but pin
+      # it so a base-image change cannot silently remove it.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install rules-test dependencies
+        run: npm ci
+
+      - name: Test firestore.rules against the emulator
+        run: npm run test:rules
