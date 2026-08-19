@@ -62,11 +62,19 @@ jobs:
           cache: npm
 
       # The emulator is a Java process; the runner image ships a JDK, but pin
-      # it so a base-image change cannot silently remove it.
+      # it so a base-image change cannot silently remove it. 21 rather than 17
+      # because firebase-tools 15 drops support for anything below it.
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
+
+      # The emulator jar is ~60MB and is otherwise re-downloaded on every run.
+      - name: Cache the Firestore emulator
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-${{ runner.os }}
 
       - name: Install rules-test dependencies
         run: npm ci
