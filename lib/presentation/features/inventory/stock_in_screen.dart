@@ -308,7 +308,12 @@ class _StockInScreenState extends ConsumerState<StockInScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(color: Colors.grey)),
+          Text(
+            label,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
           Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
         ],
       ),

@@ -135,9 +135,12 @@ class _CustomerDetailsScreenState extends ConsumerState<CustomerDetailsScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     'Select a customer to merge into the current one. The selected customer will be soft-deleted.',
-                    style: TextStyle(fontSize: 13, color: Colors.grey),
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                   ),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<Customer>(
@@ -221,6 +224,7 @@ class _CustomerDetailsScreenState extends ConsumerState<CustomerDetailsScreen> {
         title: Text(customer.name),
         actions: [
           IconButton(
+            tooltip: 'Edit customer',
             icon: const Icon(Icons.edit),
             onPressed: () => Navigator.push(
               context,
@@ -266,9 +270,11 @@ class _CustomerDetailsScreenState extends ConsumerState<CustomerDetailsScreen> {
                       if (customer.gstNumber.isNotEmpty)
                         Text(
                           'GST: ${customer.gstNumber}',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 14,
-                            color: Colors.grey,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSurfaceVariant,
                           ),
                         ),
                       const SizedBox(height: 8),
@@ -452,7 +458,10 @@ class _CustomerDetailsScreenState extends ConsumerState<CustomerDetailsScreen> {
                 ),
                 Text(
                   'Balance ${Fmt.money(entry.balance, settings.currencySymbol)}',
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ],
             ),

@@ -21,6 +21,7 @@ class InvoicePreviewScreen extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('Invoice Details'),
         leading: IconButton(
+          tooltip: 'Back',
           icon: const Icon(Icons.arrow_back),
           onPressed: () => Navigator.pop(context),
         ),

@@ -191,7 +191,11 @@ class _InvoiceSettingsScreenState extends ConsumerState<InvoiceSettingsScreen> {
                         width: 100,
                         height: 100,
                         decoration: BoxDecoration(
-                          border: Border.all(color: Colors.grey),
+                          border: Border.all(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSurfaceVariant,
+                          ),
                           borderRadius: BorderRadius.circular(8),
                           image: DecorationImage(
                             image: getFileImageProvider(_upiQrImagePath),
@@ -219,9 +223,12 @@ class _InvoiceSettingsScreenState extends ConsumerState<InvoiceSettingsScreen> {
                   ],
                 ),
                 const SizedBox(height: 8),
-                const Text(
+                Text(
                   'Upload a static QR code image to be printed on receipts. Leave blank if not required.',
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ],
 

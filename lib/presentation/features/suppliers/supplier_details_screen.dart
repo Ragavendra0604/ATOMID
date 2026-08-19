@@ -52,6 +52,7 @@ class _SupplierDetailsScreenState extends ConsumerState<SupplierDetailsScreen> {
           ),
           actions: [
             IconButton(
+              tooltip: 'Edit supplier',
               icon: const Icon(Icons.edit),
               onPressed: () {
                 Navigator.push(
@@ -309,9 +310,13 @@ class _SupplierDetailsScreenState extends ConsumerState<SupplierDetailsScreen> {
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
+                          Text(
                             'Current Balance (Owed)',
-                            style: TextStyle(color: Colors.grey),
+                            style: TextStyle(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
+                            ),
                           ),
                           Text(
                             Fmt.money(
@@ -390,9 +395,11 @@ class _SupplierDetailsScreenState extends ConsumerState<SupplierDetailsScreen> {
                                     ),
                                     Text(
                                       'Balance ${Fmt.money(l.balance, settings.currencySymbol)}',
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                         fontSize: 10,
-                                        color: Colors.grey,
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.onSurfaceVariant,
                                       ),
                                     ),
                                   ],
@@ -418,7 +425,12 @@ class _SupplierDetailsScreenState extends ConsumerState<SupplierDetailsScreen> {
         children: [
           SizedBox(
             width: 120,
-            child: Text(label, style: const TextStyle(color: Colors.grey)),
+            child: Text(
+              label,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
           ),
           Expanded(
             child: Text(

@@ -159,7 +159,11 @@ class _CustomerFormScreenState extends ConsumerState<CustomerFormScreen> {
       appBar: AppBar(
         title: Text(widget.customer == null ? 'Add Customer' : 'Edit Customer'),
         actions: [
-          IconButton(icon: const Icon(Icons.check), onPressed: _saveCustomer),
+          IconButton(
+            tooltip: 'Save customer',
+            icon: const Icon(Icons.check),
+            onPressed: _saveCustomer,
+          ),
         ],
       ),
       body: SingleChildScrollView(
@@ -248,6 +252,7 @@ class _CustomerFormScreenState extends ConsumerState<CustomerFormScreen> {
                   labelText: 'Add Tag',
                   border: const OutlineInputBorder(),
                   suffixIcon: IconButton(
+                    tooltip: 'Add tag',
                     icon: const Icon(Icons.add),
                     onPressed: () {
                       final tag = _tagController.text.trim();

@@ -162,8 +162,11 @@ class _HealthTab extends ConsumerWidget {
             ),
             const SizedBox(height: 8),
             FilledButton.tonalIcon(
+              // Explicitly full: this is the button someone reaches for when
+              // they suspect the incremental path has missed something, so it
+              // has to ignore the watermark rather than honour it.
               onPressed: () =>
-                  onRun('Re-fetch store data', () => sync.pullAll()),
+                  onRun('Re-fetch store data', () => sync.pullAll(full: true)),
               icon: const Icon(Icons.cloud_download_outlined),
               label: const Text('Re-fetch from cloud'),
             ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:atomid/core/theme/brand.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:atomid/data/models/product_model.dart';
 import 'package:atomid/presentation/providers/app_providers.dart';
@@ -71,7 +72,7 @@ class InventoryDashboardScreen extends ConsumerWidget {
                     context,
                     'Stock In',
                     Icons.add_box_outlined,
-                    Colors.green,
+                    context.successColor,
                     () => Navigator.push(
                       context,
                       MaterialPageRoute(builder: (_) => const StockInScreen()),
@@ -84,7 +85,7 @@ class InventoryDashboardScreen extends ConsumerWidget {
                     context,
                     'Stock Out',
                     Icons.outbox_outlined,
-                    Colors.red,
+                    context.dangerColor,
                     () => Navigator.push(
                       context,
                       MaterialPageRoute(builder: (_) => const StockOutScreen()),
@@ -114,18 +115,18 @@ class InventoryDashboardScreen extends ConsumerWidget {
             if (lowStockItems.isNotEmpty) ...[
               Row(
                 children: [
-                  const Icon(
+                  Icon(
                     Icons.warning_amber_rounded,
-                    color: Colors.orange,
+                    color: context.warningColor,
                     size: 22,
                   ),
                   const SizedBox(width: 8),
                   Text(
                     'Low Stock Alerts (${lowStockItems.length})',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      color: Colors.orange,
+                      color: context.warningColor,
                     ),
                   ),
                 ],
@@ -144,9 +145,9 @@ class InventoryDashboardScreen extends ConsumerWidget {
                     child: ListTile(
                       leading: CircleAvatar(
                         backgroundColor: Colors.orange.withAlpha(40),
-                        child: const Icon(
+                        child: Icon(
                           Icons.warning_amber_rounded,
-                          color: Colors.orange,
+                          color: context.warningColor,
                         ),
                       ),
                       title: Text(
@@ -158,7 +159,7 @@ class InventoryDashboardScreen extends ConsumerWidget {
                       ),
                       trailing: ElevatedButton(
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
+                          backgroundColor: context.successColor,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(horizontal: 12),
                         ),
@@ -186,14 +187,18 @@ class InventoryDashboardScreen extends ConsumerWidget {
             if (outOfStockItems.isNotEmpty) ...[
               Row(
                 children: [
-                  const Icon(Icons.error_outline, color: Colors.red, size: 22),
+                  Icon(
+                    Icons.error_outline,
+                    color: context.dangerColor,
+                    size: 22,
+                  ),
                   const SizedBox(width: 8),
                   Text(
                     'Out of Stock (${outOfStockItems.length})',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      color: Colors.red,
+                      color: context.dangerColor,
                     ),
                   ),
                 ],
@@ -212,9 +217,9 @@ class InventoryDashboardScreen extends ConsumerWidget {
                     child: ListTile(
                       leading: CircleAvatar(
                         backgroundColor: Colors.red.withAlpha(40),
-                        child: const Icon(
+                        child: Icon(
                           Icons.error_outline,
-                          color: Colors.red,
+                          color: context.dangerColor,
                         ),
                       ),
                       title: Text(
@@ -224,7 +229,7 @@ class InventoryDashboardScreen extends ConsumerWidget {
                       subtitle: Text('Barcode: ${variant.barcode}'),
                       trailing: ElevatedButton(
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
+                          backgroundColor: context.successColor,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(horizontal: 12),
                         ),
@@ -248,7 +253,7 @@ class InventoryDashboardScreen extends ConsumerWidget {
             ],
 
             if (lowStockItems.isEmpty && outOfStockItems.isEmpty)
-              const Center(
+              Center(
                 child: Padding(
                   padding: EdgeInsets.all(32.0),
                   child: Column(
@@ -256,7 +261,7 @@ class InventoryDashboardScreen extends ConsumerWidget {
                       Icon(
                         Icons.check_circle_outline,
                         size: 64,
-                        color: Colors.green,
+                        color: context.successColor,
                       ),
                       SizedBox(height: 16),
                       Text(
@@ -362,14 +367,14 @@ class InventoryDashboardScreen extends ConsumerWidget {
         'Low Stock',
         lowStockItems.length.toString(),
         Icons.warning_amber_rounded,
-        Colors.orange,
+        context.warningColor,
       ),
       _buildStatCard(
         context,
         'Out of Stock',
         outOfStockItems.length.toString(),
         Icons.error_outline,
-        Colors.red,
+        context.dangerColor,
       ),
     ];
 

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:atomid/core/theme/brand.dart';
 import 'package:atomid/core/utils/formatters.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:atomid/data/models/supplier_model.dart';
@@ -64,6 +65,7 @@ class _SupplierListScreenState extends ConsumerState<SupplierListScreen> {
                     hintText: 'Search supplier...',
                     prefixIcon: const Icon(Icons.search),
                     suffixIcon: IconButton(
+                      tooltip: 'Clear search',
                       icon: const Icon(Icons.clear),
                       onPressed: () {
                         _searchCtrl.clear();
@@ -138,20 +140,30 @@ class _SupplierListScreenState extends ConsumerState<SupplierListScreen> {
           'Actions',
         ],
         items: suppliers,
-        emptyWidget: const Center(
+        emptyWidget: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.people_outline, size: 64, color: Colors.grey),
+              Icon(
+                Icons.people_outline,
+                size: 64,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
               SizedBox(height: 16),
               Text(
                 'No suppliers found.',
-                style: TextStyle(fontSize: 16, color: Colors.grey),
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
               SizedBox(height: 8),
               Text(
                 'Tap + to add your first supplier.',
-                style: TextStyle(fontSize: 14, color: Colors.grey),
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
             ],
           ),
@@ -175,7 +187,7 @@ class _SupplierListScreenState extends ConsumerState<SupplierListScreen> {
                 supplier.supplierName,
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
-                  color: supplier.isActive ? null : Colors.grey,
+                  color: supplier.isActive ? null : context.mutedColor,
                 ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -188,9 +200,12 @@ class _SupplierListScreenState extends ConsumerState<SupplierListScreen> {
                     style: const TextStyle(fontSize: 12),
                   ),
                   if (!supplier.isActive)
-                    const Text(
+                    Text(
                       'Inactive',
-                      style: TextStyle(fontSize: 11, color: Colors.grey),
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
                     ),
                 ],
               ),
@@ -204,7 +219,7 @@ class _SupplierListScreenState extends ConsumerState<SupplierListScreen> {
                       fontWeight: FontWeight.bold,
                       fontSize: 16,
                       color: supplier.currentBalance > 0
-                          ? Colors.red
+                          ? context.dangerColor
                           : (supplier.currentBalance < 0
                                 ? Colors.green
                                 : Colors.grey),
@@ -237,7 +252,7 @@ class _SupplierListScreenState extends ConsumerState<SupplierListScreen> {
                   supplier.supplierName,
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
-                    color: supplier.isActive ? null : Colors.grey,
+                    color: supplier.isActive ? null : context.mutedColor,
                   ),
                 ),
                 onTap: () {
@@ -258,7 +273,7 @@ class _SupplierListScreenState extends ConsumerState<SupplierListScreen> {
                           'Active',
                           style: TextStyle(color: Colors.white, fontSize: 12),
                         ),
-                        backgroundColor: Colors.green,
+                        backgroundColor: context.successColor,
                         padding: EdgeInsets.zero,
                         visualDensity: VisualDensity.compact,
                       )
@@ -274,7 +289,7 @@ class _SupplierListScreenState extends ConsumerState<SupplierListScreen> {
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     color: supplier.currentBalance > 0
-                        ? Colors.red
+                        ? context.dangerColor
                         : (supplier.currentBalance < 0 ? Colors.green : null),
                   ),
                 ),
@@ -283,7 +298,9 @@ class _SupplierListScreenState extends ConsumerState<SupplierListScreen> {
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    // Named, so a row in a long table is distinguishable.
                     IconButton(
+                      tooltip: 'Edit ${supplier.supplierName}',
                       icon: const Icon(Icons.edit, color: Colors.blue),
                       onPressed: () {
                         Navigator.push(
@@ -296,7 +313,8 @@ class _SupplierListScreenState extends ConsumerState<SupplierListScreen> {
                       },
                     ),
                     IconButton(
-                      icon: const Icon(Icons.delete, color: Colors.red),
+                      tooltip: 'Delete ${supplier.supplierName}',
+                      icon: Icon(Icons.delete, color: context.dangerColor),
                       onPressed: () => _deleteSupplier(supplier),
                     ),
                   ],
@@ -308,6 +326,7 @@ class _SupplierListScreenState extends ConsumerState<SupplierListScreen> {
       ),
       floatingActionButton: FloatingActionButton(
         heroTag: 'add-supplier',
+        tooltip: 'Add supplier',
         onPressed: () {
           Navigator.push(
             context,
@@ -334,7 +353,7 @@ class _SupplierListScreenState extends ConsumerState<SupplierListScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+            child: Text('Delete', style: TextStyle(color: context.dangerColor)),
           ),
         ],
       ),

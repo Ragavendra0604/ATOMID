@@ -389,6 +389,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                       labelText: 'Barcode',
                       prefixIcon: const Icon(Icons.barcode_reader),
                       suffixIcon: IconButton(
+                        tooltip: 'Generate a new barcode',
                         icon: const Icon(Icons.refresh),
                         onPressed: () {
                           setState(() {

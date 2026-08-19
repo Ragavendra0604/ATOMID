@@ -367,7 +367,12 @@ class _SupplierFormScreenState extends ConsumerState<SupplierFormScreen> {
                           const SizedBox(height: 16),
                           Row(
                             children: [
-                              const Icon(Icons.star, color: Colors.grey),
+                              Icon(
+                                Icons.star,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
                               const SizedBox(width: 12),
                               const Text(
                                 'Rating',

@@ -163,7 +163,11 @@ class _ExpenseFormScreenState extends ConsumerState<ExpenseFormScreen> {
               ),
             )
           else
-            IconButton(icon: const Icon(Icons.save), onPressed: _saveExpense),
+            IconButton(
+              tooltip: 'Save expense',
+              icon: const Icon(Icons.save),
+              onPressed: _saveExpense,
+            ),
         ],
       ),
       body: SingleChildScrollView(
@@ -247,7 +251,9 @@ class _ExpenseFormScreenState extends ConsumerState<ExpenseFormScreen> {
                                 Icon(
                                   _getIconData(c.iconName),
                                   size: 20,
-                                  color: Colors.grey,
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurfaceVariant,
                                 ),
                                 const SizedBox(width: 12),
                                 Text(c.name),

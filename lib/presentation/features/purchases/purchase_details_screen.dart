@@ -100,22 +100,32 @@ class PurchaseDetailsScreen extends ConsumerWidget {
                       ),
                     ),
                     const Divider(),
-                    _infoRow('Purchase #', freshPurchase.purchaseNumber),
-                    _infoRow('Supplier', freshPurchase.supplierName),
-                    _infoRow('Date', _formatDate(freshPurchase.purchaseDate)),
+                    _infoRow(
+                      context,
+                      'Purchase #',
+                      freshPurchase.purchaseNumber,
+                    ),
+                    _infoRow(context, 'Supplier', freshPurchase.supplierName),
+                    _infoRow(
+                      context,
+                      'Date',
+                      _formatDate(freshPurchase.purchaseDate),
+                    ),
                     if (freshPurchase.expectedDeliveryDate != null)
                       _infoRow(
+                        context,
                         'Due Date',
                         _formatDate(freshPurchase.expectedDeliveryDate!),
                       ),
-                    _infoRow('Status', freshPurchase.status),
-                    _infoRow('Payment', freshPurchase.paymentStatus),
+                    _infoRow(context, 'Status', freshPurchase.status),
+                    _infoRow(context, 'Payment', freshPurchase.paymentStatus),
                     _infoRow(
+                      context,
                       'Items',
                       '${freshPurchase.items.length} line items',
                     ),
                     if (freshPurchase.notes.isNotEmpty)
-                      _infoRow('Notes', freshPurchase.notes),
+                      _infoRow(context, 'Notes', freshPurchase.notes),
                   ],
                 ),
               ),
@@ -182,6 +192,7 @@ class PurchaseDetailsScreen extends ConsumerWidget {
                 child: Column(
                   children: [
                     _summaryRow(
+                      context,
                       'Subtotal',
                       Fmt.money(
                         freshPurchase.subtotal,
@@ -190,11 +201,13 @@ class PurchaseDetailsScreen extends ConsumerWidget {
                     ),
                     if (freshPurchase.discount > 0)
                       _summaryRow(
+                        context,
                         'Discount',
                         '-${Fmt.money(freshPurchase.discount, settings.currencySymbol)}',
                       ),
                     if (freshPurchase.tax > 0)
                       _summaryRow(
+                        context,
                         'Tax (${freshPurchase.tax}%)',
                         Fmt.money(
                           (freshPurchase.subtotal - freshPurchase.discount) *
@@ -319,7 +332,7 @@ class PurchaseDetailsScreen extends ConsumerWidget {
     );
   }
 
-  Widget _infoRow(String label, String value) {
+  Widget _infoRow(BuildContext context, String label, String value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
@@ -327,7 +340,12 @@ class PurchaseDetailsScreen extends ConsumerWidget {
         children: [
           SizedBox(
             width: 100,
-            child: Text(label, style: const TextStyle(color: Colors.grey)),
+            child: Text(
+              label,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
           ),
           Expanded(
             child: Text(
@@ -340,13 +358,19 @@ class PurchaseDetailsScreen extends ConsumerWidget {
     );
   }
 
-  Widget _summaryRow(String label, String value) {
+  Widget _summaryRow(BuildContext context, String label, String value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(fontSize: 16, color: Colors.grey)),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 16,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
           Text(
             value,
             style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),

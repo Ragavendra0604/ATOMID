@@ -45,6 +45,7 @@ class _ProductListScreenState extends ConsumerState<ProductListScreen> {
                 hintText: 'Search product or barcode...',
                 prefixIcon: const Icon(Icons.search),
                 suffixIcon: IconButton(
+                  tooltip: 'Clear search',
                   icon: const Icon(Icons.clear),
                   onPressed: () {
                     _searchCtrl.clear();
@@ -123,7 +124,11 @@ class _ProductListScreenState extends ConsumerState<ProductListScreen> {
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
+              // The product name is in the label on purpose: in a list of
+              // fifty rows, a screen reader announcing "edit, button" fifty
+              // times tells the user nothing about which one they are on.
               IconButton(
+                tooltip: 'Edit ${product.productName}',
                 icon: const Icon(Icons.edit, color: Colors.blue),
                 onPressed: () {
                   Navigator.push(
@@ -136,6 +141,7 @@ class _ProductListScreenState extends ConsumerState<ProductListScreen> {
                 },
               ),
               IconButton(
+                tooltip: 'Delete ${product.productName}',
                 icon: const Icon(Icons.delete, color: Colors.red),
                 onPressed: () => _deleteProduct(product),
               ),
@@ -264,7 +270,10 @@ class _ProductListScreenState extends ConsumerState<ProductListScreen> {
                   const SizedBox(height: 8),
                   Text(
                     'Code: ${product.productCode}',
-                    style: const TextStyle(fontSize: 16, color: Colors.grey),
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 ],
               ),

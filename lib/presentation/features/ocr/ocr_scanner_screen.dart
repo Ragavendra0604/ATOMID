@@ -197,7 +197,12 @@ class _OcrScannerScreenState extends ConsumerState<OcrScannerScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(color: Colors.grey)),
+          Text(
+            label,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
           Text(
             value ?? 'Not found',
             style: TextStyle(

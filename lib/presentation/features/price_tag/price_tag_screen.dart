@@ -288,7 +288,9 @@ class _PriceTagScreenState extends ConsumerState<PriceTagScreen> {
   Future<void> _exportPng(String companyName) async {
     try {
       final settings = ref.read(settingsProvider);
-      final company = ref.watch(companyProvider);
+      // read, not watch: a callback must not subscribe the widget that
+      // happened to be building when it was created.
+      final company = ref.read(companyProvider);
       final pdf = await ExportService.generateSingleTagPdf(
         widget.product,
         _selectedVariant,
@@ -318,7 +320,9 @@ class _PriceTagScreenState extends ConsumerState<PriceTagScreen> {
   Future<void> _exportPdf(String companyName) async {
     try {
       final settings = ref.read(settingsProvider);
-      final company = ref.watch(companyProvider);
+      // read, not watch: a callback must not subscribe the widget that
+      // happened to be building when it was created.
+      final company = ref.read(companyProvider);
       final pdf = await ExportService.generateSingleTagPdf(
         widget.product,
         _selectedVariant,
@@ -348,7 +352,9 @@ class _PriceTagScreenState extends ConsumerState<PriceTagScreen> {
   Future<void> _shareTag(String companyName) async {
     try {
       final settings = ref.read(settingsProvider);
-      final company = ref.watch(companyProvider);
+      // read, not watch: a callback must not subscribe the widget that
+      // happened to be building when it was created.
+      final company = ref.read(companyProvider);
       final pdf = await ExportService.generateSingleTagPdf(
         widget.product,
         _selectedVariant,
@@ -377,7 +383,9 @@ class _PriceTagScreenState extends ConsumerState<PriceTagScreen> {
   Future<void> _printTag(String companyName) async {
     try {
       final settings = ref.read(settingsProvider);
-      final company = ref.watch(companyProvider);
+      // read, not watch: a callback must not subscribe the widget that
+      // happened to be building when it was created.
+      final company = ref.read(companyProvider);
       final pdf = await ExportService.generateSingleTagPdf(
         widget.product,
         _selectedVariant,

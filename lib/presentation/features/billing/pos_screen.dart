@@ -542,6 +542,7 @@ class _CartPane extends ConsumerWidget {
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
                         IconButton(
+                          tooltip: 'Reduce quantity of ${item.displayName}',
                           icon: const Icon(Icons.remove_circle_outline),
                           visualDensity: VisualDensity.compact,
                           onPressed: () => ref

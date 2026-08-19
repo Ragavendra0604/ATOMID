@@ -213,6 +213,7 @@ class _ExpenseListScreenState extends ConsumerState<ExpenseListScreen> {
       ),
       floatingActionButton: FloatingActionButton(
         heroTag: 'add-expense',
+        tooltip: 'Add expense',
         onPressed: () {
           Navigator.push(
             context,

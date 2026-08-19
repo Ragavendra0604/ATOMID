@@ -54,7 +54,9 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
     if (variantsToPrint.isEmpty) return Uint8List(0);
 
     final settings = ref.read(settingsProvider);
-    final company = ref.watch(companyProvider);
+    // read, not watch: this runs from a callback, where subscribing would
+    // register a dependency outside the build that created it.
+    final company = ref.read(companyProvider);
 
     final pdf = await ExportService.generateBulkSheetPdf(
       _selectedProduct!,
@@ -105,7 +107,7 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
 
     try {
       final settings = ref.read(settingsProvider);
-      final company = ref.watch(companyProvider);
+      final company = ref.read(companyProvider);
       final pdf = await ExportService.generateBulkSheetPdf(
         _selectedProduct!,
         variantsToPrint,

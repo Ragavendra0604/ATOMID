@@ -728,6 +728,7 @@ class _PurchaseLineItemCard extends StatelessWidget {
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
                 IconButton(
+                  tooltip: 'Remove item ${index + 1}',
                   icon: const Icon(Icons.delete, color: Colors.red, size: 20),
                   onPressed: onRemove,
                 ),

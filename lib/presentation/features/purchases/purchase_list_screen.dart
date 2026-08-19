@@ -56,6 +56,7 @@ class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen> {
                       hintText: 'Search purchase or supplier...',
                       prefixIcon: const Icon(Icons.search),
                       suffixIcon: IconButton(
+                        tooltip: 'Clear search',
                         icon: const Icon(Icons.clear),
                         onPressed: () {
                           _searchCtrl.clear();
@@ -84,24 +85,30 @@ class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen> {
           ),
         ),
         body: purchases.isEmpty
-            ? const Center(
+            ? Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(
                       Icons.shopping_cart_outlined,
                       size: 64,
-                      color: Colors.grey,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
                     SizedBox(height: 16),
                     Text(
                       'No purchases found.',
-                      style: TextStyle(fontSize: 16, color: Colors.grey),
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
                     ),
                     SizedBox(height: 8),
                     Text(
                       'Tap + to create a new purchase.',
-                      style: TextStyle(fontSize: 14, color: Colors.grey),
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
                     ),
                   ],
                 ),
@@ -167,9 +174,11 @@ class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen> {
                           if (purchase.expectedDeliveryDate != null)
                             Text(
                               'Due: ${_formatDate(purchase.expectedDeliveryDate!)}',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 10,
-                                color: Colors.grey,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
                               ),
                             ),
                         ],
@@ -189,6 +198,7 @@ class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen> {
               ),
         floatingActionButton: FloatingActionButton(
           heroTag: 'add-purchase',
+          tooltip: 'Create purchase order',
           onPressed: () {
             Navigator.push(
               context,

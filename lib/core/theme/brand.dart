@@ -52,3 +52,33 @@ class BrandMark extends StatelessWidget {
     );
   }
 }
+
+/// Status colours that stay readable on whichever theme is showing.
+///
+/// The screens previously used raw `Colors.orange` / `Colors.red` /
+/// `Colors.green` for status text. Those are tuned to be vivid, not legible:
+/// `Colors.orange` on a white card measures about 2.4:1 against a WCAG AA
+/// requirement of 4.5:1, which the accessibility guideline test in
+/// `test/widget/accessibility_guidelines_test.dart` fails on.
+///
+/// A single darker shade would fix the light theme and break the dark one, so
+/// these resolve against the current brightness: a deep shade on a light
+/// ground, a light shade on a dark one.
+extension StatusColors on BuildContext {
+  bool get _isDark => Theme.of(this).brightness == Brightness.dark;
+
+  /// Low stock, pending, awaiting action.
+  Color get warningColor =>
+      _isDark ? const Color(0xFFFFB74D) : const Color(0xFFB35309);
+
+  /// Out of stock, overdue, failed.
+  Color get dangerColor =>
+      _isDark ? const Color(0xFFEF9A9A) : const Color(0xFFC62828);
+
+  /// In stock, received, settled.
+  Color get successColor =>
+      _isDark ? const Color(0xFF81C784) : const Color(0xFF2E7D32);
+
+  /// Secondary text — the muted grey that had been hardcoded.
+  Color get mutedColor => Theme.of(this).colorScheme.onSurfaceVariant;
+}

@@ -24,6 +24,7 @@ class AdaptiveDialog extends StatelessWidget {
           appBar: AppBar(
             title: title,
             leading: IconButton(
+              tooltip: 'Close',
               icon: const Icon(Icons.close),
               onPressed: () =>
                   Navigator.pop(context, false), // Default to false for cancel

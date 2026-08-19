@@ -205,6 +205,9 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                         prefixIcon: const Icon(Icons.lock_outline),
                         border: const OutlineInputBorder(),
                         suffixIcon: IconButton(
+                          // Follows the state: a fixed label would be wrong
+                          // half the time, which is worse than none.
+                          tooltip: _obscure ? 'Show password' : 'Hide password',
                           icon: Icon(
                             _obscure
                                 ? Icons.visibility_outlined

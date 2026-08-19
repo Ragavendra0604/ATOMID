@@ -103,10 +103,12 @@ class _BarcodeScannerScreenState extends ConsumerState<BarcodeScannerScreen> {
         title: const Text('Scan Barcode'),
         actions: [
           IconButton(
+            tooltip: 'Toggle torch',
             icon: const Icon(Icons.flash_on, color: Colors.yellow),
             onPressed: () => _scannerController!.toggleTorch(),
           ),
           IconButton(
+            tooltip: 'Switch camera',
             icon: const Icon(Icons.cameraswitch),
             onPressed: () => _scannerController!.switchCamera(),
           ),

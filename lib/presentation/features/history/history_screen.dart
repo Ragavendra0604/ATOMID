@@ -98,6 +98,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
 
   Widget _buildClearButton() {
     return IconButton(
+      tooltip: 'Clear history',
       icon: const Icon(Icons.delete_sweep),
       onPressed: () async {
         final confirm = await showDialog<bool>(
