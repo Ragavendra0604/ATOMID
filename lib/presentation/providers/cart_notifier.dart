@@ -2,25 +2,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:atomid/core/utils/formatters.dart';
 import 'package:atomid/data/models/product_model.dart';
+import 'package:atomid/domain/cart_item.dart';
 
-class CartItem {
-  final Product product;
-  final ProductVariant variant;
-  final int quantity;
-
-  const CartItem({
-    required this.product,
-    required this.variant,
-    this.quantity = 1,
-  });
-
-  CartItem withQuantity(int value) =>
-      CartItem(product: product, variant: variant, quantity: value);
-
-  double get total => Fmt.round2(variant.price * quantity);
-
-  String get displayName => '${product.productName} (${variant.size})';
-}
+// `CartItem` moved to `domain/cart_item.dart`. It is re-exported here so the
+// screens that already import this file keep working, and so the cart's type
+// stays discoverable from the notifier that manages it.
+export 'package:atomid/domain/cart_item.dart' show CartItem;
 
 class CartNotifier extends Notifier<List<CartItem>> {
   @override

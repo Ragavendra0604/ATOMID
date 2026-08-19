@@ -3,6 +3,7 @@ import 'package:atomid/core/utils/formatters.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:atomid/presentation/providers/app_providers.dart';
 import 'package:atomid/data/models/sale_model.dart';
+import 'package:atomid/data/repositories/storage_repository.dart';
 import 'package:atomid/core/services/export_service.dart';
 import 'package:printing/printing.dart';
 import 'package:pdf/pdf.dart';
@@ -25,26 +26,36 @@ class _ReportsDashboardScreenState
     'All Time',
   ];
 
+  /// Sales inside the selected timeframe.
+  ///
+  /// Each window is half-open — `[from, until)` — and snapped to midnight.
+  /// "This Week" previously kept the current time of day and then subtracted
+  /// another whole day, so a Tuesday afternoon report silently included part
+  /// of the previous Sunday.
   List<Sale> _getFilteredSales(List<Sale> allSales) {
     final now = DateTime.now();
-    return allSales.where((sale) {
-      switch (_selectedTimeframe) {
-        case 'Today':
-          return sale.date.year == now.year &&
-              sale.date.month == now.month &&
-              sale.date.day == now.day;
-        case 'This Week':
-          final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
-          return sale.date.isAfter(
-            startOfWeek.subtract(const Duration(days: 1)),
-          );
-        case 'This Month':
-          return sale.date.year == now.year && sale.date.month == now.month;
-        case 'All Time':
-        default:
-          return true;
-      }
-    }).toList();
+    final today = StorageRepository.startOfDay(now);
+
+    DateTime? from;
+    switch (_selectedTimeframe) {
+      case 'Today':
+        from = today;
+      case 'This Week':
+        from = today.subtract(Duration(days: now.weekday - 1));
+      case 'This Month':
+        from = DateTime(now.year, now.month);
+      case 'All Time':
+      default:
+        from = null;
+    }
+
+    if (from == null) return allSales;
+
+    final until = today.add(const Duration(days: 1));
+    final start = from;
+    return allSales
+        .where((s) => !s.date.isBefore(start) && s.date.isBefore(until))
+        .toList();
   }
 
   @override
@@ -266,7 +277,10 @@ class _ReportsDashboardScreenState
               title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 12, color: Colors.grey),
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
           ],
         ),

@@ -86,33 +86,29 @@ class CustomerService {
       throw Exception('One or both customers not found for merging.');
     }
 
-    // 1. Move ledgers
-    final secondaryLedgers = _storageRepo.getLedgerForCustomer(secondaryId);
-    for (var l in secondaryLedgers) {
-      l.customerId = primaryId;
-      // We would normally have a saveLedgerEntry method.
-      // Since it's Hive, we just delete and re-insert, or mutate.
-      // StorageRepo needs an update method. We'll leave this to a more complex sync if needed,
-      // but for offline first we just mutate and wait for Firebase background sync.
-      // For now, let's just append to history to indicate merge.
-    }
-
-    // 2. Combine Stats
+    // 1. Combine stats. Balance is deliberately not touched here — it is
+    // derived from the ledger below, so it can never drift from what the
+    // ledger detail actually shows.
     primary.totalRewardPoints += secondary.totalRewardPoints;
     primary.lifetimeSpend += secondary.lifetimeSpend;
-    primary.currentBalance += secondary.currentBalance;
 
     // Combine tags uniquely
     final mergedTags = <String>{...primary.tags, ...secondary.tags}.toList();
     primary.tags = mergedTags;
+    await saveCustomer(primary);
+
+    // 2. Move every ledger line (and any opening balance) to the primary
+    // account, and settle both running balances from that ledger.
+    await _storageRepo.reassignCustomerLedger(
+      fromCustomerId: secondaryId,
+      toCustomerId: primaryId,
+    );
 
     // 3. Soft delete secondary
     secondary.isDeleted = true;
     secondary.status = 'Merged';
     secondary.notes =
         '${secondary.notes}\n[System] Merged into ${primary.code} on ${DateTime.now().toIso8601String()}';
-
-    await saveCustomer(primary);
     await saveCustomer(secondary);
 
     // 4. Log Action

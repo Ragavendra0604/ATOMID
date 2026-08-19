@@ -14,6 +14,7 @@ import 'package:atomid/data/models/purchase_model.dart' as import_purchase;
 import 'package:atomid/data/models/supplier_model.dart';
 import 'package:atomid/data/models/company_model.dart';
 import 'package:atomid/data/models/invoice_settings_model.dart';
+import 'package:atomid/domain/document_totals.dart';
 import 'package:atomid/domain/price_tag_size.dart';
 
 class ExportService {
@@ -166,9 +167,15 @@ class ExportService {
           break;
       }
     } catch (_) {
-      // Fallback to bundled Roboto if network fails
-      regular = _cachedRegularFont!;
-      bold = _cachedBoldFont!;
+      // The fetch failed — this app is offline-first, so that is routine,
+      // not exceptional. Fall back to bundled Roboto for *this* document,
+      // but do not cache it under the requested font's key: that would lock
+      // every later invoice to Roboto for the rest of the session, even
+      // after connectivity came back, because the cache never retries.
+      return pw.ThemeData.withFont(
+        base: _cachedRegularFont!,
+        bold: _cachedBoldFont!,
+      );
     }
 
     final theme = pw.ThemeData.withFont(base: regular, bold: bold);
@@ -630,13 +637,15 @@ class ExportService {
                         if (sale.discountAmount > 0)
                           pw.Text(
                             sale.discountPercent > 0
-                                ? 'Discount (${sale.discountPercent}%):'
+                                ? 'Discount (${sale.discountPercent.toStringAsFixed(2)}%):'
                                 : 'Discount:',
                           ),
                         if (sale.rewardDiscountAmount > 0)
                           pw.Text('Reward points:'),
                         if (sale.taxAmount > 0)
-                          pw.Text('Tax (${settings.taxRate}%):'),
+                          pw.Text(
+                            'Tax (${settings.taxRate.toStringAsFixed(2)}%):',
+                          ),
                         pw.SizedBox(height: 8),
                         pw.Text(
                           'Grand Total:',
@@ -843,7 +852,7 @@ class ExportService {
                   children: [
                     pw.Text(
                       sale.discountPercent > 0
-                          ? 'Discount (${sale.discountPercent}%):'
+                          ? 'Discount (${sale.discountPercent.toStringAsFixed(2)}%):'
                           : 'Discount:',
                       style: const pw.TextStyle(fontSize: 10),
                     ),
@@ -963,11 +972,10 @@ class ExportService {
     await _ensureResourcesLoaded();
     final pdf = pw.Document();
 
-    final double totalRevenue = sales.fold(0, (sum, s) => sum + s.grandTotal);
-    final int totalItems = sales.fold(
-      0,
-      (sum, s) => sum + s.items.fold(0, (iSum, item) => iSum + item.quantity),
-    );
+    // Computed by DocumentTotals so the printed figure and the tested one
+    // cannot drift apart; see test/unit/document_totals_test.dart.
+    final double totalRevenue = DocumentTotals.salesRevenue(sales);
+    final int totalItems = DocumentTotals.salesUnits(sales);
 
     pdf.addPage(
       pw.MultiPage(
@@ -1111,11 +1119,8 @@ class ExportService {
     await _ensureResourcesLoaded();
     final pdf = pw.Document();
 
-    final double totalCost = purchases.fold(0, (sum, p) => sum + p.grandTotal);
-    final int totalItems = purchases.fold(
-      0,
-      (sum, p) => sum + p.items.fold(0, (iSum, item) => iSum + item.quantity),
-    );
+    final double totalCost = DocumentTotals.purchaseCost(purchases);
+    final int totalItems = DocumentTotals.purchaseUnits(purchases);
 
     pdf.addPage(
       pw.MultiPage(

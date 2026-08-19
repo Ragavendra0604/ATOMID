@@ -6,9 +6,9 @@ import 'package:atomid/core/utils/ids.dart';
 import 'package:atomid/data/models/customer_model.dart';
 import 'package:atomid/data/models/sale_model.dart';
 import 'package:atomid/data/repositories/storage_repository.dart';
+import 'package:atomid/domain/cart_item.dart';
 import 'package:atomid/domain/pricing.dart';
 import 'package:atomid/domain/services/session_service.dart';
-import 'package:atomid/presentation/providers/cart_notifier.dart';
 
 /// Everything the till needs to commit a sale.
 class CheckoutRequest {
@@ -112,6 +112,22 @@ class SaleService {
 
     final undo = <Future<void> Function()>[];
 
+    // Declared before the first write. [undo] below unwinds a failure this
+    // process lives to see; the journal is what unwinds one it does not —
+    // a power cut or a kill part way through leaves these writes committed
+    // with nothing in memory left to reverse them, so startup finds the open
+    // journal row and reverses them there.
+    final storedCustomer = request.customer == null
+        ? null
+        : _repo.getCustomerById(request.customer!.id);
+    await _repo.openCheckoutJournal(
+      saleId: sale.id,
+      invoiceNumber: sale.invoiceNumber,
+      customerId: request.customer?.id ?? '',
+      previousLifetimeSpend: storedCustomer?.lifetimeSpend,
+      previousUpdatedAt: storedCustomer?.updatedAt,
+    );
+
     try {
       await _repo.saveSale(sale);
       undo.add(() => _repo.deleteSale(sale.id));
@@ -143,10 +159,17 @@ class SaleService {
         await _updateLifetimeSpend(request.customer!, totals.grandTotal, undo);
       }
 
+      // Every write landed: there is nothing left for startup to reverse.
+      await _repo.closeCheckoutJournal(sale.id);
       return sale;
     } catch (error, stack) {
       debugPrint('Checkout failed, unwinding: $error\n$stack');
       await _unwind(undo, sale);
+      // Closed after unwinding rather than left open: this path already
+      // reversed everything in memory, so leaving the row would make the next
+      // launch re-reverse an order that no longer exists and report a
+      // recovery to the shop that never happened.
+      await _repo.closeCheckoutJournal(sale.id);
       rethrow;
     }
   }

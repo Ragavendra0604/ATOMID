@@ -123,7 +123,12 @@ void main() {
 
         when(() => mockStorageRepo.getCustomerById('p1')).thenReturn(primary);
         when(() => mockStorageRepo.getCustomerById('s1')).thenReturn(secondary);
-        when(() => mockStorageRepo.getLedgerForCustomer('s1')).thenReturn([]);
+        when(
+          () => mockStorageRepo.reassignCustomerLedger(
+            fromCustomerId: 's1',
+            toCustomerId: 'p1',
+          ),
+        ).thenAnswer((_) async => {});
         when(
           () => mockStorageRepo.saveCustomer(any()),
         ).thenAnswer((_) async => {});
@@ -135,12 +140,20 @@ void main() {
 
         expect(primary.totalRewardPoints, 15);
         expect(primary.lifetimeSpend, 150);
-        expect(primary.currentBalance, 70);
         expect(primary.tags, containsAll(['vip', 'new']));
 
         expect(secondary.isDeleted, isTrue);
         expect(secondary.status, 'Merged');
 
+        // Balance is the ledger's job now, not a hand-added field — verified
+        // for real (with a real StorageRepository) in
+        // customer_merge_ledger_test.dart.
+        verify(
+          () => mockStorageRepo.reassignCustomerLedger(
+            fromCustomerId: 's1',
+            toCustomerId: 'p1',
+          ),
+        ).called(1);
         verify(() => mockStorageRepo.saveCustomer(primary)).called(1);
         verify(() => mockStorageRepo.saveCustomer(secondary)).called(1);
         verify(() => mockStorageRepo.saveHistory(any())).called(1);

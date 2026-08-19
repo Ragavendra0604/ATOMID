@@ -68,8 +68,18 @@ class SalePricing {
     if (loyalty.pointRedemptionValue <= 0) return 0;
 
     final pointsValue = availablePoints * loyalty.pointRedemptionValue;
-    final cap = subtotal * (loyalty.maxRedemptionPercentage / 100.0);
-    return Fmt.round2(pointsValue < cap ? pointsValue : cap);
+
+    // The cap is a share of the bill, but nothing stops the settings screen
+    // storing a share above 100 — and at, say, 500% a well-stocked points
+    // balance redeems five times what is owed. That turned the sale negative,
+    // which the grand total then clamped to zero while the *points earned*
+    // calculation still saw the negative figure and took points off the
+    // customer. The bill is the hard ceiling.
+    final percent = loyalty.maxRedemptionPercentage.clamp(0.0, 100.0);
+    final cap = subtotal * (percent / 100.0);
+
+    final redeemable = pointsValue < cap ? pointsValue : cap;
+    return Fmt.round2(redeemable < 0 ? 0 : redeemable);
   }
 
   /// Points earned on the amount the customer actually paid.
@@ -79,6 +89,8 @@ class SalePricing {
   }) {
     if (!loyalty.isLoyaltyEnabled) return 0;
     if (loyalty.spendAmountForPoint <= 0) return 0;
+    // Nothing paid, nothing earned — and never anything taken away.
+    if (payableAmount <= 0) return 0;
     final multiples = (payableAmount / loyalty.spendAmountForPoint)
         .floorToDouble();
     return multiples * loyalty.pointsEarnedPerSpend;
@@ -150,6 +162,10 @@ class SalePricing {
       grandTotal = discounted;
     }
 
+    // Clamped once, here, so the grand total and the points earned from it
+    // can never disagree about what the customer actually paid.
+    final payable = grandTotal < 0 ? 0.0 : grandTotal;
+
     final pointsRedeemed =
         rewardDiscount > 0 && loyalty.pointRedemptionValue > 0
         ? Fmt.round2(rewardDiscount / loyalty.pointRedemptionValue)
@@ -161,9 +177,12 @@ class SalePricing {
       manualDiscount: manualDiscount,
       rewardDiscount: rewardDiscount,
       taxAmount: taxAmount,
-      grandTotal: grandTotal < 0 ? 0 : grandTotal,
+      grandTotal: payable,
       pointsRedeemed: pointsRedeemed,
-      pointsEarned: pointsEarned(loyalty: loyalty, payableAmount: grandTotal),
+      // Earned on what was actually payable. Passing the raw `grandTotal`
+      // here meant a bill driven negative produced a *negative* number of
+      // points — the sale silently took points away from the customer.
+      pointsEarned: pointsEarned(loyalty: loyalty, payableAmount: payable),
     );
   }
 }
