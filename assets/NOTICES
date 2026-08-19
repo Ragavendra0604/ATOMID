@@ -2590,19 +2590,11 @@ google_fonts
 image_picker_for_web
 image_picker_macos
 image_picker_platform_interface
-local_auth
-local_auth_android
-local_auth_darwin
-local_auth_platform_interface
-local_auth_windows
 path_provider
 path_provider_android
 path_provider_foundation
 path_provider_platform_interface
-url_launcher_android
-url_launcher_ios
 url_launcher_linux
-url_launcher_macos
 url_launcher_web
 url_launcher_windows
 
@@ -6640,7 +6632,6 @@ image_picker_windows
 path_provider_linux
 path_provider_windows
 plugin_platform_interface
-url_launcher
 url_launcher_platform_interface
 xdg_directories
 
