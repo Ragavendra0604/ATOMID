@@ -22,6 +22,11 @@ class LoyaltySettingsModel extends HiveObject {
   @HiveField(5)
   double minBillAmountForRedemption;
 
+  /// When this record last changed, so two devices editing the same
+  /// settings resolve on recency rather than on which pull landed last.
+  @HiveField(6)
+  DateTime? updatedAt;
+
   LoyaltySettingsModel({
     this.isLoyaltyEnabled = false,
     this.spendAmountForPoint = 100,
@@ -29,5 +34,6 @@ class LoyaltySettingsModel extends HiveObject {
     this.pointRedemptionValue = 1,
     this.maxRedemptionPercentage = 50,
     this.minBillAmountForRedemption = 0,
+    this.updatedAt,
   });
 }

@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart' show debugPrint;
 
 import 'package:atomid/core/utils/ids.dart';
 import 'package:atomid/data/models/sync_log_model.dart';
+import 'package:atomid/data/models/sync_queue_model.dart';
 import 'package:atomid/data/repositories/firebase_repository.dart';
 import 'package:atomid/data/repositories/storage_repository.dart';
 import 'package:atomid/data/sync/entity_codec.dart';
@@ -303,7 +304,7 @@ class SyncService {
   }
 
   /// Config records share one document per store rather than one per row.
-  String _documentIdFor(dynamic item) {
+  String _documentIdFor(SyncQueueItem item) {
     switch (item.entityType) {
       case 'SettingsModel':
         return 'settings';
@@ -314,7 +315,7 @@ class SyncService {
       case 'LoyaltySettingsModel':
         return 'loyalty';
       default:
-        return item.entityId as String;
+        return item.entityId;
     }
   }
 
@@ -326,7 +327,7 @@ class SyncService {
   }
 
   Future<void> _recordOutcome(
-    List<dynamic> slice,
+    List<SyncQueueItem> slice,
     List<String> queued,
     Map<String, DateTime> startedAt, {
     required bool success,
@@ -343,7 +344,7 @@ class SyncService {
         await _storageRepo.updateSyncItemStatus(
           id,
           SyncState.failed,
-          retryCount: (item.retryCount as int) + 1,
+          retryCount: item.retryCount + 1,
           lastAttempt: ended,
         );
       }
@@ -351,17 +352,15 @@ class SyncService {
       await _storageRepo.addSyncLog(
         SyncLogModel(
           id: Ids.generate(),
-          entityType: item.entityType as String,
-          entityId: item.entityId as String,
-          operation: item.action as String,
+          entityType: item.entityType,
+          entityId: item.entityId,
+          operation: item.action,
           deviceId: _sessionService.deviceId,
           startedAt: began,
           completedAt: ended,
           durationMs: ended.difference(began).inMilliseconds,
           status: success ? 'SUCCESS' : 'FAILED',
-          retryCount: success
-              ? item.retryCount as int
-              : (item.retryCount as int) + 1,
+          retryCount: success ? item.retryCount : item.retryCount + 1,
           error: error,
         ),
       );
@@ -374,17 +373,33 @@ class SyncService {
   ///
   /// Local records with unsent changes always win, so pulling can never
   /// discard work this device has not uploaded yet.
-  Future<int> pullAll({DateTime? since}) async {
+  ///
+  /// By default this is *incremental*: only records changed since the last
+  /// fully successful pull are fetched. Pass [full] to force a complete
+  /// refresh — that is what the System Console's "Re-fetch store data" does,
+  /// and what happens automatically when there is no trustworthy watermark.
+  ///
+  /// [since] overrides the stored watermark and exists for tests.
+  Future<int> pullAll({DateTime? since, bool full = false}) async {
     if (_isPulling) return 0;
 
     final uid = _sessionService.cloudUid;
     if (uid == null) return 0;
 
+    // Taken before the first fetch, not after the last. A record written
+    // while the pull is in flight would otherwise fall between the two and
+    // never be asked for again. Re-fetching a handful of records next time is
+    // free — applyRemote is idempotent — whereas missing one is permanent.
+    final startedAt = DateTime.now();
+    final watermark = full ? null : (since ?? _sessionService.lastPulledAt);
+
     _isPulling = true;
     _emit(
       _status.copyWith(
         phase: SyncPhase.syncing,
-        message: 'Fetching your data…',
+        message: watermark == null
+            ? 'Fetching your data…'
+            : 'Checking for changes…',
       ),
     );
 
@@ -395,11 +410,17 @@ class SyncService {
     try {
       for (final entityType in EntityCodec.pullOrder) {
         final collection = EntityCodec.collectionFor(entityType);
+        // Config records carry no timestamp of their own, so they are always
+        // fetched whole — four documents, and it sidesteps filtering on a
+        // value the uploader invented.
+        final entitySince = EntityCodec.alwaysFullPull.contains(entityType)
+            ? null
+            : watermark;
         try {
           await _firebaseRepo.fetchCollectionPages(
             uid: uid,
             collection: collection,
-            since: since,
+            since: entitySince,
             onPage: (documents) async {
               for (final document in documents) {
                 final id = _localIdFor(entityType, document);
@@ -425,6 +446,10 @@ class SyncService {
       // A pull where nothing came back is not a success. Reporting one was the
       // same mistake as the indicator that always read "Synced".
       if (failures.isEmpty) {
+        // Only now, and only because every collection answered. Advancing the
+        // watermark past a partial pull would mean the records in the failed
+        // collection are never requested again.
+        await _sessionService.setLastPulledAt(startedAt);
         _emit(
           _status.copyWith(
             phase: SyncPhase.idle,

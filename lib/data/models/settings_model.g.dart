@@ -23,7 +23,7 @@ class SettingsModelAdapter extends TypeAdapter<SettingsModel> {
       pdfPageSize: fields[3] == null ? 'A4' : fields[3] as String,
       taxMode: fields[4] == null ? 'inclusive' : fields[4] as String,
       taxRate: fields[5] == null ? 0 : (fields[5] as num).toDouble(),
-      isBiometricEnabled: fields[6] == null ? false : fields[6] as bool,
+      updatedAt: fields[10] as DateTime?,
     );
   }
 
@@ -43,8 +43,8 @@ class SettingsModelAdapter extends TypeAdapter<SettingsModel> {
       ..write(obj.taxMode)
       ..writeByte(5)
       ..write(obj.taxRate)
-      ..writeByte(6)
-      ..write(obj.isBiometricEnabled);
+      ..writeByte(10)
+      ..write(obj.updatedAt);
   }
 
   @override

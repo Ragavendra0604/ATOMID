@@ -134,4 +134,51 @@ void main() {
     expect(repo.getTodayRevenue(), 350);
     expect(repo.getTodaySales(), hasLength(2));
   });
+
+  test('a sale the cloud marks deleted stops counting everywhere, not just '
+      'in the customer index', () async {
+    final repo = store.repository;
+    await sell(id: 'a', total: 100, quantity: 1);
+
+    // A void/correction from another device (or a future void-sale
+    // feature) arrives as isDeleted rather than an actual delete, the same
+    // way Customer and Supplier already work.
+    await repo.applyRemote('Sale', 'remote-voided', {
+      'id': 'remote-voided',
+      'invoiceNumber': 'INV-VOID',
+      'date': DateTime.now().toIso8601String(),
+      'customerId': '',
+      'customerName': 'Walk-In Customer',
+      'subtotal': 999,
+      'grandTotal': 999,
+      'paymentMethod': 'Cash',
+      'updatedAt': DateTime.now().toIso8601String(),
+      'isDeleted': true,
+      'items': const [],
+    });
+
+    expect(
+      repo.getTodayRevenue(),
+      100,
+      reason: 'the voided sale must not count',
+    );
+    expect(repo.getTodaySales(), hasLength(1));
+    expect(repo.getAllSales(), hasLength(1));
+    expect(
+      repo.getSalesByDateRange(
+        DateTime.now().subtract(const Duration(days: 1)),
+        DateTime.now().add(const Duration(days: 1)),
+      ),
+      hasLength(1),
+    );
+  });
+
+  test('a sale marked deleted is still sent to the cloud that way', () async {
+    final sale = await sell(id: 'a', total: 100, quantity: 1);
+    sale.isDeleted = true;
+    await store.repository.saveSale(sale);
+
+    final json = store.repository.getEntityJson('Sale', sale.id);
+    expect(json?['isDeleted'], isTrue);
+  });
 }

@@ -17,6 +17,18 @@ import 'package:atomid/domain/services/auth_service.dart';
 class SessionService {
   static const _boxName = 'session';
   static const _keyDeviceId = 'deviceId';
+  static const _keyLastPulledAt = 'lastPulledAt';
+  static const _keyPullSchema = 'pullSchemaVersion';
+
+  /// Bumped whenever a change makes previously-uploaded documents untrustworthy
+  /// for an incremental pull.
+  ///
+  /// Version 1 is the first release where every payload carries a non-null
+  /// `updatedAt`. Documents written before it may lack the field, and
+  /// Firestore omits those from a range query rather than ranking them — so a
+  /// watermark saved by an older build must be discarded and the next pull
+  /// done in full, or those records would never be seen again.
+  static const pullSchemaVersion = 1;
 
   final AuthService _authService;
 
@@ -85,6 +97,41 @@ class SessionService {
     if (PlatformIo.isMacOS) return 'Mac';
     if (PlatformIo.isLinux) return 'Linux PC';
     return 'Unknown device';
+  }
+
+  // --- Sync watermark --------------------------------------------------------
+
+  /// When the last fully successful pull started, or null if there has not
+  /// been one this build can trust.
+  ///
+  /// Null is the signal to pull everything. It is returned — rather than a
+  /// stale value — when the stored schema version does not match, when the
+  /// value is unparseable, or when it sits in the future, which would
+  /// otherwise skip every record written between now and then.
+  DateTime? get lastPulledAt {
+    if (_sessionBox.get(_keyPullSchema) != pullSchemaVersion) return null;
+
+    final raw = _sessionBox.get(_keyLastPulledAt);
+    if (raw is! String) return null;
+
+    final parsed = DateTime.tryParse(raw);
+    if (parsed == null) return null;
+    if (parsed.isAfter(DateTime.now())) return null;
+    return parsed;
+  }
+
+  /// Records a completed pull. Only call this when *every* collection came
+  /// back — advancing past a partial pull is how records go missing.
+  Future<void> setLastPulledAt(DateTime value) async {
+    await _sessionBox.put(_keyLastPulledAt, value.toIso8601String());
+    await _sessionBox.put(_keyPullSchema, pullSchemaVersion);
+    await _sessionBox.flush();
+  }
+
+  /// Forces the next pull to be a full one.
+  Future<void> clearLastPulledAt() async {
+    await _sessionBox.delete(_keyLastPulledAt);
+    await _sessionBox.flush();
   }
 
   Future<void> logout() => _authService.signOut();

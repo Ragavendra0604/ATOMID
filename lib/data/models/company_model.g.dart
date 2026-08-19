@@ -35,13 +35,14 @@ class CompanyModelAdapter extends TypeAdapter<CompanyModel> {
       barcodePrefix: fields[15] == null ? 'BR' : fields[15] as String,
       currency: fields[16] == null ? '₹' : fields[16] as String,
       financialYear: fields[17] == null ? '' : fields[17] as String,
+      updatedAt: fields[18] as DateTime?,
     );
   }
 
   @override
   void write(BinaryWriter writer, CompanyModel obj) {
     writer
-      ..writeByte(18)
+      ..writeByte(19)
       ..writeByte(0)
       ..write(obj.name)
       ..writeByte(1)
@@ -77,7 +78,9 @@ class CompanyModelAdapter extends TypeAdapter<CompanyModel> {
       ..writeByte(16)
       ..write(obj.currency)
       ..writeByte(17)
-      ..write(obj.financialYear);
+      ..write(obj.financialYear)
+      ..writeByte(18)
+      ..write(obj.updatedAt);
   }
 
   @override

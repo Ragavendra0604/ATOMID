@@ -25,6 +25,11 @@ class InvoiceSettingsModel extends HiveObject {
   @HiveField(6)
   String fontName;
 
+  /// When this record last changed, so two devices editing the same
+  /// settings resolve on recency rather than on which pull landed last.
+  @HiveField(7)
+  DateTime? updatedAt;
+
   InvoiceSettingsModel({
     this.footerText = 'Thank you for your business!',
     this.showUpiQr = false,
@@ -34,5 +39,6 @@ class InvoiceSettingsModel extends HiveObject {
     this.termsAndConditions =
         '1. Goods once sold will not be taken back.\n2. Subject to local jurisdiction.',
     this.fontName = 'Roboto',
+    this.updatedAt,
   });
 }

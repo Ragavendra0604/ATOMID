@@ -18,6 +18,11 @@ class FakeFirebaseRepository extends FirebaseRepository {
   /// Collections that should throw instead of answering.
   final Set<String> failingCollections = {};
 
+  /// The `since` each collection was last asked for, so a test can prove a
+  /// pull was incremental — and that config collections were exempted.
+  /// A key present with a null value means "asked for in full".
+  final Map<String, DateTime?> sinceByCollection = {};
+
   /// Thrown by the next [commitBatch]; cleared once used.
   Object? nextCommitError;
 
@@ -57,6 +62,7 @@ class FakeFirebaseRepository extends FirebaseRepository {
     int pageSize = 300,
   }) async {
     fetchAttempts++;
+    sinceByCollection[collection] = since;
     if (failingCollections.contains(collection)) {
       throw Exception('permission-denied: $collection');
     }

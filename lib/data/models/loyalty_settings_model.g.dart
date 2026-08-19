@@ -33,13 +33,14 @@ class LoyaltySettingsModelAdapter extends TypeAdapter<LoyaltySettingsModel> {
       minBillAmountForRedemption: fields[5] == null
           ? 0
           : (fields[5] as num).toDouble(),
+      updatedAt: fields[6] as DateTime?,
     );
   }
 
   @override
   void write(BinaryWriter writer, LoyaltySettingsModel obj) {
     writer
-      ..writeByte(6)
+      ..writeByte(7)
       ..writeByte(0)
       ..write(obj.isLoyaltyEnabled)
       ..writeByte(1)
@@ -51,7 +52,9 @@ class LoyaltySettingsModelAdapter extends TypeAdapter<LoyaltySettingsModel> {
       ..writeByte(4)
       ..write(obj.maxRedemptionPercentage)
       ..writeByte(5)
-      ..write(obj.minBillAmountForRedemption);
+      ..write(obj.minBillAmountForRedemption)
+      ..writeByte(6)
+      ..write(obj.updatedAt);
   }
 
   @override

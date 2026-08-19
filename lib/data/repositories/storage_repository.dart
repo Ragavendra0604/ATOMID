@@ -1,7 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:atomid/core/utils/platform_io.dart';
-import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
+import 'package:flutter/foundation.dart' show kIsWeb, debugPrint, setEquals;
 import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'package:atomid/data/models/product_model.dart';
 import 'package:atomid/data/models/action_history_model.dart';
@@ -110,6 +111,7 @@ class StorageRepository {
   static const String syncLogBoxName = 'sync_logs';
   static const String expensesBoxName = 'expenses';
   static const String expenseCategoriesBoxName = 'expense_categories';
+  static const String checkoutJournalBoxName = 'checkout_journal';
   late Box<Product> _productsBox;
   late Box<ActionHistory> _historyBox;
   late Box<SettingsModel> _settingsBox;
@@ -129,6 +131,12 @@ class StorageRepository {
   late Box<Expense> _expensesBox;
   late Box<ExpenseCategory> _expenseCategoriesBox;
 
+  /// In-flight checkouts. Untyped on purpose: these rows are scratch state
+  /// that never syncs and never outlives a successful sale, so giving them a
+  /// Hive type id and an adapter would be permanent ceremony for temporary
+  /// data.
+  late Box<dynamic> _checkoutJournalBox;
+
   // Fast index for barcode -> Product
   final Map<String, Product> _barcodeIndex = {};
 
@@ -142,8 +150,17 @@ class StorageRepository {
   // so re-reading the box cannot tell us what the number used to be.
   final Map<String, String> _indexedMobile = {};
 
+  // Product id -> the barcodes it is currently indexed under, for the same
+  // reason: a variant removed or re-barcoded has to have its old key dropped,
+  // and the previous variant list is gone by the time the write lands.
+  final Map<String, List<String>> _indexedBarcodes = {};
+
   // Customer -> their sales, so visit counts do not rescan the sales box.
   final Map<String, List<Sale>> _salesByCustomer = {};
+
+  // Sale id -> the customer it is currently filed under, so a sale reassigned
+  // to a different customer (or voided) leaves its old list.
+  final Map<String, String> _indexedSaleCustomer = {};
 
   // Ledger running balances, kept in memory so appending an entry does not
   // require rewriting every historical row for that party.
@@ -262,6 +279,7 @@ class StorageRepository {
     final expenseCategoriesOpen = _safeOpenBox<ExpenseCategory>(
       expenseCategoriesBoxName,
     );
+    final checkoutJournalOpen = _safeOpenBox<dynamic>(checkoutJournalBoxName);
 
     _productsBox = await productsOpen;
     _historyBox = await historyOpen;
@@ -281,12 +299,25 @@ class StorageRepository {
     _syncLogBox = await syncLogOpen;
     _expensesBox = await expensesOpen;
     _expenseCategoriesBox = await expenseCategoriesOpen;
+    _checkoutJournalBox = await checkoutJournalOpen;
 
     _rebuildBarcodeIndex();
     _rebuildCustomerIndexes();
     _rebuildLedgerBalances();
     await resetStuckSyncItems();
+
+    // Marked ready before recovery runs so the unwind below can use the full
+    // public API rather than a half-built repository.
     _isInitialized = true;
+
+    // A till loses power mid-sale eventually. Recovery must never be the
+    // reason the app will not open, so a failure here is logged and the
+    // journal is left for the next launch to retry.
+    try {
+      await recoverInterruptedCheckouts();
+    } catch (error, stack) {
+      debugPrint('Checkout recovery failed: $error\n$stack');
+    }
   }
 
   /// Opens a box, escalating through recovery steps rather than destroying
@@ -345,13 +376,218 @@ class StorageRepository {
     return await Hive.openBox<T>(boxName);
   }
 
+  // --- DERIVED STATE ---------------------------------------------------------
+  //
+  // Every index below is derived from a box and has to be brought back in step
+  // whenever that box changes. There are two families of write — local
+  // (`saveX`) and remote (`applyRemote`) — and they used to maintain these by
+  // hand, separately. They drifted: `applyRemote` wrote the record and left
+  // `_mobileIndex` and `_salesByCustomer` untouched, so after a cloud pull the
+  // shop saw a complete customer list and a phone lookup that found nobody,
+  // until the next restart rebuilt the indexes from scratch.
+  //
+  // [_reindex] is now the one way to do it, and both families call it.
+
+  /// Brings every index derived from one record back in step with what is
+  /// stored. Safe to call when the record has just been deleted.
+  void _reindex(String entityType, String entityId) {
+    switch (entityType) {
+      case 'Product':
+        final product = _productsBox.get(entityId);
+        product == null
+            ? _unindexProduct(entityId)
+            : _indexProductBarcodes(product);
+      case 'Customer':
+        final customer = _customersBox.get(entityId);
+        if (customer == null) return;
+        _indexCustomerMobile(customer);
+        // The cache mirrors the record rather than being trusted over it, so
+        // a remote write cannot leave a balance the ledger disagrees with.
+        _customerBalances[entityId] = customer.currentBalance;
+      case 'Sale':
+        final sale = _salesBox.get(entityId);
+        sale == null ? _unindexSale(entityId) : _indexSaleForCustomer(sale);
+      case 'Supplier':
+        final supplier = _suppliersBox.get(entityId);
+        if (supplier != null) {
+          _supplierBalances[entityId] = supplier.currentBalance;
+        }
+      case 'Purchase':
+        // Cost prices feed inventory valuation. Cheaper to drop the whole
+        // index than to work out what one purchase changed.
+        _costPriceIndex = null;
+    }
+  }
+
+  /// Checks every derived structure against the records it is derived from,
+  /// and every stored balance against the entries that should explain it.
+  ///
+  /// Returns one line per discrepancy, empty when the store is coherent.
+  ///
+  /// This exists because the expensive bugs in this repository have all been
+  /// the same shape: a box says one thing and something derived from it says
+  /// another, with no symptom until a cashier types a phone number and gets
+  /// nothing. An index that silently disagrees with its source is not
+  /// detectable by reading either one alone, so it needs a check that holds
+  /// both at once. Used by the test suite, and safe to call from the System
+  /// Console when a shop reports something that "looks wrong".
+  List<String> auditDerivedState() {
+    final problems = <String>[];
+
+    // --- barcode index ---
+    final expectedBarcodes = <String, String>{};
+    for (final product in _productsBox.values) {
+      for (final variant in product.variants) {
+        if (variant.barcode.isNotEmpty) {
+          expectedBarcodes[variant.barcode] = product.id;
+        }
+      }
+    }
+    for (final entry in expectedBarcodes.entries) {
+      final indexed = _barcodeIndex[entry.key];
+      if (indexed == null) {
+        problems.add('barcode ${entry.key} is not indexed');
+      } else if (indexed.id != entry.value) {
+        problems.add('barcode ${entry.key} points at the wrong product');
+      }
+    }
+    for (final barcode in _barcodeIndex.keys) {
+      if (!expectedBarcodes.containsKey(barcode)) {
+        problems.add('barcode $barcode is indexed but belongs to no variant');
+      }
+    }
+
+    // --- mobile index ---
+    final expectedMobiles = <String, String>{};
+    for (final customer in _customersBox.values) {
+      if (customer.isDeleted) continue;
+      final key = normaliseMobile(customer.mobile);
+      if (key.isNotEmpty) expectedMobiles[key] = customer.id;
+    }
+    for (final entry in expectedMobiles.entries) {
+      if (_mobileIndex[entry.key]?.id != entry.value) {
+        problems.add('mobile ${entry.key} does not resolve to its customer');
+      }
+    }
+    for (final key in _mobileIndex.keys) {
+      if (!expectedMobiles.containsKey(key)) {
+        problems.add('mobile $key is indexed but belongs to no customer');
+      }
+    }
+
+    // --- sales by customer ---
+    final expectedSales = <String, Set<String>>{};
+    for (final sale in _salesBox.values) {
+      if (sale.customerId.isEmpty || sale.isDeleted) continue;
+      expectedSales.putIfAbsent(sale.customerId, () => {}).add(sale.id);
+    }
+    for (final entry in expectedSales.entries) {
+      final indexed =
+          _salesByCustomer[entry.key]?.map((s) => s.id).toSet() ?? {};
+      if (!setEquals(indexed, entry.value)) {
+        problems.add(
+          'sales for customer ${entry.key} disagree: '
+          'index has ${indexed.length}, box has ${entry.value.length}',
+        );
+      }
+    }
+    for (final customerId in _salesByCustomer.keys) {
+      final indexed = _salesByCustomer[customerId] ?? const [];
+      if (indexed.isNotEmpty && !expectedSales.containsKey(customerId)) {
+        problems.add(
+          'customer $customerId has indexed sales that no longer '
+          'reference them',
+        );
+      }
+    }
+
+    // --- balances against their ledgers ---
+    for (final customer in _customersBox.values) {
+      final cached = _customerBalances[customer.id];
+      if (cached != null &&
+          Fmt.round2(cached) != Fmt.round2(customer.currentBalance)) {
+        problems.add(
+          'cached balance for customer ${customer.id} ($cached) disagrees '
+          'with the record (${customer.currentBalance})',
+        );
+      }
+
+      final entries = getLedgerForCustomer(customer.id);
+      if (entries.isEmpty) continue;
+      var running = customer.openingBalance;
+      for (final entry in entries) {
+        running = Fmt.round2(running + entry.debit - entry.credit);
+      }
+      if (Fmt.round2(running) != Fmt.round2(customer.currentBalance)) {
+        problems.add(
+          'customer ${customer.id} balance is ${customer.currentBalance} but '
+          'their ledger sums to $running',
+        );
+      }
+    }
+
+    for (final supplier in _suppliersBox.values) {
+      final cached = _supplierBalances[supplier.id];
+      if (cached != null &&
+          Fmt.round2(cached) != Fmt.round2(supplier.currentBalance)) {
+        problems.add(
+          'cached balance for supplier ${supplier.id} disagrees with the '
+          'record',
+        );
+      }
+    }
+
+    // --- loyalty points against their transactions ---
+    for (final customer in _customersBox.values) {
+      var points = 0.0;
+      for (final tx in getLoyaltyTransactions(customer.id)) {
+        points += tx.points;
+      }
+      if (points < 0) points = 0;
+      if (Fmt.round2(points) != Fmt.round2(customer.totalRewardPoints)) {
+        problems.add(
+          'customer ${customer.id} holds ${customer.totalRewardPoints} points '
+          'but their transactions sum to $points',
+        );
+      }
+    }
+
+    return problems;
+  }
+
   void _rebuildBarcodeIndex() {
     _barcodeIndex.clear();
-    for (var product in _productsBox.values) {
-      for (var variant in product.variants) {
-        if (variant.barcode.isNotEmpty) {
-          _barcodeIndex[variant.barcode] = product;
-        }
+    _indexedBarcodes.clear();
+    for (final product in _productsBox.values) {
+      _indexProductBarcodes(product);
+    }
+  }
+
+  /// Points each of a product's barcodes at it, and releases any it used to
+  /// own — a renamed or removed variant must not keep answering scans.
+  void _indexProductBarcodes(Product product) {
+    _releaseBarcodes(product.id);
+
+    final owned = <String>[];
+    for (final variant in product.variants) {
+      if (variant.barcode.isEmpty) continue;
+      _barcodeIndex[variant.barcode] = product;
+      owned.add(variant.barcode);
+    }
+    _indexedBarcodes[product.id] = owned;
+  }
+
+  void _unindexProduct(String productId) {
+    _releaseBarcodes(productId);
+    _indexedBarcodes.remove(productId);
+  }
+
+  /// Drops only the barcodes this product still owns, so a barcode that has
+  /// since moved to a different product is left alone.
+  void _releaseBarcodes(String productId) {
+    for (final barcode in _indexedBarcodes[productId] ?? const <String>[]) {
+      if (_barcodeIndex[barcode]?.id == productId) {
+        _barcodeIndex.remove(barcode);
       }
     }
   }
@@ -365,10 +601,32 @@ class StorageRepository {
     }
 
     _salesByCustomer.clear();
+    _indexedSaleCustomer.clear();
     for (final sale in _salesBox.values) {
-      if (sale.customerId.isEmpty || sale.isDeleted) continue;
-      _salesByCustomer.putIfAbsent(sale.customerId, () => []).add(sale);
+      _indexSaleForCustomer(sale);
     }
+  }
+
+  /// Files a sale under its customer, moving it out of the previous one if the
+  /// association changed.
+  ///
+  /// Walk-in and voided sales are deliberately left out: this index is what
+  /// [getCustomerStats] counts, so a sale attached to nobody — or one that has
+  /// been voided — must not read as somebody's visit.
+  void _indexSaleForCustomer(Sale sale) {
+    _unindexSale(sale.id);
+    if (sale.customerId.isEmpty || sale.isDeleted) return;
+
+    final sales = _salesByCustomer.putIfAbsent(sale.customerId, () => []);
+    final at = sales.indexWhere((s) => s.id == sale.id);
+    at >= 0 ? sales[at] = sale : sales.add(sale);
+    _indexedSaleCustomer[sale.id] = sale.customerId;
+  }
+
+  void _unindexSale(String saleId) {
+    final previous = _indexedSaleCustomer.remove(saleId);
+    if (previous == null) return;
+    _salesByCustomer[previous]?.removeWhere((s) => s.id == saleId);
   }
 
   void _indexCustomerMobile(Customer customer) {
@@ -686,14 +944,7 @@ class StorageRepository {
       case 'SupplierLedger':
         await _supplierLedgersBox.put(id, EntityCodec.supplierLedger(json));
       case 'SettingsModel':
-        // Biometric enrolment is per-device and is not in the payload, so it
-        // is carried over rather than reset by a restore.
-        final incoming = EntityCodec.settings(json);
-        final local = _settingsBox.get('app_settings');
-        if (local != null) {
-          incoming.isBiometricEnabled = local.isBiometricEnabled;
-        }
-        await _settingsBox.put('app_settings', incoming);
+        await _settingsBox.put('app_settings', EntityCodec.settings(json));
       case 'CompanyModel':
         await _companyBox.put('profile', EntityCodec.company(json));
       case 'InvoiceSettingsModel':
@@ -921,10 +1172,79 @@ class StorageRepository {
 
   /// Builds the Firestore payload for a queued entity.
   ///
-  /// Every branch mirrors the full model. A missing field here is silent data
-  /// loss on sync, so anything added to a model must be added below and the
-  /// round-trip covered by a test in `test/unit/sync_payload_test.dart`.
+  /// Every payload leaves here carrying a non-null `updatedAt`, whatever the
+  /// underlying model calls its own timestamp. That uniformity is what makes
+  /// an incremental pull safe: Firestore's `where('updatedAt', >)` does not
+  /// merely rank a document without the field lower, it omits it entirely, so
+  /// a collection whose payloads lacked the field would come back empty and
+  /// report success. Eleven of the fifteen collections were in that state.
   Map<String, dynamic>? getEntityJson(String entityType, String entityId) {
+    final json = _encodeEntity(entityType, entityId);
+    if (json == null) return null;
+
+    // `??=` rather than a plain assignment: the four models that keep a real
+    // `updatedAt` have already written theirs, and theirs is the more truthful
+    // one. This only fills the gap — including when the model's own field is
+    // null, which is just as invisible to the query as an absent one.
+    json['updatedAt'] ??= _syncTimestampFor(
+      entityType,
+      entityId,
+    ).toIso8601String();
+    return json;
+  }
+
+  /// The best "when did this last change" a record can offer.
+  ///
+  /// Local time, deliberately: it has to be comparable against the values
+  /// already written into `updatedAt` by [_encodeEntity], which come from
+  /// local `DateTime`s. Mixing a UTC watermark against local record stamps
+  /// would compare an offset string against a `Z`-suffixed one and quietly
+  /// select the wrong rows.
+  DateTime _syncTimestampFor(String entityType, String entityId) {
+    switch (entityType) {
+      case 'Product':
+        return _productsBox.get(entityId)?.updatedDate ?? DateTime.now();
+      case 'Customer':
+        final c = _customersBox.get(entityId);
+        return c?.updatedAt ?? c?.createdDate ?? DateTime.now();
+      case 'Supplier':
+        return _suppliersBox.get(entityId)?.updatedDate ?? DateTime.now();
+      case 'Sale':
+        final s = _salesBox.get(entityId);
+        return s?.updatedAt ?? s?.date ?? DateTime.now();
+      case 'Purchase':
+        final p = _purchasesBox.get(entityId);
+        return p?.updatedAt ?? p?.createdDate ?? DateTime.now();
+      case 'LoyaltyTransaction':
+        final l = _loyaltyTransactionsBox.get(entityId);
+        return l?.updatedAt ?? l?.createdDate ?? DateTime.now();
+      case 'Expense':
+        return _expensesBox.get(entityId)?.createdDate ?? DateTime.now();
+      case 'InventoryMovement':
+        return _movementsBox.get(entityId)?.date ?? DateTime.now();
+      case 'CustomerLedger':
+        return _customerLedgersBox.get(entityId)?.date ?? DateTime.now();
+      case 'SupplierLedger':
+        return _supplierLedgersBox.get(entityId)?.date ?? DateTime.now();
+      case 'SettingsModel':
+        return _settingsBox.get('app_settings')?.updatedAt ?? DateTime.now();
+      case 'CompanyModel':
+        return _companyBox.get('profile')?.updatedAt ?? DateTime.now();
+      case 'InvoiceSettingsModel':
+        return _invoiceSettingsBox.get('invoice_settings')?.updatedAt ??
+            DateTime.now();
+      case 'LoyaltySettingsModel':
+        return _loyaltySettingsBox.get('loyalty_settings')?.updatedAt ??
+            DateTime.now();
+      default:
+        // ExpenseCategory keeps no timestamp of its own. Stamping the upload
+        // moment is honest enough: it is pulled in full every time regardless
+        // (see EntityCodec.alwaysFullPull).
+        return DateTime.now();
+    }
+  }
+
+  Map<String, dynamic>? _encodeEntity(String entityType, String entityId) {
     if (entityType == 'CompanyModel') {
       final c = getCompany();
       return {
@@ -1023,6 +1343,7 @@ class StorageRepository {
         'rewardDiscountAmount': s.rewardDiscountAmount,
         'rewardPointsEarned': s.rewardPointsEarned,
         'isSynced': true,
+        'isDeleted': s.isDeleted,
         'updatedAt': s.updatedAt?.toIso8601String(),
         'items': s.items
             .map(
@@ -1251,6 +1572,18 @@ class StorageRepository {
         return _loyaltyTransactionsBox.get(entityId)?.updatedAt;
       case 'Expense':
         return _expensesBox.get(entityId)?.createdDate;
+      // Config singletons. These returned null, which skipped the recency
+      // comparison entirely and let whichever pull arrived last overwrite a
+      // newer local edit — two tills changing the tax rate would resolve on
+      // arrival order rather than on which change was actually more recent.
+      case 'SettingsModel':
+        return _settingsBox.get('app_settings')?.updatedAt;
+      case 'CompanyModel':
+        return _companyBox.get('profile')?.updatedAt;
+      case 'InvoiceSettingsModel':
+        return _invoiceSettingsBox.get('invoice_settings')?.updatedAt;
+      case 'LoyaltySettingsModel':
+        return _loyaltySettingsBox.get('loyalty_settings')?.updatedAt;
       default:
         return null;
     }
@@ -1266,8 +1599,23 @@ class StorageRepository {
   Future<bool> applyRemote(
     String entityType,
     String entityId,
-    Map<String, dynamic> json,
+    Map<String, dynamic> raw,
   ) async {
+    // The record is stored under `entityId`, and every index is built from
+    // the record's own `id`. If those two disagree the store is immediately
+    // incoherent: a lookup by key finds the record, a lookup through an index
+    // does not, and `auditDerivedState` reports mismatches nobody can explain.
+    //
+    // The live pull cannot produce that — `fetchCollectionPages` overwrites
+    // `id` with the Firestore document id — but a restore, a hand-edited
+    // document or a future caller could. Pinning it here makes "the record's
+    // id is its key" true by construction rather than by convention.
+    //
+    // Config singletons are unaffected: their decoders do not read `id` at
+    // all, and their local key ('app_settings') differs from their document
+    // id ('settings') by design.
+    final json = {...raw, 'id': entityId};
+
     final hasPendingLocalChange = _syncQueueBox.values.any(
       (item) =>
           item.entityType == entityType &&
@@ -1287,23 +1635,24 @@ class StorageRepository {
     switch (entityType) {
       case 'Product':
         await _productsBox.put(entityId, EntityCodec.product(json));
-        _rebuildBarcodeIndex();
+        _reindex('Product', entityId);
         _notify(DataTopic.products);
         _notify(DataTopic.inventory);
       case 'Customer':
         await _customersBox.put(entityId, EntityCodec.customer(json));
-        _customerBalances.remove(entityId);
+        _reindex('Customer', entityId);
         _notify(DataTopic.customers);
       case 'Supplier':
         await _suppliersBox.put(entityId, EntityCodec.supplier(json));
-        _supplierBalances.remove(entityId);
+        _reindex('Supplier', entityId);
         _notify(DataTopic.suppliers);
       case 'Sale':
         await _salesBox.put(entityId, EntityCodec.sale(json));
+        _reindex('Sale', entityId);
         _notify(DataTopic.sales);
       case 'Purchase':
         await _purchasesBox.put(entityId, EntityCodec.purchase(json));
-        _costPriceIndex = null;
+        _reindex('Purchase', entityId);
         _notify(DataTopic.purchases);
       case 'Expense':
         await _expensesBox.put(entityId, EntityCodec.expense(json));
@@ -1336,17 +1685,11 @@ class StorageRepository {
         );
         _notify(DataTopic.suppliers);
       case 'SettingsModel':
-        // Merge rather than replace. The payload carries only the shared
-        // trading settings, so putting the rebuilt record straight in wiped
-        // every field it does not mention — including the biometric
-        // enrolment, which is meaningless coming from another device and must
-        // survive a pull.
-        final incoming = EntityCodec.settings(json);
-        final local = _settingsBox.get('app_settings');
-        if (local != null) {
-          incoming.isBiometricEnabled = local.isBiometricEnabled;
-        }
-        await _settingsBox.put('app_settings', incoming);
+        // Every field the model carries is in the payload, so a straight
+        // replace loses nothing. This used to merge in order to protect the
+        // per-device biometric enrolment; that setting controlled nothing and
+        // has been removed, so the special case went with it.
+        await _settingsBox.put('app_settings', EntityCodec.settings(json));
         _notify(DataTopic.settings);
       case 'CompanyModel':
         await _companyBox.put('profile', EntityCodec.company(json));
@@ -1369,16 +1712,20 @@ class StorageRepository {
     return true;
   }
 
-  /// Rebuilds derived state after a bulk pull.
+  /// Rebuilds every derived structure after a bulk pull or a restore.
+  ///
+  /// [applyRemote] already reindexes each record it writes, so this is the
+  /// safety net rather than the mechanism: it also catches records that
+  /// arrived by some other route, and anything a future index forgets to
+  /// maintain incrementally. The customer indexes in particular were missing
+  /// here, which is what left phone lookup answering nothing after a pull
+  /// until the app was next restarted.
   Future<void> reconcileAfterPull() async {
     _rebuildBarcodeIndex();
+    _rebuildCustomerIndexes();
+    _rebuildLedgerBalances();
     _costPriceIndex = null;
-    for (final customer in _customersBox.values) {
-      _customerBalances[customer.id] = customer.currentBalance;
-    }
-    for (final supplier in _suppliersBox.values) {
-      _supplierBalances[supplier.id] = supplier.currentBalance;
-    }
+    _todayCache = null;
     for (final topic in DataTopic.all) {
       _notify(topic);
     }
@@ -1386,15 +1733,6 @@ class StorageRepository {
 
   // --- PRODUCTS ---
   Future<void> saveProduct(Product product) async {
-    final existing = _productsBox.get(product.id);
-    if (existing != null) {
-      for (var variant in existing.variants) {
-        if (variant.barcode.isNotEmpty) {
-          _barcodeIndex.remove(variant.barcode);
-        }
-      }
-    }
-
     // Every local write is a change worth telling other devices about.
     // Stock-in/stock-out mutate the same Product instance in place and would
     // otherwise leave this timestamp frozen at creation time forever, which
@@ -1402,13 +1740,7 @@ class StorageRepository {
     product.updatedDate = DateTime.now();
 
     await _productsBox.put(product.id, product);
-
-    // Update index locally
-    for (var variant in product.variants) {
-      if (variant.barcode.isNotEmpty) {
-        _barcodeIndex[variant.barcode] = product;
-      }
-    }
+    _reindex('Product', product.id);
 
     await enqueueSync(
       entityType: 'Product',
@@ -1418,15 +1750,8 @@ class StorageRepository {
   }
 
   Future<void> deleteProduct(String id) async {
-    final product = _productsBox.get(id);
-    if (product != null) {
-      for (var variant in product.variants) {
-        if (variant.barcode.isNotEmpty) {
-          _barcodeIndex.remove(variant.barcode);
-        }
-      }
-    }
     await _productsBox.delete(id);
+    _reindex('Product', id);
     await enqueueSync(entityType: 'Product', entityId: id, action: 'DELETE');
   }
 
@@ -1516,7 +1841,10 @@ class StorageRepository {
     // Record action history
     await saveHistory(
       ActionHistory(
-        id: movement.id,
+        // Its own id, not the movement's. Sharing one across two record
+        // spaces bought nothing and would collide the moment a movement
+        // wanted to write more than one history line.
+        id: Ids.generate(),
         barcode: variantBarcode,
         productName: product.productName,
         action: 'Stock In (+$quantity) - $reason',
@@ -1587,7 +1915,10 @@ class StorageRepository {
     // Record action history
     await saveHistory(
       ActionHistory(
-        id: movement.id,
+        // Its own id, not the movement's. Sharing one across two record
+        // spaces bought nothing and would collide the moment a movement
+        // wanted to write more than one history line.
+        id: Ids.generate(),
         barcode: variantBarcode,
         productName: product.productName,
         action: 'Stock Out (-$quantity) - $reason',
@@ -1688,6 +2019,10 @@ class StorageRepository {
   }
 
   Future<void> saveSettings(SettingsModel settings) async {
+    // Stamped on every local edit so two devices changing the same
+    // setting resolve on which edit was newer, not on which pull landed
+    // last. Config records carried no timestamp at all before this.
+    settings.updatedAt = DateTime.now();
     await _settingsBox.put('app_settings', settings);
     await enqueueSync(
       entityType: 'SettingsModel',
@@ -1703,6 +2038,7 @@ class StorageRepository {
   }
 
   Future<void> saveInvoiceSettings(InvoiceSettingsModel settings) async {
+    settings.updatedAt = DateTime.now();
     await _invoiceSettingsBox.put('invoice_settings', settings);
     await enqueueSync(
       entityType: 'InvoiceSettingsModel',
@@ -1752,12 +2088,192 @@ class StorageRepository {
     return (maxCounter + 1).toString().padLeft(4, '0');
   }
 
+  // --- CHECKOUT JOURNAL ---
+  //
+  // A checkout writes to five boxes and Hive has no transaction spanning
+  // them. [SaleService] already unwinds a *thrown* failure with an in-memory
+  // list of compensations, but that list dies with the process: pull the plug
+  // between deducting stock for item 2 and item 3 and the sale is committed,
+  // the shelf is wrong, and nothing ever notices.
+  //
+  // So a row is written here before the first box is touched, and removed
+  // once the sale is complete. Anything still present at startup is a
+  // checkout that was interrupted, and it is unwound.
+  //
+  // The row deliberately carries almost nothing — the sale's identity, and
+  // the one value that cannot be re-derived afterwards (the customer's
+  // lifetime spend from before the sale). Recovery finds everything else by
+  // asking which records point at the sale: movements by reference, ledger
+  // rows by invoice number, loyalty rows by sale id. That is what makes it
+  // correct wherever the crash landed — a step-by-step log would be wrong the
+  // moment the crash fell between doing a step and recording that step.
+
+  /// Declares a checkout as in flight. Must be called before the first write.
+  Future<void> openCheckoutJournal({
+    required String saleId,
+    required String invoiceNumber,
+    String customerId = '',
+    double? previousLifetimeSpend,
+    DateTime? previousUpdatedAt,
+  }) async {
+    if (!_isInitialized) return;
+    await _checkoutJournalBox.put(
+      saleId,
+      jsonEncode({
+        'saleId': saleId,
+        'invoiceNumber': invoiceNumber,
+        'customerId': customerId,
+        'previousLifetimeSpend': previousLifetimeSpend,
+        'previousUpdatedAt': previousUpdatedAt?.toIso8601String(),
+        'startedAt': DateTime.now().toIso8601String(),
+      }),
+    );
+    // Forced to disk rather than left to Hive's own scheduling: surviving a
+    // power cut in the next millisecond is the entire point of this row.
+    await _checkoutJournalBox.flush();
+  }
+
+  /// Marks a checkout as finished — committed, or already unwound in memory.
+  Future<void> closeCheckoutJournal(String saleId) async {
+    if (!_isInitialized) return;
+    await _checkoutJournalBox.delete(saleId);
+    await _checkoutJournalBox.flush();
+  }
+
+  /// True while a checkout is mid-flight. Exposed for tests.
+  bool hasOpenCheckoutJournal(String saleId) =>
+      _checkoutJournalBox.containsKey(saleId);
+
+  /// Unwinds every checkout that was interrupted before it completed.
+  ///
+  /// Returns the invoice numbers reversed, newest first. Runs automatically
+  /// during [init]; safe to call again at any time, and safe to interrupt —
+  /// every step either finds work to do or finds it already done.
+  Future<List<String>> recoverInterruptedCheckouts() async {
+    final recovered = <String>[];
+
+    for (final key in _checkoutJournalBox.keys.toList()) {
+      final raw = _checkoutJournalBox.get(key);
+      if (raw is! String) {
+        await _checkoutJournalBox.delete(key);
+        continue;
+      }
+
+      Map<String, dynamic> row;
+      try {
+        row = jsonDecode(raw) as Map<String, dynamic>;
+      } catch (_) {
+        await _checkoutJournalBox.delete(key);
+        continue;
+      }
+
+      final saleId = row['saleId'] as String? ?? key.toString();
+      final invoiceNumber = row['invoiceNumber'] as String? ?? saleId;
+
+      try {
+        await _unwindInterruptedCheckout(saleId, invoiceNumber, row);
+        recovered.add(invoiceNumber);
+      } catch (error, stack) {
+        // Left in the journal on purpose: a checkout that could not be
+        // unwound now is retried on the next launch rather than forgotten.
+        debugPrint('Could not recover $invoiceNumber: $error\n$stack');
+        continue;
+      }
+
+      await _checkoutJournalBox.delete(key);
+    }
+
+    if (recovered.isNotEmpty) await _checkoutJournalBox.flush();
+    return recovered;
+  }
+
+  Future<void> _unwindInterruptedCheckout(
+    String saleId,
+    String invoiceNumber,
+    Map<String, dynamic> row,
+  ) async {
+    // 1. Put back any stock this sale took off the shelf.
+    //
+    // Driven by the movement records rather than the sale's line items: a
+    // movement exists only for stock that was actually deducted, so this
+    // reverses exactly what happened and nothing that did not. Each original
+    // is removed as it is reversed, so running this twice is a no-op.
+    final movements = getMovementsByReference(
+      saleId,
+    ).where((m) => m.type == 'Stock Out').toList();
+
+    for (final movement in movements) {
+      try {
+        await performStockIn(
+          productId: movement.productId,
+          variantBarcode: movement.variantBarcode,
+          quantity: movement.quantity,
+          reason: 'Recovered interrupted sale ($invoiceNumber)',
+          movementReferenceId: saleId,
+          performedAt: 'System',
+        );
+      } on AppException catch (error) {
+        // The product was deleted since. Nothing to put stock back into, and
+        // refusing to continue would strand the rest of the reversal.
+        debugPrint('Stock not restored for $invoiceNumber: $error');
+      }
+      await deleteMovement(movement.id);
+    }
+
+    final customerId = row['customerId'] as String? ?? '';
+    if (customerId.isNotEmpty) {
+      // 2. Remove what the sale charged them, and any points it moved.
+      for (final entry in getLedgerForCustomer(
+        customerId,
+      ).where((e) => e.referenceId == invoiceNumber).toList()) {
+        await deleteLedgerEntry(entry.id);
+      }
+
+      for (final tx in getLoyaltyTransactions(
+        customerId,
+      ).where((t) => t.saleId == saleId).toList()) {
+        await deleteLoyaltyTransaction(tx.id);
+      }
+
+      // 3. Put lifetime spend back. This is the one figure that cannot be
+      // recomputed from what is left behind, which is why it is journalled.
+      final previousSpend = (row['previousLifetimeSpend'] as num?)?.toDouble();
+      final customer = getCustomerById(customerId);
+      if (customer != null && previousSpend != null) {
+        customer.lifetimeSpend = previousSpend;
+        final previousUpdatedAt = row['previousUpdatedAt'] as String?;
+        customer.updatedAt = previousUpdatedAt == null
+            ? null
+            : DateTime.tryParse(previousUpdatedAt);
+        await saveCustomer(customer);
+      }
+    }
+
+    // 4. Finally the sale itself, so a half-finished one never reaches a
+    // report or the cloud.
+    await deleteSale(saleId);
+
+    // The shop is told. A sale that silently reverses itself overnight is
+    // worse than one that failed loudly at the till.
+    await saveHistory(
+      ActionHistory(
+        id: Ids.generate(),
+        barcode: invoiceNumber,
+        productName: 'Interrupted sale reversed',
+        action:
+            'Sale $invoiceNumber was interrupted before it finished and has '
+            'been reversed. Stock and balances were restored.',
+        date: DateTime.now(),
+      ),
+    );
+  }
+
   /// Persists a sale. Ledger, stock and loyalty effects belong to
   /// [SaleService] so the whole checkout can be rolled back as one unit.
   Future<void> saveSale(Sale sale) async {
     final isNew = _salesBox.get(sale.id) == null;
     await _salesBox.put(sale.id, sale);
-    _indexSale(sale, isNew: isNew);
+    _reindex('Sale', sale.id);
     await enqueueSync(
       entityType: 'Sale',
       entityId: sale.id,
@@ -1769,23 +2285,9 @@ class StorageRepository {
 
   /// Removes a sale that failed part-way through checkout.
   Future<void> deleteSale(String id) async {
-    final sale = _salesBox.get(id);
     await _salesBox.delete(id);
-    if (sale != null && sale.customerId.isNotEmpty) {
-      _salesByCustomer[sale.customerId]?.removeWhere((s) => s.id == id);
-    }
+    _reindex('Sale', id);
     await enqueueSync(entityType: 'Sale', entityId: id, action: 'DELETE');
-  }
-
-  void _indexSale(Sale sale, {required bool isNew}) {
-    if (sale.customerId.isEmpty) return;
-    final sales = _salesByCustomer.putIfAbsent(sale.customerId, () => []);
-    if (isNew) {
-      sales.add(sale);
-    } else {
-      final at = sales.indexWhere((s) => s.id == sale.id);
-      at >= 0 ? sales[at] = sale : sales.add(sale);
-    }
   }
 
   /// Removes an inventory movement written by a checkout that was rolled back.
@@ -1812,7 +2314,8 @@ class StorageRepository {
           .toList();
 
   List<Sale> getAllSales() {
-    return _salesBox.values.toList()..sort((a, b) => b.date.compareTo(a.date));
+    return _salesBox.values.where((s) => !s.isDeleted).toList()
+      ..sort((a, b) => b.date.compareTo(a.date));
   }
 
   Sale? getSaleById(String id) {
@@ -1836,6 +2339,7 @@ class StorageRepository {
     var units = 0;
 
     for (final sale in _salesBox.values) {
+      if (sale.isDeleted) continue;
       final date = sale.date;
       if (date.year != now.year ||
           date.month != now.month ||
@@ -1866,17 +2370,35 @@ class StorageRepository {
 
   int getTodayItemsSold() => _todayTotals.units;
 
+  /// Sales between two calendar days, both ends included.
+  ///
+  /// Compared against a half-open window `[startOfDay, dayAfterEnd)` rather
+  /// than the previous `isAfter(start - 1 day) && isBefore(end + 1 day)`,
+  /// which quietly pulled in a whole extra day at each end. These figures get
+  /// reconciled against the till, so being a day out is worse than being
+  /// approximate.
   List<Sale> getSalesByDateRange(DateTime start, DateTime end) {
+    final from = startOfDay(start);
+    final until = startOfDay(end).add(const Duration(days: 1));
     return _salesBox.values.where((s) {
-      return s.date.isAfter(start.subtract(const Duration(days: 1))) &&
-          s.date.isBefore(end.add(const Duration(days: 1)));
+      if (s.isDeleted) return false;
+      return !s.date.isBefore(from) && s.date.isBefore(until);
     }).toList()..sort((a, b) => b.date.compareTo(a.date));
   }
+
+  /// Midnight at the start of [value]'s calendar day, in local time.
+  ///
+  /// Business dates are what the shop reads on a report, so they are local
+  /// rather than UTC. Sync timestamps are a separate concern and stay as they
+  /// are.
+  static DateTime startOfDay(DateTime value) =>
+      DateTime(value.year, value.month, value.day);
 
   // --- SUPPLIERS ---
   Future<void> saveSupplier(Supplier supplier) async {
     final isNew = _suppliersBox.get(supplier.id) == null;
     await _suppliersBox.put(supplier.id, supplier);
+    _reindex('Supplier', supplier.id);
     await enqueueSync(
       entityType: 'Supplier',
       entityId: supplier.id,
@@ -1951,7 +2473,7 @@ class StorageRepository {
   Future<void> savePurchase(Purchase purchase) async {
     final isNew = _purchasesBox.get(purchase.id) == null;
     await _purchasesBox.put(purchase.id, purchase);
-    _costPriceIndex = null; // cost prices may have moved
+    _reindex('Purchase', purchase.id);
     await enqueueSync(
       entityType: 'Purchase',
       entityId: purchase.id,
@@ -1996,10 +2518,13 @@ class StorageRepository {
     }).toList()..sort((a, b) => b.purchaseDate.compareTo(a.purchaseDate));
   }
 
+  /// Purchases between two calendar days, both ends included. Same half-open
+  /// window as [getSalesByDateRange], for the same reason.
   List<Purchase> getPurchasesByDateRange(DateTime start, DateTime end) {
+    final from = startOfDay(start);
+    final until = startOfDay(end).add(const Duration(days: 1));
     return _purchasesBox.values.where((p) {
-      return p.purchaseDate.isAfter(start.subtract(const Duration(days: 1))) &&
-          p.purchaseDate.isBefore(end.add(const Duration(days: 1)));
+      return !p.purchaseDate.isBefore(from) && p.purchaseDate.isBefore(until);
     }).toList()..sort((a, b) => b.purchaseDate.compareTo(a.purchaseDate));
   }
 
@@ -2053,6 +2578,7 @@ class StorageRepository {
   }
 
   Future<void> saveCompany(CompanyModel company) async {
+    company.updatedAt = DateTime.now();
     await _companyBox.put('profile', company);
     await enqueueSync(
       entityType: 'CompanyModel',
@@ -2065,7 +2591,7 @@ class StorageRepository {
   Future<void> saveCustomer(Customer customer) async {
     final isNew = _customersBox.get(customer.id) == null;
     await _customersBox.put(customer.id, customer);
-    _indexCustomerMobile(customer);
+    _reindex('Customer', customer.id);
     await enqueueSync(
       entityType: 'Customer',
       entityId: customer.id,
@@ -2175,6 +2701,50 @@ class StorageRepository {
     await recalculateCustomerLedger(customerId);
   }
 
+  /// Moves every ledger entry from one customer to another, folding in the
+  /// source's opening balance as one traceable line first so it is not lost.
+  ///
+  /// Used by a customer merge. Hand-adding `currentBalance` was tried first
+  /// and dropped: it left the source's ledger rows filed under an id nobody
+  /// queries again, and the very next transaction on the target recomputed
+  /// its running balance from a cache that never heard about the merge.
+  /// Routing through the real ledger — and [recalculateCustomerLedger] to
+  /// settle both balances afterward — is what keeps the total and the detail
+  /// agreeing.
+  Future<void> reassignCustomerLedger({
+    required String fromCustomerId,
+    required String toCustomerId,
+  }) async {
+    final from = getCustomerById(fromCustomerId);
+    if (from == null) return;
+
+    if (from.openingBalance != 0) {
+      await addLedgerEntry(
+        customerId: fromCustomerId,
+        date: from.createdDate,
+        transactionType: 'Merge',
+        referenceId: 'MERGE-$toCustomerId',
+        debit: from.openingBalance > 0 ? from.openingBalance : 0,
+        credit: from.openingBalance < 0 ? -from.openingBalance : 0,
+        notes: 'Opening balance carried into merge',
+      );
+      from.openingBalance = 0;
+    }
+
+    for (final entry in getLedgerForCustomer(fromCustomerId)) {
+      entry.customerId = toCustomerId;
+      await _customerLedgersBox.put(entry.id, entry);
+      await enqueueSync(
+        entityType: 'CustomerLedger',
+        entityId: entry.id,
+        action: 'UPDATE',
+      );
+    }
+
+    await recalculateCustomerLedger(toCustomerId);
+    await recalculateCustomerLedger(fromCustomerId); // now empty -> zero
+  }
+
   /// Recomputes a customer's ledger from scratch. Used after a merge or an
   /// out-of-order import, where carrying forward is not valid.
   Future<void> recalculateCustomerLedger(String customerId) async {
@@ -2259,6 +2829,7 @@ class StorageRepository {
   }
 
   Future<void> saveLoyaltySettings(LoyaltySettingsModel settings) async {
+    settings.updatedAt = DateTime.now();
     await _loyaltySettingsBox.put('loyalty_settings', settings);
     await enqueueSync(
       entityType: 'LoyaltySettingsModel',
@@ -2354,28 +2925,12 @@ class StorageRepository {
     await saveCustomer(customer);
   }
 
-  // Reward Engine Core Logic
-  double calculateEarnedPoints(double subtotal) {
-    final settings = getLoyaltySettings();
-    if (!settings.isLoyaltyEnabled) return 0;
-    if (settings.spendAmountForPoint <= 0) return 0;
-
-    // Floor(subtotal / spendAmountForPoint) * pointsEarnedPerSpend
-    final multiples = (subtotal / settings.spendAmountForPoint).floorToDouble();
-    return multiples * settings.pointsEarnedPerSpend;
-  }
-
-  double calculateMaxRedemptionValue(double availablePoints, double subtotal) {
-    final settings = getLoyaltySettings();
-    if (!settings.isLoyaltyEnabled) return 0;
-    if (subtotal < settings.minBillAmountForRedemption) return 0;
-
-    final potentialValue = availablePoints * settings.pointRedemptionValue;
-    final maxAllowedValue =
-        subtotal * (settings.maxRedemptionPercentage / 100.0);
-
-    return potentialValue > maxAllowedValue ? maxAllowedValue : potentialValue;
-  }
+  // `calculateEarnedPoints` and `calculateMaxRedemptionValue` used to sit
+  // here as a second implementation of the reward rules. They had no callers
+  // and had already drifted from `SalePricing` — no guard against a zero
+  // redemption value, and no rounding — so anyone reaching for the obvious
+  // repository method would have got money that disagreed with the till.
+  // `SalePricing` is the single source for reward arithmetic.
 
   // --- EXPENSES ---
   List<Expense> getExpenses() {

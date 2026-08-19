@@ -28,13 +28,14 @@ class InvoiceSettingsModelAdapter extends TypeAdapter<InvoiceSettingsModel> {
           ? '1. Goods once sold will not be taken back.\n2. Subject to local jurisdiction.'
           : fields[5] as String,
       fontName: fields[6] == null ? 'Roboto' : fields[6] as String,
+      updatedAt: fields[7] as DateTime?,
     );
   }
 
   @override
   void write(BinaryWriter writer, InvoiceSettingsModel obj) {
     writer
-      ..writeByte(7)
+      ..writeByte(8)
       ..writeByte(0)
       ..write(obj.footerText)
       ..writeByte(1)
@@ -48,7 +49,9 @@ class InvoiceSettingsModelAdapter extends TypeAdapter<InvoiceSettingsModel> {
       ..writeByte(5)
       ..write(obj.termsAndConditions)
       ..writeByte(6)
-      ..write(obj.fontName);
+      ..write(obj.fontName)
+      ..writeByte(7)
+      ..write(obj.updatedAt);
   }
 
   @override

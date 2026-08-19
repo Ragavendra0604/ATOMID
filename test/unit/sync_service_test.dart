@@ -22,16 +22,35 @@ class _FakeAuthService extends AuthService {
   User? get currentUser => user;
 }
 
+/// A session that never opened a Hive box.
+///
+/// The watermark accessors are overridden with plain fields rather than left
+/// to the real implementation, which would reach for `_sessionBox` and throw
+/// a `LateInitializationError` because `init()` was never called here.
 class _FakeSessionService extends SessionService {
   _FakeSessionService(super.auth, {this.uid = 'uid_under_test'});
 
   final String? uid;
+  DateTime? storedWatermark;
 
   @override
   String get deviceId => 'dev_test_abcd';
 
   @override
   String? get cloudUid => uid;
+
+  @override
+  DateTime? get lastPulledAt => storedWatermark;
+
+  @override
+  Future<void> setLastPulledAt(DateTime value) async {
+    storedWatermark = value;
+  }
+
+  @override
+  Future<void> clearLastPulledAt() async {
+    storedWatermark = null;
+  }
 }
 
 void main() {

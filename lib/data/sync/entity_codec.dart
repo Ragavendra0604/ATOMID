@@ -57,6 +57,21 @@ class EntityCodec {
     }
   }
 
+  /// Types that are always fetched in full, never incrementally.
+  ///
+  /// These are the one-document-per-store config records. They now carry a
+  /// real `updatedAt`, so recency *is* comparable — but documents written by
+  /// an older build do not, and Firestore omits those from a range query
+  /// rather than ranking them. Five documents in total, so fetching them
+  /// whole costs nothing worth optimising and cannot strand an old one.
+  static const alwaysFullPull = {
+    'SettingsModel',
+    'CompanyModel',
+    'InvoiceSettingsModel',
+    'LoyaltySettingsModel',
+    'ExpenseCategory',
+  };
+
   /// Entity types pulled down on a refresh, in dependency order — products and
   /// customers must exist before the sales that reference them.
   static const pullOrder = [
@@ -82,11 +97,32 @@ class EntityCodec {
   static String _str(dynamic value, [String fallback = '']) =>
       value is String ? value : fallback;
 
-  static double _dbl(dynamic value, [double fallback = 0]) =>
-      value is num ? value.toDouble() : fallback;
+  /// Largest and smallest values a 64-bit int can hold, as doubles. A double
+  /// outside this range has no faithful int representation.
+  static const double _maxInt = 9223372036854775807.0;
+  static const double _minInt = -9223372036854775808.0;
 
-  static int _int(dynamic value, [int fallback = 0]) =>
-      value is num ? value.toInt() : fallback;
+  /// A number, rejecting the ones that are technically `num` but not usable.
+  ///
+  /// `NaN` and `Infinity` are both `num`, and Firestore will store them
+  /// happily. Letting one through is worse than a crash: `Fmt.round2` and
+  /// every `fold` in the app propagate `NaN`, so a single poisoned price turns
+  /// a subtotal, a grand total, a day's takings and an exported report all
+  /// into `NaN` with nothing pointing back at the cause.
+  static double _dbl(dynamic value, [double fallback = 0]) =>
+      value is num && value.isFinite ? value.toDouble() : fallback;
+
+  /// An integer, rejecting non-finite and out-of-range values.
+  ///
+  /// `toInt()` throws outright on `NaN`/`Infinity` — which aborted the pull
+  /// for a whole collection — and cannot faithfully represent a double beyond
+  /// the 64-bit range. Both resolve to the fallback rather than to a crash or
+  /// an arbitrary number. Found by fuzzing.
+  static int _int(dynamic value, [int fallback = 0]) {
+    if (value is! num || !value.isFinite) return fallback;
+    if (value > _maxInt || value < _minInt) return fallback;
+    return value.toInt();
+  }
 
   static bool _bool(dynamic value, [bool fallback = false]) =>
       value is bool ? value : fallback;
@@ -105,11 +141,41 @@ class EntityCodec {
   static List<String> _strList(dynamic value) =>
       value is List ? value.whereType<String>().toList() : const [];
 
+  /// A list field, or empty when the payload holds something else.
+  ///
+  /// Every scalar above type-checks and falls back. The list fields did not —
+  /// they used a raw `as List?`, which throws a `TypeError` on a Map, String,
+  /// bool or number. That is not a one-record failure: `SyncService.pullAll`
+  /// catches per *collection*, so a single malformed document aborted the pull
+  /// for every product (or sale, or purchase) in the store, and because the
+  /// watermark only advances on a fully successful pull, that collection then
+  /// stayed behind indefinitely. Found by fuzzing the decoder.
+  static List<dynamic> _list(dynamic value) =>
+      value is List ? value : const <dynamic>[];
+
+  /// An optional string, or null when the payload holds a non-string.
+  ///
+  /// `as String?` throws on an int; this is the same defensive shape as
+  /// [_str] but preserving the "absent" case the models expect.
+  static String? _strOrNull(dynamic value) => value is String ? value : null;
+
   /// The timestamp used to decide which copy of a record wins.
-  static DateTime? remoteUpdatedAt(Map<String, dynamic> json) =>
-      _dateOrNull(json['updatedAt']) ??
-      _dateOrNull(json['updatedDate']) ??
-      _dateOrNull(json['createdDate']);
+  ///
+  /// The most recent of everything the payload offers, rather than the first
+  /// field that happens to be present. Payloads now carry a uniform
+  /// `updatedAt` alongside whatever the model calls its own timestamp
+  /// (`updatedDate` on Product and Supplier), and preferring one blindly
+  /// means any disagreement between them can reject a genuinely newer record
+  /// — silently, and in the direction that loses an edit. Taking the maximum
+  /// cannot fail that way: a newer value wins whichever field it arrives in.
+  static DateTime? remoteUpdatedAt(Map<String, dynamic> json) {
+    final candidates = <DateTime>[
+      for (final key in const ['updatedAt', 'updatedDate', 'createdDate'])
+        ?_dateOrNull(json[key]),
+    ];
+    if (candidates.isEmpty) return null;
+    return candidates.reduce((a, b) => a.isAfter(b) ? a : b);
+  }
 
   // --- Decoders -------------------------------------------------------------
 
@@ -128,7 +194,7 @@ class EntityCodec {
     isDeleted: _bool(json['isDeleted']),
     isSynced: true,
     lastSyncedAt: DateTime.now(),
-    variants: (json['variants'] as List? ?? const [])
+    variants: _list(json['variants'])
         .whereType<Map>()
         .map(
           (v) => ProductVariant(
@@ -219,7 +285,7 @@ class EntityCodec {
     deviceId: _str(json['deviceId']),
     createdBy: _str(json['createdBy']),
     isDeleted: _bool(json['isDeleted']),
-    items: (json['items'] as List? ?? const [])
+    items: _list(json['items'])
         .whereType<Map>()
         .map(
           (i) => SaleItem(
@@ -258,7 +324,7 @@ class EntityCodec {
     deviceId: _str(json['deviceId']),
     createdBy: _str(json['createdBy']),
     isDeleted: _bool(json['isDeleted']),
-    items: (json['items'] as List? ?? const [])
+    items: _list(json['items'])
         .whereType<Map>()
         .map(
           (i) => PurchaseItem(
@@ -285,7 +351,7 @@ class EntityCodec {
     amount: _dbl(json['amount']),
     date: _date(json['date'], DateTime.now()),
     notes: _str(json['notes']),
-    receiptImagePath: json['receiptImagePath'] as String?,
+    receiptImagePath: _strOrNull(json['receiptImagePath']),
     createdDate: _date(json['createdDate'], DateTime.now()),
     createdBy: _str(json['createdBy']),
     isSynced: true,
@@ -349,7 +415,7 @@ class EntityCodec {
       LoyaltyTransaction(
         id: _str(json['id']),
         customerId: _str(json['customerId']),
-        saleId: json['saleId'] as String?,
+        saleId: _strOrNull(json['saleId']),
         transactionType: _str(json['transactionType']),
         points: _dbl(json['points']),
         monetaryValue: _dbl(json['monetaryValue']),
@@ -368,6 +434,7 @@ class EntityCodec {
     pdfPageSize: _str(json['pdfPageSize'], 'A4'),
     taxMode: _str(json['taxMode'], 'inclusive'),
     taxRate: _dbl(json['taxRate']),
+    updatedAt: _dateOrNull(json['updatedAt']),
   );
 
   static CompanyModel company(Map<String, dynamic> json) => CompanyModel(
@@ -389,6 +456,7 @@ class EntityCodec {
     barcodePrefix: _str(json['barcodePrefix'], 'BR'),
     currency: _str(json['currency'], '₹'),
     financialYear: _str(json['financialYear']),
+    updatedAt: _dateOrNull(json['updatedAt']),
   );
 
   static InvoiceSettingsModel invoiceSettings(Map<String, dynamic> json) =>
@@ -400,6 +468,7 @@ class EntityCodec {
         showCompanyLogo: _bool(json['showCompanyLogo'], true),
         termsAndConditions: _str(json['termsAndConditions']),
         fontName: _str(json['fontName'], 'Roboto'),
+        updatedAt: _dateOrNull(json['updatedAt']),
       );
 
   static LoyaltySettingsModel loyaltySettings(Map<String, dynamic> json) =>
@@ -410,5 +479,6 @@ class EntityCodec {
         pointRedemptionValue: _dbl(json['pointRedemptionValue'], 1),
         maxRedemptionPercentage: _dbl(json['maxRedemptionPercentage'], 50),
         minBillAmountForRedemption: _dbl(json['minBillAmountForRedemption']),
+        updatedAt: _dateOrNull(json['updatedAt']),
       );
 }

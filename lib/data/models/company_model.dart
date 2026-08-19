@@ -58,6 +58,11 @@ class CompanyModel extends HiveObject {
   @HiveField(17)
   String financialYear;
 
+  /// When this record last changed, so two devices editing the same
+  /// settings resolve on recency rather than on which pull landed last.
+  @HiveField(18)
+  DateTime? updatedAt;
+
   CompanyModel({
     this.name = '',
     this.logoPath = '',
@@ -77,5 +82,6 @@ class CompanyModel extends HiveObject {
     this.barcodePrefix = 'BR',
     this.currency = '₹',
     this.financialYear = '',
+    this.updatedAt,
   });
 }
