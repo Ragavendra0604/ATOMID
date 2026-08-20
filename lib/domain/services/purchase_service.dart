@@ -4,6 +4,7 @@ import 'package:atomid/core/utils/app_error.dart';
 import 'package:atomid/core/utils/formatters.dart';
 import 'package:atomid/core/utils/ids.dart';
 import 'package:atomid/data/models/action_history_model.dart';
+import 'package:atomid/data/models/diagnostic_log_model.dart';
 import 'package:atomid/data/models/purchase_model.dart';
 import 'package:atomid/data/repositories/storage_repository.dart';
 
@@ -187,12 +188,33 @@ class PurchaseService {
       await _repository.savePurchase(purchase);
     } catch (error, stack) {
       debugPrint('Receiving failed, unwinding: $error\n$stack');
+      await _repository.recordDiagnostic(
+        severity: DiagnosticSeverity.warning,
+        area: DiagnosticArea.receiving,
+        reference: purchase.purchaseNumber,
+        message: 'Receiving failed and was reversed.',
+        error: error,
+        stack: stack,
+      );
       for (final step in undo.reversed) {
         try {
           await step();
-        } catch (undoError) {
+        } catch (undoError, undoStack) {
           debugPrint(
             'Reversal step failed for PO ${purchase.purchaseNumber}: $undoError',
+          );
+          // As in checkout: the contained failure is a warning, but a failed
+          // reversal means received stock or the supplier ledger no longer
+          // matches this order.
+          await _repository.recordDiagnostic(
+            severity: DiagnosticSeverity.error,
+            area: DiagnosticArea.receiving,
+            reference: purchase.purchaseNumber,
+            message:
+                'A step of the receiving reversal failed. Stock or the '
+                'supplier ledger may not match this order.',
+            error: undoError,
+            stack: undoStack,
           );
         }
       }

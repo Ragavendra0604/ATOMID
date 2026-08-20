@@ -7,6 +7,7 @@ import 'package:atomid/data/models/action_history_model.dart';
 import 'package:atomid/data/models/company_model.dart';
 import 'package:atomid/data/models/customer_ledger_model.dart';
 import 'package:atomid/data/models/customer_model.dart';
+import 'package:atomid/data/models/diagnostic_log_model.dart';
 import 'package:atomid/data/models/expense_model.dart';
 import 'package:atomid/data/models/inventory_movement_model.dart';
 import 'package:atomid/data/models/invoice_settings_model.dart';
@@ -27,6 +28,7 @@ extension HiveRegistrar on HiveInterface {
     registerAdapter(CompanyModelAdapter());
     registerAdapter(CustomerAdapter());
     registerAdapter(CustomerLedgerAdapter());
+    registerAdapter(DiagnosticLogAdapter());
     registerAdapter(ExpenseAdapter());
     registerAdapter(ExpenseCategoryAdapter());
     registerAdapter(InventoryMovementAdapter());
@@ -53,6 +55,7 @@ extension IsolatedHiveRegistrar on IsolatedHiveInterface {
     registerAdapter(CompanyModelAdapter());
     registerAdapter(CustomerAdapter());
     registerAdapter(CustomerLedgerAdapter());
+    registerAdapter(DiagnosticLogAdapter());
     registerAdapter(ExpenseAdapter());
     registerAdapter(ExpenseCategoryAdapter());
     registerAdapter(InventoryMovementAdapter());

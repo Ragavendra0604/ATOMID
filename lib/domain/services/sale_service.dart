@@ -4,6 +4,7 @@ import 'package:atomid/core/utils/app_error.dart';
 import 'package:atomid/core/utils/formatters.dart';
 import 'package:atomid/core/utils/ids.dart';
 import 'package:atomid/data/models/customer_model.dart';
+import 'package:atomid/data/models/diagnostic_log_model.dart';
 import 'package:atomid/data/models/sale_model.dart';
 import 'package:atomid/data/repositories/storage_repository.dart';
 import 'package:atomid/domain/cart_item.dart';
@@ -164,6 +165,14 @@ class SaleService {
       return sale;
     } catch (error, stack) {
       debugPrint('Checkout failed, unwinding: $error\n$stack');
+      await _repo.recordDiagnostic(
+        severity: DiagnosticSeverity.warning,
+        area: DiagnosticArea.checkout,
+        reference: sale.invoiceNumber,
+        message: 'Checkout failed and was reversed.',
+        error: error,
+        stack: stack,
+      );
       await _unwind(undo, sale);
       // Closed after unwinding rather than left open: this path already
       // reversed everything in memory, so leaving the row would make the next
@@ -329,8 +338,21 @@ class SaleService {
     for (final step in undo.reversed) {
       try {
         await step();
-      } catch (e) {
+      } catch (e, stack) {
         debugPrint('Reversal step failed for sale ${sale.invoiceNumber}: $e');
+        // ERROR, not WARNING: the checkout failure above was contained, but a
+        // reversal that itself fails leaves stock or the ledger disagreeing
+        // with the sale. That is the one state here a person must resolve.
+        await _repo.recordDiagnostic(
+          severity: DiagnosticSeverity.error,
+          area: DiagnosticArea.checkout,
+          reference: sale.invoiceNumber,
+          message:
+              'A step of the checkout reversal failed. Stock or the customer '
+              'ledger may not match this invoice.',
+          error: e,
+          stack: stack,
+        );
       }
     }
   }

@@ -8,6 +8,7 @@ import 'package:atomid/data/models/customer_model.dart';
 import 'package:atomid/data/models/expense_model.dart';
 import 'package:atomid/data/models/inventory_movement_model.dart';
 import 'package:atomid/data/models/invoice_settings_model.dart';
+import 'package:atomid/data/models/diagnostic_log_model.dart';
 import 'package:atomid/data/models/sync_log_model.dart';
 import 'package:atomid/data/models/loyalty_settings_model.dart';
 import 'package:atomid/data/models/loyalty_transaction_model.dart';
@@ -451,6 +452,25 @@ final syncLogProvider = Provider<List<SyncLogModel>>((ref) {
 final syncFailureLogProvider = Provider<List<SyncLogModel>>((ref) {
   _watch(ref, DataTopic.sync);
   return ref.watch(storageRepositoryProvider).getSyncLogs(failuresOnly: true);
+});
+
+/// Local failures in paths that touch money or stock.
+///
+/// Separate from the sync log: these describe this device's own disk, not the
+/// conversation with the cloud, and an offline-only shop can still produce
+/// them.
+final diagnosticLogProvider = Provider<List<DiagnosticLog>>((ref) {
+  _watch(ref, DataTopic.diagnostics);
+  return ref.watch(storageRepositoryProvider).getDiagnostics();
+});
+
+/// The subset that means data may actually be inconsistent — what the health
+/// tab badges and a technician opens first.
+final unresolvedDiagnosticsProvider = Provider<List<DiagnosticLog>>((ref) {
+  _watch(ref, DataTopic.diagnostics);
+  return ref
+      .watch(storageRepositoryProvider)
+      .getDiagnostics(severity: DiagnosticSeverity.error);
 });
 
 /// Whether this device is backed up to the cloud right now.

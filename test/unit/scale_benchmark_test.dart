@@ -164,36 +164,32 @@ void main() {
     );
   });
 
-  test(
-    'a bulk pull of many records completes in reasonable time',
-    () async {
-      final repo = store.repository;
+  test('a bulk pull of many records completes in reasonable time', () async {
+    final repo = store.repository;
 
-      final watch = Stopwatch()..start();
-      for (var i = 0; i < 1000; i++) {
-        await repo.applyRemote('Customer', 'rc$i', {
-          'id': 'rc$i',
-          'code': 'C-$i',
-          'name': 'Remote $i',
-          'mobile': (9500000000 + i).toString(),
-          'createdDate': DateTime(2025).toIso8601String(),
-          'updatedAt': DateTime.now().toIso8601String(),
-        });
-      }
-      await repo.reconcileAfterPull();
-      watch.stop();
+    final watch = Stopwatch()..start();
+    for (var i = 0; i < 1000; i++) {
+      await repo.applyRemote('Customer', 'rc$i', {
+        'id': 'rc$i',
+        'code': 'C-$i',
+        'name': 'Remote $i',
+        'mobile': (9500000000 + i).toString(),
+        'createdDate': DateTime(2025).toIso8601String(),
+        'updatedAt': DateTime.now().toIso8601String(),
+      });
+    }
+    await repo.reconcileAfterPull();
+    watch.stop();
 
-      // ignore: avoid_print
-      print('PULL 1000 customers applied + reconciled = ${watch.elapsed}');
+    // ignore: avoid_print
+    print('PULL 1000 customers applied + reconciled = ${watch.elapsed}');
 
-      expect(repo.getAllCustomers(), hasLength(1000));
-      expect(
-        repo.getCustomerByMobile('9500000500'),
-        isNotNull,
-        reason: 'the whole point of B-1: they must be findable afterwards',
-      );
-      expect(repo.auditDerivedState(), isEmpty);
-    },
-    timeout: const Timeout(Duration(minutes: 2)),
-  );
+    expect(repo.getAllCustomers(), hasLength(1000));
+    expect(
+      repo.getCustomerByMobile('9500000500'),
+      isNotNull,
+      reason: 'the whole point of B-1: they must be findable afterwards',
+    );
+    expect(repo.auditDerivedState(), isEmpty);
+  }, timeout: const Timeout(Duration(minutes: 2)));
 }

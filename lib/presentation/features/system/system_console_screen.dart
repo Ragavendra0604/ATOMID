@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:atomid/core/utils/formatters.dart';
 import 'package:atomid/core/utils/responsive.dart';
+import 'package:atomid/data/models/diagnostic_log_model.dart';
 import 'package:atomid/data/models/sync_log_model.dart';
 import 'package:atomid/domain/services/sync_service.dart';
 import 'package:atomid/presentation/providers/app_providers.dart';
@@ -52,7 +53,7 @@ class _SystemConsoleScreenState extends ConsumerState<SystemConsoleScreen> {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 2,
+      length: 3,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('System'),
@@ -60,6 +61,7 @@ class _SystemConsoleScreenState extends ConsumerState<SystemConsoleScreen> {
             tabs: [
               Tab(text: 'Health'),
               Tab(text: 'Sync log'),
+              Tab(text: 'Diagnostics'),
             ],
           ),
         ),
@@ -67,6 +69,7 @@ class _SystemConsoleScreenState extends ConsumerState<SystemConsoleScreen> {
           children: [
             _HealthTab(busy: _busy, onRun: _runOperation, canOperate: true),
             const _SyncLogTab(),
+            _DiagnosticsTab(busy: _busy, onRun: _runOperation),
           ],
         ),
       ),
@@ -92,11 +95,21 @@ class _HealthTab extends ConsumerWidget {
     final sync = ref.watch(syncServiceProvider);
     final failures = ref.watch(syncFailureLogProvider);
     final session = ref.watch(sessionServiceProvider);
+    final unresolved = ref.watch(unresolvedDiagnosticsProvider);
 
     return ListView(
       padding: ResponsivePadding.getScreenPadding(context),
       children: [
         _StatusCard(status: status),
+
+        // Surfaced on the tab people actually open. A diagnostic nobody reads
+        // is worth as much as the console print it replaced, and these are
+        // the ones that mean stock or a ledger is wrong right now.
+        if (unresolved.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          _UnresolvedDiagnosticsCard(count: unresolved.length),
+        ],
+
         const SizedBox(height: 16),
 
         _SectionTitle('Queue'),
@@ -243,6 +256,129 @@ class _SyncLogTile extends StatelessWidget {
         ],
       ),
       isThreeLine: log.error != null,
+    );
+  }
+}
+
+class _DiagnosticsTab extends ConsumerWidget {
+  final bool busy;
+  final Future<void> Function(String, Future<void> Function()) onRun;
+
+  const _DiagnosticsTab({required this.busy, required this.onRun});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final logs = ref.watch(diagnosticLogProvider);
+    final repo = ref.watch(storageRepositoryProvider);
+
+    if (logs.isEmpty) {
+      return const EmptyState(
+        icon: Icons.verified_outlined,
+        title: 'Nothing has gone wrong',
+        message:
+            'If a sale or a goods-in ever fails partway and has to be undone, '
+            'it is recorded here with the invoice it affected.',
+      );
+    }
+
+    return Column(
+      children: [
+        Expanded(
+          child: ListView.separated(
+            itemCount: logs.length,
+            separatorBuilder: (_, _) => const Divider(height: 1),
+            itemBuilder: (context, index) => _DiagnosticTile(log: logs[index]),
+          ),
+        ),
+        SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: OutlinedButton.icon(
+              onPressed: busy
+                  ? null
+                  : () => onRun('Clear diagnostics', repo.clearDiagnostics),
+              icon: const Icon(Icons.delete_sweep_outlined),
+              label: const Text('Clear diagnostics'),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DiagnosticTile extends StatelessWidget {
+  final DiagnosticLog log;
+
+  const _DiagnosticTile({required this.log});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final serious = log.severity == DiagnosticSeverity.error;
+
+    return ExpansionTile(
+      leading: Icon(
+        serious ? Icons.warning_amber_rounded : Icons.info_outline,
+        color: serious ? scheme.error : scheme.onSurfaceVariant,
+      ),
+      title: Text(log.message),
+      subtitle: Text(
+        '${log.area} · ${log.reference} · ${Fmt.dateTime(log.occurredAt)}',
+      ),
+      // Collapsed by default: the message is written for the shopkeeper, and
+      // the stack underneath is for whoever they call. Neither should have to
+      // scroll past the other.
+      children: [
+        if (log.detail != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: SelectableText(
+              log.detail!,
+              style: TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 11,
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// Points at the Diagnostics tab when something there needs a person.
+class _UnresolvedDiagnosticsCard extends StatelessWidget {
+  final int count;
+
+  const _UnresolvedDiagnosticsCard({required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Card(
+      color: scheme.errorContainer,
+      child: ListTile(
+        leading: Icon(
+          Icons.warning_amber_rounded,
+          color: scheme.onErrorContainer,
+        ),
+        title: Text(
+          count == 1 ? '1 issue needs checking' : '$count issues need checking',
+          style: TextStyle(
+            color: scheme.onErrorContainer,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        subtitle: Text(
+          'A sale or goods-in could not be fully undone. Open Diagnostics for '
+          'the invoice numbers to check by hand.',
+          style: TextStyle(color: scheme.onErrorContainer),
+        ),
+        onTap: () => DefaultTabController.of(context).animateTo(2),
+      ),
     );
   }
 }

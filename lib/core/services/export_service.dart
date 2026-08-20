@@ -115,16 +115,38 @@ class ExportService {
     final fontDataBold = await rootBundle.load('assets/fonts/Roboto-Bold.ttf');
     _cachedBoldFont = pw.Font.ttf(fontDataBold);
 
+    // Italic is mapped to the regular face rather than left unset.
+    //
+    // Unset, the pdf package falls back to built-in Helvetica-Oblique, which
+    // has no Unicode support — so an italic run containing ₹, or any Indic
+    // script, renders as blanks. The only italic text in these documents is
+    // the invoice footer, which the shopkeeper writes themselves, so that is
+    // precisely where non-ASCII shows up. There is no bundled Roboto-Italic;
+    // an upright footer is a small loss next to a footer of empty boxes.
     _cachedTheme = pw.ThemeData.withFont(
       base: _cachedRegularFont!,
       bold: _cachedBoldFont!,
+      italic: _cachedRegularFont!,
+      boldItalic: _cachedBoldFont!,
     );
 
-    final logoBytes = await rootBundle
-        .load('assets/images/logo.png')
-        .catchError((_) => ByteData(0));
-    if (logoBytes.lengthInBytes > 0) {
-      _cachedLogo = pw.MemoryImage(logoBytes.buffer.asUint8List());
+    // try/catch rather than `.catchError`, which hangs here forever.
+    //
+    // `rootBundle.load` returns a `SynchronousFuture` when the bundle can
+    // answer without going to the platform, and `SynchronousFuture.catchError`
+    // is implemented as `Completer().future` — a future that is never
+    // completed. Awaiting it never returns, so the previous form deadlocked
+    // this method, and with it every invoice, receipt and report the app can
+    // produce. It survived because the success path is what looks tested: the
+    // asset is present, nothing throws, and the await simply never finishes.
+    try {
+      final logoBytes = await rootBundle.load('assets/images/logo.png');
+      if (logoBytes.lengthInBytes > 0) {
+        _cachedLogo = pw.MemoryImage(logoBytes.buffer.asUint8List());
+      }
+    } catch (_) {
+      // No bundled logo. Documents fall back to the company name.
+      _cachedLogo = null;
     }
 
     _resourcesLoaded = true;
@@ -137,6 +159,27 @@ class ExportService {
 
     pw.Font regular;
     pw.Font bold;
+
+    // Roboto ships in the bundle, so it must never take the network path.
+    //
+    // It used to fall through to `PdfGoogleFonts.robotoRegular()` with the
+    // rest, which meant the *default* font — what almost every shop prints
+    // with — put an HTTP fetch in front of every invoice, only to fall back to
+    // the byte-identical file already sitting in `_cachedRegularFont`. On a
+    // till with no connection that is a wasted round-trip before each receipt;
+    // on a captive-portal or half-open network it is a print that hangs
+    // instead of failing. An offline-first app should not reach for the
+    // network to render its own default.
+    if (fontName == 'Roboto') {
+      final theme = pw.ThemeData.withFont(
+        base: _cachedRegularFont!,
+        bold: _cachedBoldFont!,
+        italic: _cachedRegularFont!,
+        boldItalic: _cachedBoldFont!,
+      );
+      _cachedThemes[fontName] = theme;
+      return theme;
+    }
 
     try {
       switch (fontName) {
@@ -160,10 +203,12 @@ class ExportService {
           regular = await PdfGoogleFonts.merriweatherRegular();
           bold = await PdfGoogleFonts.merriweatherBold();
           break;
-        case 'Roboto':
         default:
-          regular = await PdfGoogleFonts.robotoRegular();
-          bold = await PdfGoogleFonts.robotoBold();
+          // An unrecognised name — a settings record from a newer build, or
+          // one hand-edited. Bundled Roboto rather than a fetch for a font
+          // this version has no case for.
+          regular = _cachedRegularFont!;
+          bold = _cachedBoldFont!;
           break;
       }
     } catch (_) {
@@ -175,10 +220,17 @@ class ExportService {
       return pw.ThemeData.withFont(
         base: _cachedRegularFont!,
         bold: _cachedBoldFont!,
+        italic: _cachedRegularFont!,
+        boldItalic: _cachedBoldFont!,
       );
     }
 
-    final theme = pw.ThemeData.withFont(base: regular, bold: bold);
+    final theme = pw.ThemeData.withFont(
+      base: regular,
+      bold: bold,
+      italic: regular,
+      boldItalic: bold,
+    );
     _cachedThemes[fontName] = theme;
     return theme;
   }
@@ -321,7 +373,16 @@ class ExportService {
                   width: 140,
                   height: 40,
                   drawText: true,
-                  textStyle: const pw.TextStyle(fontSize: 10, letterSpacing: 2),
+                  // Explicit font: BarcodeWidget otherwise draws its
+                  // human-readable line in built-in Courier, which is both
+                  // inconsistent with the rest of the tag and warns on every
+                  // build. Code128 data is ASCII by construction, so this is
+                  // typography rather than correctness.
+                  textStyle: pw.TextStyle(
+                    font: _cachedRegularFont,
+                    fontSize: 10,
+                    letterSpacing: 2,
+                  ),
                 ),
                 pw.SizedBox(height: 12),
                 pw.Text(
@@ -513,6 +574,7 @@ class ExportService {
                         height: tagSize.barcodeHeight,
                         drawText: true,
                         textStyle: pw.TextStyle(
+                          font: _cachedRegularFont,
                           fontSize: tagSize.barcodeTextSize,
                           letterSpacing: 1,
                         ),

@@ -120,7 +120,10 @@ lib/
 
 ### Prerequisites
 
-- [Flutter SDK](https://flutter.dev/docs/get-started/install) `^3.12`
+- [Flutter SDK](https://flutter.dev/docs/get-started/install) **3.47.1**
+  — the exact version CI pins. The formatter's output changes between Flutter
+  releases, so a different local SDK will reformat files and fail CI's
+  `--set-exit-if-changed` check even though nothing is wrong with the code.
 - Android SDK (for Android builds)
 - Xcode (for iOS/macOS builds)
 - Firebase CLI *(optional — for advanced configuration)*
@@ -301,7 +304,30 @@ Tests are located in:
 - `integration_test/` — boots the shipped `main()` against real Hive
 
 CI runs `dart format --set-exit-if-changed`, `flutter analyze --fatal-infos` and
-`flutter test` on every push; the web deploy only runs after CI passes.
+`flutter test` on every push, then builds a release APK, an App Bundle and a
+Windows binary as downloadable artifacts. A commit that cannot be packaged
+fails there rather than on release day. The web deploy only runs after CI
+passes.
+
+The Firestore rules are tested in a separate job against the emulator, which
+needs Node and a JVM rather than the Flutter toolchain:
+
+```bash
+npm ci
+npm run test:rules
+```
+
+### When something goes wrong on a till
+
+**Settings → System → Diagnostics** lists local failures in the paths that
+touch money or stock — a checkout that had to be reversed, a goods-in that
+could not complete, an interrupted sale recovered at startup. Each entry names
+the invoice or purchase order so a count can be checked by hand, and expands to
+the underlying error for whoever is called out.
+
+Entries marked as errors mean data may actually be inconsistent; those also
+raise a banner on the Health tab so nobody has to go looking. Warnings are
+failures the app fully undid on its own and are there for context only.
 
 ---
 
@@ -339,7 +365,10 @@ CI runs `dart format --set-exit-if-changed`, `flutter analyze --fatal-infos` and
 | `inventory_movements` | `InventoryMovement` | Immutable audit log of stock changes |
 | `customers` | `Customer` | CRM profiles and ledger |
 | `sync_queue` | `SyncQueueItem` | Pending cloud sync operations |
-| `activity_logs` | `ActivityLogModel` | System action tracking |
+| `sync_logs` | `SyncLogModel` | Outcome of each cloud exchange |
+| `history` | `ActionHistory` | Business activity trail, shown in History |
+| `diagnostic_logs` | `DiagnosticLog` | Local failures in money and stock paths; device-only, never synced |
+| `checkout_journal` | *(untyped)* | In-flight sales, so an interrupted checkout can be reversed at startup |
 
 > **In-Memory Index:** `_barcodeIndex` — a `Map<String, Product>` rebuilt on startup for O(1) barcode lookups.
 ---

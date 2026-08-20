@@ -21,6 +21,7 @@ import 'package:atomid/data/models/loyalty_transaction_model.dart';
 import 'package:atomid/data/models/loyalty_settings_model.dart';
 import 'package:atomid/data/models/sync_queue_model.dart';
 import 'package:atomid/data/models/sync_log_model.dart';
+import 'package:atomid/data/models/diagnostic_log_model.dart';
 import 'package:atomid/data/models/expense_model.dart';
 import 'package:atomid/hive_registrar.g.dart';
 import 'package:atomid/data/sync/entity_codec.dart';
@@ -45,6 +46,7 @@ class DataTopic {
   static const history = 'history';
   static const loyalty = 'loyalty';
   static const sync = 'sync';
+  static const diagnostics = 'diagnostics';
 
   static const all = [
     products,
@@ -58,6 +60,7 @@ class DataTopic {
     history,
     loyalty,
     sync,
+    diagnostics,
   ];
 }
 
@@ -112,6 +115,7 @@ class StorageRepository {
   static const String expensesBoxName = 'expenses';
   static const String expenseCategoriesBoxName = 'expense_categories';
   static const String checkoutJournalBoxName = 'checkout_journal';
+  static const String diagnosticLogBoxName = 'diagnostic_logs';
   late Box<Product> _productsBox;
   late Box<ActionHistory> _historyBox;
   late Box<SettingsModel> _settingsBox;
@@ -128,6 +132,7 @@ class StorageRepository {
   late Box<LoyaltySettingsModel> _loyaltySettingsBox;
   late Box<SyncQueueItem> _syncQueueBox;
   late Box<SyncLogModel> _syncLogBox;
+  late Box<DiagnosticLog> _diagnosticLogBox;
   late Box<Expense> _expensesBox;
   late Box<ExpenseCategory> _expenseCategoriesBox;
 
@@ -275,6 +280,7 @@ class StorageRepository {
     );
     final syncQueueOpen = _safeOpenBox<SyncQueueItem>(syncQueueBoxName);
     final syncLogOpen = _safeOpenBox<SyncLogModel>(syncLogBoxName);
+    final diagnosticLogOpen = _safeOpenBox<DiagnosticLog>(diagnosticLogBoxName);
     final expensesOpen = _safeOpenBox<Expense>(expensesBoxName);
     final expenseCategoriesOpen = _safeOpenBox<ExpenseCategory>(
       expenseCategoriesBoxName,
@@ -297,6 +303,7 @@ class StorageRepository {
     _loyaltySettingsBox = await loyaltySettingsOpen;
     _syncQueueBox = await syncQueueOpen;
     _syncLogBox = await syncLogOpen;
+    _diagnosticLogBox = await diagnosticLogOpen;
     _expensesBox = await expensesOpen;
     _expenseCategoriesBox = await expenseCategoriesOpen;
     _checkoutJournalBox = await checkoutJournalOpen;
@@ -317,6 +324,16 @@ class StorageRepository {
       await recoverInterruptedCheckouts();
     } catch (error, stack) {
       debugPrint('Checkout recovery failed: $error\n$stack');
+      await recordDiagnostic(
+        severity: DiagnosticSeverity.error,
+        area: DiagnosticArea.startup,
+        reference: 'startup',
+        message:
+            'Checkout recovery could not run. Interrupted sales, if any, are '
+            'still pending reversal.',
+        error: error,
+        stack: stack,
+      );
     }
   }
 
@@ -1134,6 +1151,75 @@ class StorageRepository {
   Future<void> deleteSyncItem(String id) async {
     await _syncQueueBox.delete(id);
     _notify(DataTopic.sync);
+  }
+
+  // --- DIAGNOSTICS ---
+
+  /// Records a local failure where a person can find it later.
+  ///
+  /// Deliberately swallows its own errors. Every caller is already inside a
+  /// `catch` handling something that went wrong, and a diagnostic write that
+  /// threw would replace the original failure with a less useful one — the
+  /// classic case of the logger destroying the evidence it was called to
+  /// preserve.
+  Future<void> recordDiagnostic({
+    required String severity,
+    required String area,
+    required String reference,
+    required String message,
+    Object? error,
+    StackTrace? stack,
+  }) async {
+    try {
+      final detail = error == null
+          ? null
+          : (stack == null ? '$error' : '$error\n$stack');
+      final id = _diagnosticId();
+      await _diagnosticLogBox.put(
+        id,
+        DiagnosticLog(
+          id: id,
+          occurredAt: DateTime.now(),
+          severity: severity,
+          area: area,
+          reference: reference,
+          message: message,
+          detail: detail,
+        ),
+      );
+
+      // Bounded like the sync log: a till left running for a year must not
+      // fill its disk with failure records.
+      if (_diagnosticLogBox.length > 500) {
+        await _diagnosticLogBox.deleteAll(
+          _diagnosticLogBox.keys.take(_diagnosticLogBox.length - 500).toList(),
+        );
+      }
+      _notify(DataTopic.diagnostics);
+    } catch (_) {
+      // Nothing useful left to do: the original error is already propagating.
+    }
+  }
+
+  /// Monotonic within a millisecond, so two failures in the same tick — an
+  /// unwind reversing several steps — cannot overwrite each other.
+  int _diagnosticSeq = 0;
+  String _diagnosticId() =>
+      '${DateTime.now().microsecondsSinceEpoch}-${_diagnosticSeq++}';
+
+  /// Local failures, newest first.
+  List<DiagnosticLog> getDiagnostics({int limit = 200, String? severity}) {
+    final logs =
+        _diagnosticLogBox.values
+            .where((log) => severity == null || log.severity == severity)
+            .toList()
+          ..sort((a, b) => b.occurredAt.compareTo(a.occurredAt));
+    return logs.length > limit ? logs.sublist(0, limit) : logs;
+  }
+
+  Future<void> clearDiagnostics() async {
+    await _diagnosticLogBox.clear();
+    _notify(DataTopic.diagnostics);
   }
 
   // --- SYNC LOGS ---
@@ -2177,6 +2263,16 @@ class StorageRepository {
         // Left in the journal on purpose: a checkout that could not be
         // unwound now is retried on the next launch rather than forgotten.
         debugPrint('Could not recover $invoiceNumber: $error\n$stack');
+        await recordDiagnostic(
+          severity: DiagnosticSeverity.error,
+          area: DiagnosticArea.startup,
+          reference: invoiceNumber,
+          message:
+              'An interrupted sale could not be reversed at startup. It will '
+              'be retried on the next launch.',
+          error: error,
+          stack: stack,
+        );
         continue;
       }
 
@@ -2216,6 +2312,19 @@ class StorageRepository {
         // The product was deleted since. Nothing to put stock back into, and
         // refusing to continue would strand the rest of the reversal.
         debugPrint('Stock not restored for $invoiceNumber: $error');
+        // Recorded because this is real stock the shop paid for that the app
+        // has now decided it cannot account for. The reversal is correct to
+        // continue; the shopkeeper still needs to know a count is off.
+        await recordDiagnostic(
+          severity: DiagnosticSeverity.error,
+          area: DiagnosticArea.startup,
+          reference: invoiceNumber,
+          message:
+              'Stock could not be returned for ${movement.quantity} × '
+              '${movement.variantBarcode} — the product no longer exists. '
+              'Check this count by hand.',
+          error: error,
+        );
       }
       await deleteMovement(movement.id);
     }
