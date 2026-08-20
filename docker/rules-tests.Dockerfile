@@ -9,22 +9,20 @@
 #
 # Build and run from the repository root via docker/rules-tests.compose.yml.
 
-FROM node:22-bookworm-slim
+# Trixie rather than bookworm, purely for the JRE below.
+FROM node:22-trixie-slim
 
-# Temurin 21, not Debian's default 17: firebase-tools 15 refuses to start the
-# emulator on anything below 21. Taken from Adoptium's apt repository rather
-# than bookworm-backports, which is the same source CI's setup-java action
-# uses and is not subject to a backport being withdrawn.
+# JDK 21 is what firebase-tools 15 needs — it refuses to start the emulator on
+# anything below it, which is why CI pins Temurin 21 too.
+#
+# Debian 13 (trixie) carries openjdk-21 in main, so this is a plain install
+# from the mirror the base image already uses. Two other routes were tried and
+# rejected: Adoptium's apt repository failed TLS from inside the container
+# (`SSL_ERROR_SYSCALL`), and bookworm-backports has no openjdk-21 candidate at
+# all. Neither is worth an extra host or a pinned backport when the stable
+# release has the package.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        ca-certificates curl gnupg \
-    && mkdir -p /etc/apt/keyrings \
-    && curl -fsSL https://packages.adoptium.net/artifactory/api/gpg/key/public \
-        | gpg --dearmor -o /etc/apt/keyrings/adoptium.gpg \
-    && echo "deb [signed-by=/etc/apt/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb bookworm main" \
-        > /etc/apt/sources.list.d/adoptium.list \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends temurin-21-jre \
+    && apt-get install -y --no-install-recommends openjdk-21-jre-headless \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
