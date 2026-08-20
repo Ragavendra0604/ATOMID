@@ -9,8 +9,8 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Flutter-3.12-02569B?logo=flutter&logoColor=white" alt="Flutter" />
-  <img src="https://img.shields.io/badge/Dart-3.12-0175C2?logo=dart&logoColor=white" alt="Dart" />
+  <img src="https://img.shields.io/badge/Flutter-3.47.1-02569B?logo=flutter&logoColor=white" alt="Flutter" />
+  <img src="https://img.shields.io/badge/Dart-3.13-0175C2?logo=dart&logoColor=white" alt="Dart" />
   <img src="https://img.shields.io/badge/Firebase-Auth%20%7C%20Firestore-FFCA28?logo=firebase&logoColor=black" alt="Firebase" />
   <img src="https://img.shields.io/badge/Hive%20CE-Local%20DB-FF6F00" alt="Hive CE" />
   <img src="https://img.shields.io/badge/State-Riverpod-1E88E5" alt="Riverpod" />
@@ -316,6 +316,17 @@ needs Node and a JVM rather than the Flutter toolchain:
 npm ci
 npm run test:rules
 ```
+
+On a machine with neither, the same suite runs in a container — same Node 22
+and Temurin 21 pairing CI uses, with the emulator jar baked into the image so
+a rules edit re-runs in seconds:
+
+```bash
+docker compose -f docker/rules-tests.compose.yml run --rm --build rules-tests
+```
+
+`firestore.rules` and the test directory are bind-mounted, so editing either
+and re-running does not rebuild the image.
 
 ### When something goes wrong on a till
 

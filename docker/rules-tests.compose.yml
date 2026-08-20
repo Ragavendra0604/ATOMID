@@ -1,0 +1,32 @@
+# Firestore rules suite, containerised.
+#
+#   docker compose -f docker/rules-tests.compose.yml run --rm --build rules-tests
+#
+# Mirrors CI's `firestore-rules` job. See rules-tests.Dockerfile for why it
+# needs its own image rather than running alongside the Flutter tests.
+
+# Named explicitly; otherwise Compose takes the project name from the
+# containing directory and calls this "docker".
+name: atomid-rules-tests
+
+services:
+  rules-tests:
+    build:
+      context: ..
+      dockerfile: docker/rules-tests.Dockerfile
+    image: atomid-rules-tests
+
+    # The rules and their tests are mounted rather than baked in, so editing
+    # either and re-running does not rebuild the image. The dependencies and
+    # the emulator jar — the slow parts — stay in the layers above.
+    volumes:
+      - ../firestore.rules:/app/firestore.rules:ro
+      - ../test/firestore-rules:/app/test/firestore-rules:ro
+
+    # The emulator binds inside the container and the tests talk to it there.
+    # Nothing needs to reach the host, so no ports are published.
+    environment:
+      # Silences the CLI's first-run analytics prompt, which otherwise waits
+      # on stdin and hangs a non-interactive run.
+      FIREBASE_CLI_DISABLE_ANALYTICS: '1'
+      CI: 'true'

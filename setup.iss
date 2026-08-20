@@ -20,10 +20,24 @@
 ; App-local deployment is permitted by the Visual Studio redistributable
 ; licence and avoids making every user run a separate installer first.
 ;
-; Update this path if Visual Studio is a different version on the build
-; machine; the compile fails loudly if it is wrong, rather than producing an
-; installer that is quietly missing them.
-#define CrtDir "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Redist\MSVC\14.51.36231\x64\Microsoft.VC145.CRT"
+; The path below is one machine's; it embeds the Visual Studio edition
+; (BuildTools vs Community) and an exact toolset version, so it is wrong on
+; most other machines and goes stale on the next VS update. The compile fails
+; loudly when it is wrong rather than producing an installer quietly missing
+; the runtime — but rather than editing this file each time, override it:
+;
+;   ISCC /DCrtDir="<path>" setup.iss
+;
+; To find the path on a given machine:
+;
+;   dir /s /b "C:\Program Files*\Microsoft Visual Studio\*\VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT"
+;
+; If that returns nothing, the "Desktop development with C++" workload is not
+; installed — which also means `flutter build windows` cannot have produced
+; the Release folder this script packages.
+#ifndef CrtDir
+  #define CrtDir "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Redist\MSVC\14.51.36231\x64\Microsoft.VC145.CRT"
+#endif
 
 [Setup]
 ; Permanent. Windows identifies the app by this for upgrade and uninstall, so
