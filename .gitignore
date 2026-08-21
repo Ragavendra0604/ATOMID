@@ -59,3 +59,10 @@ flutter_analyze_output.txt
 android/key.properties
 *.jks
 *.keystore
+
+# Release artifacts collected by tools/build_release.ps1.
+#
+# These are build outputs, not sources: every one is reproducible from a tag
+# and they are large enough (APK + Windows zip + installer) to bloat the repo
+# permanently, since git never forgets a blob.
+/dist/
