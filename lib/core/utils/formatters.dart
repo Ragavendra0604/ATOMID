@@ -46,4 +46,21 @@ class Fmt {
 
   /// Rounds to 2 decimals so accumulated float error never reaches a ledger.
   static double round2(double value) => (value * 100).roundToDouble() / 100;
+
+  /// Truncates to 2 decimals, never rounding up.
+  ///
+  /// For figures that are a ceiling rather than an estimate: rounding a
+  /// redemption up by half a paisa hands back more than the customer holds,
+  /// and anything derived by dividing that figure back out multiplies the
+  /// overshoot.
+  ///
+  /// The snap matters. A value that is already two-decimal can sit a hair
+  /// below its own integer once scaled (`8.33 * 100 == 832.9999999999999`),
+  /// and flooring that loses a whole paisa — the opposite error, silently.
+  static double floor2(double value) {
+    final scaled = value * 100;
+    final nearest = scaled.roundToDouble();
+    if ((scaled - nearest).abs() < 1e-9) return nearest / 100;
+    return scaled.floorToDouble() / 100;
+  }
 }

@@ -79,7 +79,17 @@ class SalePricing {
     final cap = subtotal * (percent / 100.0);
 
     final redeemable = pointsValue < cap ? pointsValue : cap;
-    return Fmt.round2(redeemable < 0 ? 0 : redeemable);
+    if (redeemable <= 0) return 0;
+
+    // Floored, not rounded. This figure is a ceiling on what the customer's
+    // points are worth, and `compute` divides it back out to decide how many
+    // points to take. Rounding up by half a paisa therefore takes
+    // `0.005 / pointRedemptionValue` points that were never there — half a
+    // point at 100-to-the-rupee, five points at 1000-to-the-rupee, on every
+    // redemption. The stored balance is re-derived from the transaction
+    // ledger and floored at zero, so the overdraft never surfaced as a
+    // negative balance; it just quietly ate points.
+    return Fmt.floor2(redeemable);
   }
 
   /// Points earned on the amount the customer actually paid.
@@ -126,23 +136,34 @@ class SalePricing {
           )
         : 0.0;
 
-    final percent = requestedDiscountPercent
-        .clamp(0, maxDiscountPercent)
-        .toDouble();
+    // Rounded to the precision the invoice prints at. A cashier who types
+    // 79.6055 would otherwise get an amount computed from the full figure
+    // beside a printed "79.61%", and a customer checking the arithmetic
+    // would find the two disagree by several rupees on a large basket.
+    final percent = Fmt.round2(
+      requestedDiscountPercent.clamp(0, maxDiscountPercent).toDouble(),
+    );
 
     // A discount can never exceed what is left to pay.
     final headroom = subtotal - rewardDiscount;
+    final requestedAmount = Fmt.round2(subtotal * percent / 100);
     final manualDiscount = Fmt.round2(
       (subtotal * percent / 100)
           .clamp(0, headroom < 0 ? 0 : headroom)
           .toDouble(),
     );
 
-    // Report the percentage that was actually applied, which is what the
-    // invoice must show when the cap bit.
+    // When the cap did not bite, the percentage applied is the one that was
+    // asked for, and reporting it verbatim keeps it reproducible from the
+    // amount. Only a capped discount needs the effective rate derived, and
+    // that one cannot be reproduced at two decimals — see
+    // `DocumentTotals.discountPercentReproduces`, which is what stops the
+    // invoice printing a percentage that does not match its own figures.
     final appliedPercent = subtotal <= 0
         ? 0.0
-        : Fmt.round2(manualDiscount / subtotal * 100);
+        : (manualDiscount == requestedAmount
+              ? percent
+              : Fmt.round2(manualDiscount / subtotal * 100));
 
     final discounted = Fmt.round2(subtotal - rewardDiscount - manualDiscount);
     final rate = settings.taxRate;
@@ -166,9 +187,12 @@ class SalePricing {
     // can never disagree about what the customer actually paid.
     final payable = grandTotal < 0 ? 0.0 : grandTotal;
 
+    // Floored for the same reason the value above is: this is what gets
+    // deducted from the customer's balance, and it must never exceed what
+    // they hold.
     final pointsRedeemed =
         rewardDiscount > 0 && loyalty.pointRedemptionValue > 0
-        ? Fmt.round2(rewardDiscount / loyalty.pointRedemptionValue)
+        ? Fmt.floor2(rewardDiscount / loyalty.pointRedemptionValue)
         : 0.0;
 
     return SaleTotals(

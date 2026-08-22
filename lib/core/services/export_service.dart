@@ -698,7 +698,7 @@ class ExportService {
                         pw.Text('Subtotal:'),
                         if (sale.discountAmount > 0)
                           pw.Text(
-                            sale.discountPercent > 0
+                            DocumentTotals.discountPercentReproduces(sale)
                                 ? 'Discount (${sale.discountPercent.toStringAsFixed(2)}%):'
                                 : 'Discount:',
                           ),
@@ -913,7 +913,7 @@ class ExportService {
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
                     pw.Text(
-                      sale.discountPercent > 0
+                      DocumentTotals.discountPercentReproduces(sale)
                           ? 'Discount (${sale.discountPercent.toStringAsFixed(2)}%):'
                           : 'Discount:',
                       style: const pw.TextStyle(fontSize: 10),

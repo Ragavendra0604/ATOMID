@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:atomid/core/utils/formatters.dart';
 import 'package:atomid/data/models/loyalty_settings_model.dart';
 import 'package:atomid/data/models/settings_model.dart';
 import 'package:atomid/domain/pricing.dart';
@@ -37,7 +38,13 @@ void main() {
   );
 
   /// Asserts the properties that must hold of any priced basket.
-  void expectSane(SaleTotals t, {required double lineItemTotal, String? on}) {
+  void expectSane(
+    SaleTotals t, {
+    required double lineItemTotal,
+    String? on,
+    bool? taxIsExclusive,
+    double? availablePoints,
+  }) {
     final where = on == null ? '' : ' [$on]';
 
     expect(
@@ -87,6 +94,35 @@ void main() {
         reason: 'discounts together exceed the basket$where',
       );
     }
+
+    // The figure a shop owner reconciles against the drawer: the breakdown
+    // the invoice prints must add up to the total it prints. Everything above
+    // checks the total is *sane*; this checks it agrees with its own lines.
+    if (taxIsExclusive != null) {
+      final afterDiscounts = Fmt.round2(
+        t.subtotal - t.manualDiscount - t.rewardDiscount,
+      );
+      final expected = taxIsExclusive
+          ? Fmt.round2(afterDiscounts + t.taxAmount)
+          : afterDiscounts;
+      expect(
+        (expected - t.grandTotal).abs(),
+        lessThan(0.005),
+        reason: 'the breakdown does not add up to the grand total$where',
+      );
+    }
+
+    // Points are taken from a real balance. Redeeming more than the customer
+    // holds drives that balance negative, and because it is re-derived from
+    // the transaction ledger and floored at zero, the overdraft disappears
+    // instead of being reported.
+    if (availablePoints != null) {
+      expect(
+        t.pointsRedeemed,
+        lessThanOrEqualTo(availablePoints < 0 ? 0.0 : availablePoints),
+        reason: 'redeemed more points than the customer holds$where',
+      );
+    }
   }
 
   group('fixed edge cases', () {
@@ -109,7 +145,13 @@ void main() {
             loyalty: loyalty(),
             requestedDiscountPercent: percent,
           );
-          expectSane(totals, lineItemTotal: entry.value, on: entry.key);
+          expectSane(
+            totals,
+            lineItemTotal: entry.value,
+            on: entry.key,
+            taxIsExclusive: true,
+            availablePoints: 0,
+          );
         });
       }
     }
@@ -253,6 +295,51 @@ void main() {
     });
   });
 
+  group('regressions', () {
+    test('a fine-grained redemption value cannot overdraw the balance', () {
+      // 1,000 points to the rupee. The reward's cash value used to be rounded
+      // to the nearest paisa and the points then divided back out of it, so a
+      // half-paisa round-up took 5 points the customer did not hold. The
+      // stored balance is re-derived from the ledger and floored at zero, so
+      // this never showed up as a negative balance — it just ate points.
+      final totals = SalePricing.compute(
+        lineItemTotal: 1000,
+        settings: settings(),
+        loyalty: loyalty(redemptionValue: 0.001, maxPercent: 100),
+        availablePoints: 12585,
+        redeemPoints: true,
+      );
+
+      expect(
+        totals.pointsRedeemed,
+        lessThanOrEqualTo(12585),
+        reason: 'redeemed points must come out of a balance that has them',
+      );
+    });
+
+    test('the reported discount percentage reproduces the amount', () {
+      // 79.6055% of a large basket: the entered rate used to be applied at
+      // full precision and reported rounded, so the invoice named a rate that
+      // recomputed several rupees away from the discount it sat beside.
+      final totals = SalePricing.compute(
+        lineItemTotal: 99885.08,
+        settings: settings(),
+        loyalty: loyalty(enabled: false),
+        requestedDiscountPercent: 79.6055,
+      );
+
+      final implied = Fmt.round2(
+        totals.subtotal * totals.discountPercent / 100,
+      );
+      expect(
+        (implied - totals.manualDiscount).abs(),
+        lessThan(0.005),
+        reason: 'a printed percentage a customer cannot reproduce is worse '
+            'than printing none',
+      );
+    });
+  });
+
   group('randomised baskets', () {
     test('ten thousand random priced baskets all stay sane', () {
       // Fixed seed so any failure is reproducible.
@@ -275,10 +362,11 @@ void main() {
           minBill: [0.0, 100.0, 1e6][random.nextInt(3)],
         );
 
+        final mode = modes[random.nextInt(modes.length)];
         final totals = SalePricing.compute(
           lineItemTotal: lineTotal,
           settings: settings(
-            taxMode: modes[random.nextInt(modes.length)],
+            taxMode: mode,
             taxRate: rates[random.nextInt(rates.length)],
           ),
           loyalty: config,
@@ -287,7 +375,13 @@ void main() {
           redeemPoints: random.nextBool(),
         );
 
-        expectSane(totals, lineItemTotal: lineTotal, on: 'seed 778899 iter $i');
+        expectSane(
+          totals,
+          lineItemTotal: lineTotal,
+          on: 'seed 778899 iter $i',
+          taxIsExclusive: mode == 'exclusive',
+          availablePoints: points,
+        );
       }
     });
   });

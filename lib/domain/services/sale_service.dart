@@ -52,6 +52,25 @@ class SaleService {
 
   SaleService(this._repo, this._session);
 
+  /// The stored record for the request's customer, falling back to the object
+  /// the caller passed.
+  ///
+  /// A `Customer` handed in from a screen is a snapshot taken when the cashier
+  /// picked them. This app is offline-first and syncs in the background, so a
+  /// second till can move that customer's points or balance while the basket
+  /// sits open — and both are figures this service refuses or approves a sale
+  /// on. `_updateLifetimeSpend` already re-reads for exactly this reason; the
+  /// point balance and the credit check were reading the snapshot.
+  ///
+  /// Falls back rather than throwing so a caller can still price a cart for a
+  /// customer that is not in storage, which the tests and the new-customer
+  /// flow both do.
+  Customer? _currentCustomer(CheckoutRequest request) {
+    final requested = request.customer;
+    if (requested == null) return null;
+    return _repo.getCustomerById(requested.id) ?? requested;
+  }
+
   /// Prices a cart without committing anything. Used to render the checkout
   /// summary so the preview and the receipt come from one calculation.
   SaleTotals preview(CheckoutRequest request) {
@@ -60,7 +79,7 @@ class SaleService {
       settings: _repo.getSettings(),
       loyalty: _repo.getLoyaltySettings(),
       requestedDiscountPercent: request.discountPercent,
-      availablePoints: request.customer?.totalRewardPoints ?? 0,
+      availablePoints: _currentCustomer(request)?.totalRewardPoints ?? 0,
       redeemPoints: request.redeemPoints,
     );
   }
@@ -222,7 +241,9 @@ class SaleService {
   }
 
   void _assertCreditAllowed(CheckoutRequest request, SaleTotals totals) {
-    final customer = request.customer;
+    // Storage, not the snapshot: a limit checked against a balance another
+    // device has already moved is not a limit.
+    final customer = _currentCustomer(request);
     if (!request.isCredit) return;
 
     if (customer == null) {

@@ -560,11 +560,24 @@ class StorageRepository {
       for (final tx in getLoyaltyTransactions(customer.id)) {
         points += tx.points;
       }
-      if (points < 0) points = 0;
-      if (Fmt.round2(points) != Fmt.round2(customer.totalRewardPoints)) {
+
+      // Reported, not clamped away. `_recomputeRewardPoints` floors the
+      // stored balance at zero, so clamping here too made a ledger that sums
+      // negative agree with the balance derived from it — and this check
+      // returned clean on precisely the corruption it exists to catch: more
+      // points redeemed than the customer ever held.
+      if (points < 0) {
+        problems.add(
+          'customer ${customer.id} has redeemed more points than they hold — '
+          'their transactions sum to $points',
+        );
+      }
+
+      final expected = points < 0 ? 0.0 : points;
+      if (Fmt.round2(expected) != Fmt.round2(customer.totalRewardPoints)) {
         problems.add(
           'customer ${customer.id} holds ${customer.totalRewardPoints} points '
-          'but their transactions sum to $points',
+          'but their transactions sum to $expected',
         );
       }
     }

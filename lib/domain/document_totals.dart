@@ -64,4 +64,23 @@ class DocumentTotals {
     // to two places, so anything larger is a real disagreement.
     return (expected - sale.grandTotal).abs() < 0.005;
   }
+
+  /// True when the stored discount percentage reproduces the stored discount
+  /// amount at the two decimals an invoice prints.
+  ///
+  /// It usually does. It cannot when the percentage is an *effective* rate —
+  /// the cashier asked for more than the basket had left after reward points,
+  /// so the discount was capped and the rate back-derived from the capped
+  /// amount. Two decimals of a percentage is worth 0.005% of the basket,
+  /// which on a large sale is rupees, so a customer recomputing the printed
+  /// rate lands somewhere the invoice does not.
+  ///
+  /// The document uses this to decide whether to name a rate at all: better a
+  /// bare "Discount" line than a percentage that does not survive being
+  /// checked.
+  static bool discountPercentReproduces(Sale sale) {
+    if (sale.subtotal <= 0 || sale.discountPercent <= 0) return false;
+    final implied = Fmt.round2(sale.subtotal * sale.discountPercent / 100);
+    return (implied - sale.discountAmount).abs() < 0.005;
+  }
 }
