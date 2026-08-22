@@ -119,6 +119,29 @@ void main() {
       expectCoherent(after: 'a customer merge');
     });
 
+    test('after a customer merge that carried reward points', () async {
+      final a = await store.addCustomer(name: 'A', mobile: '9000000003');
+      final b = await store.addCustomer(name: 'B', mobile: '9000000004');
+
+      await store.repository.addLoyaltyTransaction(
+        customerId: b.id,
+        transactionType: 'Earn',
+        points: 30,
+        monetaryValue: 0,
+        reference: 'INV-2',
+        createdBy: 'test',
+      );
+
+      await customers.mergeCustomers(a.id, b.id);
+
+      // The merge used to add the secondary's points onto the primary as a
+      // number while leaving its loyalty rows filed under the old id — a
+      // stored total that disagrees with its own detail, which is the exact
+      // class of corruption this audit exists to catch. It did not catch it
+      // only because no test here had ever put points on either account.
+      expectCoherent(after: 'a customer merge carrying reward points');
+    });
+
     test('after products are edited and deleted', () async {
       final product = await store.addProduct(barcode: 'BC-1', quantity: 5);
 

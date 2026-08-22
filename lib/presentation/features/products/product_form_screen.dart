@@ -438,6 +438,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                       Expanded(
                         child: TextFormField(
                           controller: _stockInCtrls[size],
+                          readOnly: widget.existingProduct != null,
                           keyboardType: TextInputType.number,
                           decoration: const InputDecoration(
                             labelText: 'Total Stock In',
@@ -449,6 +450,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                       Expanded(
                         child: TextFormField(
                           controller: _stockOutCtrls[size],
+                          readOnly: widget.existingProduct != null,
                           keyboardType: TextInputType.number,
                           decoration: const InputDecoration(
                             labelText: 'Total Stock Out',
@@ -595,7 +597,13 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     );
 
     final repo = ref.read(storageRepositoryProvider);
-    await repo.saveProduct(product);
+    // Edits go through the audited path so a stock correction made here
+    // leaves the same movement trail as one made from the stock-in screen.
+    if (isNew) {
+      await repo.saveProduct(product);
+    } else {
+      await repo.saveProductWithStockAudit(product);
+    }
 
     if (isNew) {
       await repo.saveHistory(

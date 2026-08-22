@@ -3,6 +3,7 @@ import 'package:atomid/core/utils/formatters.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:atomid/presentation/providers/app_providers.dart';
 import 'package:atomid/presentation/features/expenses/expense_form_screen.dart';
+import 'package:atomid/domain/date_window.dart';
 import 'package:atomid/data/models/expense_model.dart';
 
 class ExpenseListScreen extends ConsumerStatefulWidget {
@@ -25,20 +26,9 @@ class _ExpenseListScreenState extends ConsumerState<ExpenseListScreen> {
   }
 
   List<Expense> _filterExpenses(List<Expense> expenses) {
-    final now = DateTime.now();
-    return expenses.where((e) {
-      if (_selectedPeriod == 'Today') {
-        return e.date.year == now.year &&
-            e.date.month == now.month &&
-            e.date.day == now.day;
-      } else if (_selectedPeriod == 'This Week') {
-        final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
-        return e.date.isAfter(startOfWeek.subtract(const Duration(days: 1)));
-      } else if (_selectedPeriod == 'This Month') {
-        return e.date.year == now.year && e.date.month == now.month;
-      }
-      return true; // All Time
-    }).toList();
+    final window = DateWindow.forTimeframe(_selectedPeriod, DateTime.now());
+    if (window == null) return expenses; // All Time
+    return expenses.where((e) => window.contains(e.date)).toList();
   }
 
   IconData _getIconData(String iconName) {

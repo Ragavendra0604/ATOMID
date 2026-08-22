@@ -1848,6 +1848,77 @@ class StorageRepository {
     );
   }
 
+  /// Saves a product edited by hand, routing any stock change through the
+  /// audited path instead of writing it straight onto the variant.
+  ///
+  /// The edit form rebuilds every variant from its text fields, so saving it
+  /// used to overwrite `quantity`, `stockIn` and `stockOut` with whatever was
+  /// in the boxes — no [InventoryMovement], no reason, no record of who did
+  /// it. Correcting a typo in a product's name silently rewrote its stock,
+  /// and because nothing else in the app moves stock without logging a
+  /// movement, the gap was invisible: there was no baseline to disagree with.
+  ///
+  /// Here the incoming variants keep the *stored* stock figures, so the save
+  /// itself changes no stock at all, and any difference the user typed is
+  /// then applied through [performStockIn] / [performStockOut] — which write
+  /// the movement, maintain the cumulative counters and enqueue the sync.
+  ///
+  /// A variant whose barcode is new to the product keeps its typed quantity
+  /// as opening stock, exactly as a newly created product does.
+  Future<void> saveProductWithStockAudit(
+    Product product, {
+    String performedBy = 'Manual edit',
+    String reason = 'Manual stock adjustment',
+  }) async {
+    final previous = _productsBox.get(product.id);
+    if (previous == null) {
+      await saveProduct(product);
+      return;
+    }
+
+    final stored = {for (final v in previous.variants) v.barcode: v};
+
+    // What the user asked for, captured before the stored figures are put
+    // back over the top of it.
+    final requested = <String, int>{};
+    for (final variant in product.variants) {
+      final was = stored[variant.barcode];
+      if (was == null) continue;
+      requested[variant.barcode] = variant.quantity;
+      variant.quantity = was.quantity;
+      // Cumulative audit counters, not settings: the form should never be
+      // able to set them, and performStockIn/Out own them.
+      variant.stockIn = was.stockIn;
+      variant.stockOut = was.stockOut;
+    }
+
+    await saveProduct(product);
+
+    for (final entry in requested.entries) {
+      final was = stored[entry.key]!.quantity;
+      final delta = entry.value - was;
+      if (delta == 0) continue;
+
+      if (delta > 0) {
+        await performStockIn(
+          productId: product.id,
+          variantBarcode: entry.key,
+          quantity: delta,
+          reason: reason,
+          performedAt: performedBy,
+        );
+      } else {
+        await performStockOut(
+          productId: product.id,
+          variantBarcode: entry.key,
+          quantity: -delta,
+          reason: reason,
+          performedAt: performedBy,
+        );
+      }
+    }
+  }
+
   Future<void> deleteProduct(String id) async {
     await _productsBox.delete(id);
     _reindex('Product', id);
@@ -2867,6 +2938,35 @@ class StorageRepository {
     await recalculateCustomerLedger(fromCustomerId); // now empty -> zero
   }
 
+  /// Moves every loyalty transaction from one customer to another.
+  ///
+  /// The merge used to hand-add `totalRewardPoints` onto the primary instead,
+  /// which is the same mistake [reassignCustomerLedger] above documents for
+  /// balances — and it failed the same way, only more quietly. A point balance
+  /// is *derived*: [_recomputeRewardPoints] sums the rows filed under that one
+  /// customer id. Adding a number to the field left the secondary's rows filed
+  /// under an id nothing queries again, so the merged-in points survived
+  /// exactly until the customer's next sale recomputed the balance from rows
+  /// that had never heard of them — at which point they vanished, and the
+  /// stored total agreed with the ledger again at the wrong figure.
+  Future<void> reassignLoyaltyTransactions({
+    required String fromCustomerId,
+    required String toCustomerId,
+  }) async {
+    for (final tx in getLoyaltyTransactions(fromCustomerId)) {
+      tx.customerId = toCustomerId;
+      await _loyaltyTransactionsBox.put(tx.id, tx);
+      await enqueueSync(
+        entityType: 'LoyaltyTransaction',
+        entityId: tx.id,
+        action: 'UPDATE',
+      );
+    }
+
+    await _recomputeRewardPoints(toCustomerId);
+    await _recomputeRewardPoints(fromCustomerId); // now empty -> zero
+  }
+
   /// Recomputes a customer's ledger from scratch. Used after a merge or an
   /// out-of-order import, where carrying forward is not valid.
   Future<void> recalculateCustomerLedger(String customerId) async {
@@ -2901,7 +3001,9 @@ class StorageRepository {
       ); // Chronological for balance logic
   }
 
-  Future<void> addSupplierLedgerEntry({
+  /// Returns the id of the entry written, so a caller running a
+  /// multi-step transaction can hand it to [deleteSupplierLedgerEntry].
+  Future<String> addSupplierLedgerEntry({
     required String supplierId,
     required DateTime date,
     required String transactionType,
@@ -2942,6 +3044,51 @@ class StorageRepository {
     _supplierBalances[supplierId] = newBalance;
     supplier.currentBalance = newBalance;
     await saveSupplier(supplier);
+    return entry.id;
+  }
+
+  /// Recomputes a supplier's ledger from scratch.
+  ///
+  /// Balances are carried forward from the row before, so removing one in the
+  /// middle invalidates every balance after it — the full recalculation is
+  /// the only correct repair. Unlike a customer, a supplier has no
+  /// `openingBalance` field: its opening figure is itself a ledger row, so
+  /// this starts from zero.
+  Future<void> recalculateSupplierLedger(String supplierId) async {
+    final supplier = getSupplierById(supplierId);
+    if (supplier == null) return;
+
+    // Sign convention is the mirror of the customer ledger: a supplier
+    // balance is what we owe them, so a credit raises it and a debit
+    // (a payment made) lowers it.
+    double running = 0;
+    for (final entry in getLedgerForSupplier(supplierId)) {
+      running = Fmt.round2(running + entry.credit - entry.debit);
+      entry.balance = running;
+      await _supplierLedgersBox.put(entry.id, entry);
+      await enqueueSync(
+        entityType: 'SupplierLedger',
+        entityId: entry.id,
+        action: 'UPDATE',
+      );
+    }
+
+    _supplierBalances[supplierId] = running;
+    supplier.currentBalance = running;
+    await saveSupplier(supplier);
+  }
+
+  /// Removes a supplier ledger entry and rebuilds the running balance.
+  ///
+  /// The mirror of [deleteLedgerEntry]. It did not exist, which is why
+  /// nothing could reverse the supplier credit written when a purchase
+  /// receipt failed part way through.
+  Future<void> deleteSupplierLedgerEntry(String entryId) async {
+    final entry = _supplierLedgersBox.get(entryId);
+    if (entry == null) return;
+    final supplierId = entry.supplierId;
+    await _supplierLedgersBox.delete(entryId);
+    await recalculateSupplierLedger(supplierId);
   }
 
   // --- LOYALTY ---

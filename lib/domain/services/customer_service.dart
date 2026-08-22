@@ -89,7 +89,13 @@ class CustomerService {
     // 1. Combine stats. Balance is deliberately not touched here — it is
     // derived from the ledger below, so it can never drift from what the
     // ledger detail actually shows.
-    primary.totalRewardPoints += secondary.totalRewardPoints;
+    //
+    // Reward points are left alone here for the same reason, and it is not
+    // the same reason as lifetime spend. `lifetimeSpend` is a running figure
+    // nothing recomputes, so adding the two is the only way to carry it over.
+    // `totalRewardPoints` is derived from the loyalty ledger, so adding the
+    // two here would be overwritten by the next recomputation; step 2b moves
+    // the rows across instead, and the derivation picks them up.
     primary.lifetimeSpend += secondary.lifetimeSpend;
 
     // Combine tags uniquely
@@ -104,12 +110,24 @@ class CustomerService {
       toCustomerId: primaryId,
     );
 
-    // 3. Soft delete secondary
-    secondary.isDeleted = true;
-    secondary.status = 'Merged';
-    secondary.notes =
-        '${secondary.notes}\n[System] Merged into ${primary.code} on ${DateTime.now().toIso8601String()}';
-    await saveCustomer(secondary);
+    // 2b. Same again for the loyalty ledger, so the primary's derived point
+    // balance accounts for what the secondary earned.
+    await _storageRepo.reassignLoyaltyTransactions(
+      fromCustomerId: secondaryId,
+      toCustomerId: primaryId,
+    );
+
+    // 3. Soft delete secondary.
+    //
+    // Re-read first: steps 2 and 2b both recompute and save the secondary's
+    // derived figures, and writing back the copy fetched before them would
+    // undo that.
+    final merged = _storageRepo.getCustomerById(secondaryId) ?? secondary;
+    merged.isDeleted = true;
+    merged.status = 'Merged';
+    merged.notes =
+        '${merged.notes}\n[System] Merged into ${primary.code} on ${DateTime.now().toIso8601String()}';
+    await saveCustomer(merged);
 
     // 4. Log Action
     await _storageRepo.saveHistory(

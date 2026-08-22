@@ -460,4 +460,45 @@ void main() {
       );
     });
   });
+
+  group('export file names survive free-text product data', () {
+    // Product codes and variant sizes are typed by the shopkeeper and land in
+    // the export name verbatim. These are all names a real shop produces.
+    test('a slash in a size does not become a directory', () {
+      expect(ExportService.safeFileName('ATOMID_TEA_1/2 KG_20260822'),
+          'ATOMID_TEA_1-2 KG_20260822');
+      expect(ExportService.safeFileName('SHIRT_L/XL'), 'SHIRT_L-XL');
+    });
+
+    test('no character Windows refuses survives', () {
+      // Asserted as a property rather than one expected string: the point is
+      // that none of them get through, not the exact dash placement.
+      final cleaned = ExportService.safeFileName(r'PIPE_12" <A:B>|C?D*E\F');
+      expect(cleaned, isNot(matches(RegExp(r'[<>:"/\\|?*]'))));
+      expect(cleaned, startsWith('PIPE_12'));
+      expect(cleaned, endsWith('F'));
+    });
+
+    test('a trailing dot or space is dropped', () {
+      // Windows strips these itself, so a name ending in one resolves to a
+      // different file than the one asked for.
+      expect(ExportService.safeFileName('REPORT.'), 'REPORT');
+      expect(ExportService.safeFileName('  REPORT  '), 'REPORT');
+    });
+
+    test('a reserved device name is escaped', () {
+      expect(ExportService.safeFileName('CON'), '_CON');
+      expect(ExportService.safeFileName('lpt1'), '_lpt1');
+    });
+
+    test('a name that sanitises to nothing falls back', () {
+      expect(ExportService.safeFileName('///'), isNotEmpty);
+      expect(ExportService.safeFileName(''), 'atomid-export');
+    });
+
+    test('an over-long name is truncated, not rejected', () {
+      expect(ExportService.safeFileName('X' * 400).length, 120);
+    });
+  });
+
 }

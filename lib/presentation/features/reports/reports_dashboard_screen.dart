@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:atomid/domain/date_window.dart';
 import 'package:atomid/core/utils/formatters.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:atomid/presentation/providers/app_providers.dart';
 import 'package:atomid/data/models/sale_model.dart';
-import 'package:atomid/data/repositories/storage_repository.dart';
 import 'package:atomid/core/services/export_service.dart';
 import 'package:printing/printing.dart';
 import 'package:pdf/pdf.dart';
@@ -33,29 +33,11 @@ class _ReportsDashboardScreenState
   /// another whole day, so a Tuesday afternoon report silently included part
   /// of the previous Sunday.
   List<Sale> _getFilteredSales(List<Sale> allSales) {
-    final now = DateTime.now();
-    final today = StorageRepository.startOfDay(now);
-
-    DateTime? from;
-    switch (_selectedTimeframe) {
-      case 'Today':
-        from = today;
-      case 'This Week':
-        from = today.subtract(Duration(days: now.weekday - 1));
-      case 'This Month':
-        from = DateTime(now.year, now.month);
-      case 'All Time':
-      default:
-        from = null;
-    }
-
-    if (from == null) return allSales;
-
-    final until = today.add(const Duration(days: 1));
-    final start = from;
-    return allSales
-        .where((s) => !s.date.isBefore(start) && s.date.isBefore(until))
-        .toList();
+    // Shared with the expense list, which had drifted into a window a day
+    // wider at the near end.
+    final window = DateWindow.forTimeframe(_selectedTimeframe, DateTime.now());
+    if (window == null) return allSales;
+    return allSales.where((s) => window.contains(s.date)).toList();
   }
 
   @override

@@ -14,6 +14,7 @@ import 'package:atomid/data/models/purchase_model.dart' as import_purchase;
 import 'package:atomid/data/models/supplier_model.dart';
 import 'package:atomid/data/models/company_model.dart';
 import 'package:atomid/data/models/invoice_settings_model.dart';
+import 'package:atomid/core/utils/app_error.dart';
 import 'package:atomid/domain/document_totals.dart';
 import 'package:atomid/domain/price_tag_size.dart';
 
@@ -424,13 +425,48 @@ class ExportService {
     return pdf;
   }
 
+  /// Makes a caller's label safe to use as a file name on every platform.
+  ///
+  /// Export names are built from free text — `ATOMID_<productCode>_<size>_…`.
+  /// A variant sized `1/2 kg` or `L/XL` turns that into a path containing a
+  /// directory that does not exist, and `12"` is illegal on Windows. Either
+  /// way the write throws and the shop sees an export fail for a product
+  /// whose only sin was a realistic size.
+  ///
+  /// Windows has the strictest rules of the three platforms, so they are
+  /// applied everywhere: the same product then exports under the same name on
+  /// the till, the phone and the tablet.
+  static String safeFileName(String value, {String fallback = 'atomid-export'}) {
+    var name = value
+        .replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1F]'), '-')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+
+    // Windows silently strips a trailing dot or space, so a name ending in
+    // one resolves to something other than what was asked for.
+    name = name.replaceAll(RegExp(r'^[. ]+|[. ]+$'), '');
+
+    // Reserved device names, which cannot be used even with an extension.
+    if (RegExp(
+      r'^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$',
+      caseSensitive: false,
+    ).hasMatch(name)) {
+      name = '_$name';
+    }
+
+    if (name.isEmpty) return fallback;
+
+    // Leaves room for the directory, the extension and the path limit.
+    return name.length <= 120 ? name : name.substring(0, 120);
+  }
+
   static Future<PlatformFile> exportPdf(
     pw.Document pdf,
     String fileName,
   ) async {
     if (kIsWeb) throw UnsupportedError('File export is not supported on Web');
     final dir = await _getExportDirectory('PDF');
-    final file = PlatformFile('${dir.path}/$fileName.pdf');
+    final file = PlatformFile('${dir.path}/${safeFileName(fileName)}.pdf');
     await file.writeAsBytes(await pdf.save());
     return file;
   }
@@ -442,12 +478,21 @@ class ExportService {
   }) async {
     if (kIsWeb) throw UnsupportedError('File export is not supported on Web');
     final dir = await _getExportDirectory('Images');
-    final file = PlatformFile('${dir.path}/$fileName.png');
+    final file = PlatformFile('${dir.path}/${safeFileName(fileName)}.png');
 
+    var rendered = false;
     await for (var page in Printing.raster(await pdf.save(), dpi: dpi)) {
       final pngData = await page.toPng();
       await file.writeAsBytes(pngData);
+      rendered = true;
       break; // Only export the first page for single tags
+    }
+
+    // Raster yields nothing for an empty document. Returning the handle
+    // anyway meant the caller went straight on to share a path with no file
+    // behind it, and the share sheet failed with nothing explaining why.
+    if (!rendered) {
+      throw const AppException('There was nothing to export.');
     }
 
     return file;

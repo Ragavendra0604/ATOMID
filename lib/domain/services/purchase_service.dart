@@ -172,7 +172,7 @@ class PurchaseService {
       }
 
       if (purchase.supplierId.isNotEmpty) {
-        await _repository.addSupplierLedgerEntry(
+        final ledgerId = await _repository.addSupplierLedgerEntry(
           supplierId: purchase.supplierId,
           date: purchase.purchaseDate,
           transactionType: 'Purchase',
@@ -180,6 +180,12 @@ class PurchaseService {
           credit: purchase.grandTotal,
           notes: 'PO #${purchase.purchaseNumber} received',
         );
+
+        // Registered like every other step. Without it, a failure in the
+        // savePurchase below unwound the stock but left the supplier credited
+        // for goods the order still says were never received — the shop owing
+        // money its own records do not account for.
+        undo.add(() => _repository.deleteSupplierLedgerEntry(ledgerId));
       }
 
       // Every line moved and the supplier is credited — now it is safe to

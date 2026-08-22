@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:atomid/core/utils/ids.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:atomid/data/models/expense_model.dart';
 import 'package:atomid/presentation/providers/app_providers.dart';
@@ -75,8 +76,10 @@ class _ExpenseFormScreenState extends ConsumerState<ExpenseFormScreen> {
 
     try {
       final now = DateTime.now();
-      final expenseId =
-          widget.expense?.id ?? now.millisecondsSinceEpoch.toString();
+      // A record key, not a display code. A millisecond timestamp collides
+      // for two expenses entered in the same millisecond and the second
+      // overwrites the first — the exact failure `Ids` was introduced to end.
+      final expenseId = widget.expense?.id ?? Ids.generate();
       final amount = double.tryParse(_amountCtrl.text) ?? 0.0;
 
       final newExpense = Expense(

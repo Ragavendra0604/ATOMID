@@ -130,6 +130,12 @@ void main() {
           ),
         ).thenAnswer((_) async => {});
         when(
+          () => mockStorageRepo.reassignLoyaltyTransactions(
+            fromCustomerId: 's1',
+            toCustomerId: 'p1',
+          ),
+        ).thenAnswer((_) async => {});
+        when(
           () => mockStorageRepo.saveCustomer(any()),
         ).thenAnswer((_) async => {});
         when(
@@ -138,7 +144,20 @@ void main() {
 
         await customerService.mergeCustomers('p1', 's1');
 
-        expect(primary.totalRewardPoints, 15);
+        // Points are deliberately NOT combined here. They are derived by
+        // summing the customer's own loyalty rows, so adding the two numbers
+        // survived only until the next sale recomputed the balance from rows
+        // that were never moved across — and then silently vanished. Moving
+        // the rows is the fix, and against a mock that call does nothing, so
+        // the primary keeps exactly what it started with.
+        expect(
+          primary.totalRewardPoints,
+          10,
+          reason: 'the merge must not hand-add a derived figure',
+        );
+
+        // Lifetime spend is the opposite case: nothing recomputes it, so
+        // adding the two is the only way to carry it over.
         expect(primary.lifetimeSpend, 150);
         expect(primary.tags, containsAll(['vip', 'new']));
 
@@ -150,6 +169,15 @@ void main() {
         // customer_merge_ledger_test.dart.
         verify(
           () => mockStorageRepo.reassignCustomerLedger(
+            fromCustomerId: 's1',
+            toCustomerId: 'p1',
+          ),
+        ).called(1);
+
+        // Same treatment for the loyalty ledger, verified for real in
+        // customer_merge_ledger_test.dart.
+        verify(
+          () => mockStorageRepo.reassignLoyaltyTransactions(
             fromCustomerId: 's1',
             toCustomerId: 'p1',
           ),

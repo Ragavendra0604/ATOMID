@@ -41,6 +41,23 @@ class _SecondStockInFailsRepository extends StorageRepository {
   }
 }
 
+/// Fails `savePurchase` — the step immediately *after* the supplier is
+/// credited, and the only shape of failure that reaches it.
+///
+/// The stock reversals were always registered for undo; the supplier ledger
+/// write was not. A failure here therefore unwound the stock and left the
+/// credit standing, so the shop owed money for goods its own order still
+/// said had never been received.
+class _SavePurchaseFailsRepository extends StorageRepository {
+  @override
+  Future<void> savePurchase(Purchase purchase) async {
+    if (purchase.status == PurchaseStatus.received) {
+      throw const AppException('Simulated write failure.');
+    }
+    return super.savePurchase(purchase);
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -205,4 +222,65 @@ void main() {
       },
     );
   });
+
+  group('a failure after the supplier is credited unwinds the credit', () {
+    late TestStore store;
+    late PurchaseService service;
+
+    setUp(() async {
+      store = await TestStore.open(repository: _SavePurchaseFailsRepository());
+      service = PurchaseService(store.repository);
+    });
+
+    tearDown(() => store.close());
+
+    test('the supplier is not left owed for goods never received', () async {
+      final supplier = await store.addSupplier();
+      final productA = await store.addProduct(
+        barcode: 'BC-A',
+        quantity: 5,
+      );
+      final productB = await store.addProduct(
+        barcode: 'BC-B',
+        quantity: 5,
+      );
+
+      final order = buildTwoItemOrder(
+        supplier: supplier,
+        productA: productA,
+        productB: productB,
+        purchaseNumber: 'PO-CREDIT-1',
+      );
+
+      await expectLater(
+        service.markAsReceived(order),
+        throwsA(isA<AppException>()),
+      );
+
+      // The credit was written, then reversed. Both the row and the balance
+      // derived from it have to go — leaving the row with a corrected balance
+      // would still show the shop a debt it does not have.
+      expect(
+        store.repository.getLedgerForSupplier(supplier.id),
+        isEmpty,
+        reason: 'the reversal must remove the credit, not just correct it',
+      );
+      expect(
+        store.repository.getSupplierById(supplier.id)!.currentBalance,
+        0,
+        reason: 'nothing is owed for an order that was never received',
+      );
+
+      // And the stock reversal still happened, as it always did.
+      expect(
+        store.repository.getProductById(productA.id)!.variants.first.quantity,
+        5,
+      );
+      expect(
+        store.repository.getProductById(productB.id)!.variants.first.quantity,
+        5,
+      );
+    });
+  });
+
 }

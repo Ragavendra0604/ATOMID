@@ -36,7 +36,7 @@
 ; installed — which also means `flutter build windows` cannot have produced
 ; the Release folder this script packages.
 #ifndef CrtDir
-  #define CrtDir "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Redist\MSVC\14.51.36231\x64\Microsoft.VC145.CRT"
+  #define CrtDir "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Redist\MSVC\14.51.36231\x64\Microsoft.VC145.CRT"
 #endif
 
 [Setup]
