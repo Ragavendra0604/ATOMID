@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:atomid/domain/purchase_payment.dart';
 import 'package:atomid/core/utils/formatters.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:atomid/presentation/providers/app_providers.dart';
@@ -32,6 +33,8 @@ class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen> {
   @override
   Widget build(BuildContext context) {
     final purchases = ref.watch(filteredPurchasesProvider);
+    // Payment state lives in the supplier ledger, not on the order.
+    final payments = ref.watch(purchasePaymentsProvider);
     final settings = ref.watch(settingsProvider);
     final currentStatus = ref.watch(purchaseStatusFilterProvider);
 
@@ -152,7 +155,13 @@ class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen> {
                             children: [
                               _buildStatusBadge(purchase.status),
                               const SizedBox(width: 8),
-                              _buildPaymentBadge(purchase.paymentStatus),
+                              _buildPaymentBadge(
+                                PurchasePayment.status(
+                                  grandTotal: purchase.grandTotal,
+                                  paidSoFar:
+                                      payments[purchase.purchaseNumber] ?? 0,
+                                ),
+                              ),
                             ],
                           ),
                         ],

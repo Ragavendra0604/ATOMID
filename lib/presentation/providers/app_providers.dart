@@ -281,6 +281,17 @@ final purchasesProvider = Provider<List<Purchase>>((ref) {
   return ref.watch(storageRepositoryProvider).getPurchases();
 });
 
+/// Total paid against each purchase number.
+///
+/// Watches suppliers because payments are supplier-ledger rows: recording one
+/// has to repaint the order's badge, and the purchases topic never fires for
+/// it.
+final purchasePaymentsProvider = Provider<Map<String, double>>((ref) {
+  _watch(ref, DataTopic.suppliers);
+  _watch(ref, DataTopic.purchases);
+  return ref.watch(storageRepositoryProvider).purchasePaymentAllocation();
+});
+
 class PurchaseSearchNotifier extends Notifier<String> {
   @override
   String build() => '';

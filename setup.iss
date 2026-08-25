@@ -7,6 +7,13 @@
 ; The installer lands in build\windows\installer\AtomidSetup.exe
 
 #define AppExeName "atomid.exe"
+
+; Kept in step with pubspec.yaml by hand. Windows compares this when deciding
+; whether an install is an upgrade, and Add/Remove Programs shows it.
+;   ISCC /DAppVersion=1.0.2 setup.iss   overrides it for a one-off build.
+#ifndef AppVersion
+  #define AppVersion "1.0.1"
+#endif
 #define ReleaseDir "build\windows\x64\runner\Release"
 
 ; Visual C++ runtime, shipped next to the exe.
@@ -45,7 +52,7 @@
 ; one instead of replacing it, leaving two entries in Add/Remove Programs.
 AppId={{1B5371F5-C6DE-47B2-8D82-3CB265F50D07}
 AppName=Atomid Store
-AppVersion=1.0.0
+AppVersion={#AppVersion}
 AppPublisher=Atomid
 DefaultDirName={autopf}\Atomid Store
 DefaultGroupName=Atomid Store
@@ -56,6 +63,16 @@ SolidCompression=yes
 SetupIconFile=windows\runner\resources\app_icon.ico
 UninstallDisplayIcon={app}\{#AppExeName}
 WizardStyle=modern
+
+; An upgrade over a running copy otherwise fails with "file in use" or defers
+; to a reboot. The shop is likely to have the till open when it updates.
+CloseApplications=yes
+RestartApplications=yes
+
+; Same AppId as the installed copy, so this replaces it in place rather than
+; installing alongside. The shop's data lives in the user's app-data folder,
+; not in Program Files, so it is untouched either way.
+UsePreviousAppDir=yes
 
 ; Without these, {autopf} resolves to "Program Files (x86)" on 64-bit Windows
 ; and a 64-bit app is installed into the 32-bit program folder.

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:atomid/domain/purchase_payment.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:atomid/core/utils/app_error.dart';
 import 'package:atomid/core/utils/formatters.dart';
@@ -25,22 +26,39 @@ class PurchaseDetailsScreen extends ConsumerWidget {
       orElse: () => purchase,
     );
 
+    // Payments are supplier-ledger rows filed under the purchase number.
+    final paidSoFar =
+        ref.watch(purchasePaymentsProvider)[freshPurchase.purchaseNumber] ?? 0;
+    final outstanding = PurchasePayment.outstanding(
+      grandTotal: freshPurchase.grandTotal,
+      paidSoFar: paidSoFar,
+    );
+
     return Scaffold(
       appBar: AppBar(
         title: Text(freshPurchase.purchaseNumber),
         actions: [
-          if (!PurchaseStatus.isSettled(freshPurchase.status))
-            IconButton(
-              icon: const Icon(Icons.edit_outlined),
-              tooltip: 'Edit purchase',
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) =>
-                      PurchaseFormScreen(existingPurchase: freshPurchase),
-                ),
-              ),
-            ),
+          // Shown disabled rather than removed on a settled order.
+          //
+          // A received order has moved stock and credited the supplier, so it
+          // genuinely cannot be edited — but silently deleting the button
+          // meant a shopkeeper saw the option simply vanish, which is
+          // indistinguishable from a broken build. It was reported as one.
+          IconButton(
+            icon: const Icon(Icons.edit_outlined),
+            tooltip: PurchaseStatus.isSettled(freshPurchase.status)
+                ? 'Received orders cannot be edited'
+                : 'Edit purchase',
+            onPressed: PurchaseStatus.isSettled(freshPurchase.status)
+                ? null
+                : () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          PurchaseFormScreen(existingPurchase: freshPurchase),
+                    ),
+                  ),
+          ),
           IconButton(
             icon: const Icon(Icons.print),
             tooltip: 'Print Purchase',
@@ -79,12 +97,56 @@ class PurchaseDetailsScreen extends ConsumerWidget {
           ),
         ],
       ),
-      bottomNavigationBar: _buildBottomActions(context, ref, freshPurchase),
+      bottomNavigationBar: _buildBottomActions(
+        context,
+        ref,
+        freshPurchase,
+        outstanding,
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Says why the order is read-only, next to the status that made
+            // it so. A disabled button explains that something is unavailable;
+            // it does not explain what to do instead.
+            if (PurchaseStatus.isSettled(freshPurchase.status))
+              Card(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                margin: const EdgeInsets.only(bottom: 16),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.lock_outline,
+                        size: 20,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'This order has been received. Its stock is already '
+                          'on the shelf and the supplier account has been '
+                          'credited, so it can no longer be edited.\n\n'
+                          'To correct a quantity, adjust the stock from the '
+                          'product. To correct what is owed, add a supplier '
+                          'ledger entry.',
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
             // Purchase Info Card
             Card(
               child: Padding(
@@ -118,7 +180,29 @@ class PurchaseDetailsScreen extends ConsumerWidget {
                         _formatDate(freshPurchase.expectedDeliveryDate!),
                       ),
                     _infoRow(context, 'Status', freshPurchase.status),
-                    _infoRow(context, 'Payment', freshPurchase.paymentStatus),
+                    // Derived from the supplier ledger, not read from
+                    // `paymentStatus` — that field was never written to and
+                    // showed every order as unpaid forever.
+                    _infoRow(
+                      context,
+                      'Payment',
+                      PurchasePayment.status(
+                        grandTotal: freshPurchase.grandTotal,
+                        paidSoFar: paidSoFar,
+                      ),
+                    ),
+                    if (paidSoFar > 0)
+                      _infoRow(
+                        context,
+                        'Paid',
+                        Fmt.money(paidSoFar, settings.currencySymbol),
+                      ),
+                    if (outstanding > 0)
+                      _infoRow(
+                        context,
+                        'Outstanding',
+                        Fmt.money(outstanding, settings.currencySymbol),
+                      ),
                     _infoRow(
                       context,
                       'Items',
@@ -257,6 +341,7 @@ class PurchaseDetailsScreen extends ConsumerWidget {
     BuildContext context,
     WidgetRef ref,
     Purchase purchase,
+    double outstanding,
   ) {
     final errorColor = Theme.of(context).colorScheme.error;
 
@@ -305,8 +390,131 @@ class PurchaseDetailsScreen extends ConsumerWidget {
           'Stock updated and supplier account credited.',
         ),
       ),
+      // A received order is the only one that can owe anything: the supplier
+      // is credited when it is received, not when it is raised.
+      PurchaseStatus.received when outstanding > 0 => _actionBar(
+        label: 'Record payment',
+        icon: Icons.payments_outlined,
+        onPressed: () => _recordPayment(context, ref, purchase, outstanding),
+      ),
       _ => null,
     };
+  }
+
+  /// Files a payment against this order.
+  ///
+  /// The reference is the purchase number, which is what ties the debit back
+  /// to this order — a payment recorded from the supplier screen carries its
+  /// own reference and settles the account as a whole instead.
+  Future<void> _recordPayment(
+    BuildContext context,
+    WidgetRef ref,
+    Purchase purchase,
+    double outstanding,
+  ) async {
+    final amountCtrl = TextEditingController(
+      text: outstanding.toStringAsFixed(2),
+    );
+    final notesCtrl = TextEditingController();
+    final symbol = ref.read(settingsProvider).currencySymbol;
+
+    try {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text('Payment for ${purchase.purchaseNumber}'),
+          // Scrollable and width-bounded.
+          //
+          // On a phone the soft keyboard opens the moment this dialog does
+          // (the amount field autofocuses) and takes roughly half the screen
+          // with it. An AlertDialog shrinks to what is left, and a plain
+          // Column has nowhere to go — it overflows, which is a render error
+          // rather than a clipped field. A desktop has no soft keyboard, so
+          // this never appeared while testing on Windows.
+          content: SizedBox(
+            width: 320,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    '${Fmt.money(outstanding, symbol)} outstanding',
+                style: Theme.of(ctx).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: amountCtrl,
+                autofocus: true,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: InputDecoration(
+                  labelText: 'Amount',
+                  prefixText: symbol,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: notesCtrl,
+                decoration: const InputDecoration(labelText: 'Notes'),
+              ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Record'),
+            ),
+          ],
+        ),
+      );
+
+      if (confirmed != true) return;
+      if (!context.mounted) return;
+
+      final amount = double.tryParse(amountCtrl.text.trim()) ?? 0;
+      final messenger = ScaffoldMessenger.of(context);
+      if (amount <= 0) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Enter an amount greater than zero.')),
+        );
+        return;
+      }
+
+      try {
+        await ref
+            .read(storageRepositoryProvider)
+            .addSupplierLedgerEntry(
+              supplierId: purchase.supplierId,
+              date: DateTime.now(),
+              transactionType: 'Payment',
+              referenceId: purchase.purchaseNumber,
+              debit: amount,
+              notes: notesCtrl.text.trim(),
+            );
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('${Fmt.money(amount, symbol)} recorded.'),
+          ),
+        );
+      } catch (error) {
+        messenger.showSnackBar(
+          SnackBar(content: Text(describeError(error))),
+        );
+      }
+    } finally {
+      // Built per invocation: without this every payment leaks two
+      // controllers for the life of the session.
+      amountCtrl.dispose();
+      notesCtrl.dispose();
+    }
   }
 
   Widget _actionBar({

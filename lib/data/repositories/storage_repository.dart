@@ -26,6 +26,7 @@ import 'package:atomid/data/models/expense_model.dart';
 import 'package:atomid/hive_registrar.g.dart';
 import 'package:atomid/data/sync/entity_codec.dart';
 import 'package:atomid/core/utils/app_error.dart';
+import 'package:atomid/domain/purchase_payment.dart';
 import 'package:atomid/core/utils/formatters.dart';
 import 'package:atomid/core/utils/ids.dart';
 
@@ -3003,6 +3004,37 @@ class StorageRepository {
 
   /// Returns the id of the entry written, so a caller running a
   /// multi-step transaction can hand it to [deleteSupplierLedgerEntry].
+  /// Total paid against each purchase number, across every supplier.
+  ///
+  /// Built in one pass so a list of orders can show a payment badge each
+  /// without rescanning the ledger per row. Per supplier, because payments
+  /// not tied to an order settle that supplier's oldest orders first and must
+  /// not leak across accounts.
+  Map<String, double> purchasePaymentAllocation() {
+    final ordersBySupplier = <String, List<Purchase>>{};
+    for (final purchase in _purchasesBox.values) {
+      if (purchase.supplierId.isEmpty) continue;
+      ordersBySupplier.putIfAbsent(purchase.supplierId, () => []).add(purchase);
+    }
+
+    final ledgerBySupplier = <String, List<SupplierLedger>>{};
+    for (final entry in _supplierLedgersBox.values) {
+      ledgerBySupplier.putIfAbsent(entry.supplierId, () => []).add(entry);
+    }
+
+    final allocation = <String, double>{};
+    for (final supplierId in ordersBySupplier.keys) {
+      allocation.addAll(
+        PurchasePayment.allocate(
+          orders: ordersBySupplier[supplierId]!,
+          ledger: ledgerBySupplier[supplierId] ?? const [],
+          isReceived: (p) => p.status == 'Received',
+        ),
+      );
+    }
+    return allocation;
+  }
+
   Future<String> addSupplierLedgerEntry({
     required String supplierId,
     required DateTime date,
