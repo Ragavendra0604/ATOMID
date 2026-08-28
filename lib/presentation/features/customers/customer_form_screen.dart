@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+
+import 'package:atomid/domain/gst/gst_states.dart';
+import 'package:atomid/presentation/widgets/gstin_state_fields.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 import 'package:atomid/data/models/customer_model.dart';
@@ -29,6 +32,7 @@ class _CustomerFormScreenState extends ConsumerState<CustomerFormScreen> {
 
   String _status = 'Active';
   String _customerGroup = 'General';
+  String _stateCode = '';
   List<String> _tags = [];
   List<String> _attachments = [];
 
@@ -42,6 +46,7 @@ class _CustomerFormScreenState extends ConsumerState<CustomerFormScreen> {
     _gstController = TextEditingController(
       text: widget.customer?.gstNumber ?? '',
     );
+    _stateCode = widget.customer?.stateCode ?? '';
     _addressController = TextEditingController(
       text: widget.customer?.address ?? '',
     );
@@ -113,7 +118,9 @@ class _CustomerFormScreenState extends ConsumerState<CustomerFormScreen> {
       code: code,
       name: _nameController.text.trim(),
       mobile: _mobileController.text.trim(),
-      gstNumber: _gstController.text.trim(),
+      gstNumber: _gstController.text.trim().toUpperCase(),
+      state: GstStates.findByCode(_stateCode)?.name ?? '',
+      stateCode: _stateCode,
       address: _addressController.text.trim(),
       creditLimit: double.tryParse(_creditLimitController.text) ?? 0,
       creditDays: int.tryParse(_creditDaysController.text) ?? 0,
@@ -197,12 +204,15 @@ class _CustomerFormScreenState extends ConsumerState<CustomerFormScreen> {
                 validator: (v) => v!.isEmpty ? 'Mobile is required' : null,
               ),
               const SizedBox(height: 16),
-              TextFormField(
-                controller: _gstController,
-                decoration: const InputDecoration(
-                  labelText: 'GST Number (Optional)',
-                  border: OutlineInputBorder(),
-                ),
+              // Optional, and deliberately so: an ordinary walk-in sale
+              // needs neither a GSTIN nor a state, and billing must never
+              // stop to ask for them.
+              GstinStateFields(
+                partyLabel: 'Customer',
+                gstinController: _gstController,
+                stateCode: _stateCode,
+                onGstinChanged: () => setState(() {}),
+                onStateChanged: (code) => setState(() => _stateCode = code),
               ),
               const SizedBox(height: 16),
               TextFormField(
@@ -225,6 +235,7 @@ class _CustomerFormScreenState extends ConsumerState<CustomerFormScreen> {
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
                 initialValue: _customerGroup,
+                isExpanded: true,
                 decoration: const InputDecoration(
                   labelText: 'Customer Group',
                   border: OutlineInputBorder(),
@@ -347,6 +358,7 @@ class _CustomerFormScreenState extends ConsumerState<CustomerFormScreen> {
               const SizedBox(height: 32),
               DropdownButtonFormField<String>(
                 initialValue: _status,
+                isExpanded: true,
                 decoration: const InputDecoration(
                   labelText: 'Status',
                   border: OutlineInputBorder(),

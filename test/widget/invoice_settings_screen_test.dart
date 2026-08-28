@@ -60,6 +60,7 @@ void main() {
       // Verify initial values in text fields
       expect(find.text('Default Footer'), findsOneWidget);
       expect(find.text('T&C'), findsOneWidget);
+      expect(find.text('Show Signature Block'), findsOneWidget);
     });
 
     testWidgets('should toggle UPI QR settings visibility', (
@@ -70,8 +71,11 @@ void main() {
 
       expect(find.text('UPI ID (Optional)'), findsNothing);
 
-      // Tap the switch to show UPI QR
+      // Tap the switch to show UPI QR. It sits below the fold once the
+      // general settings grow, so scroll it into view before tapping.
       final switchFinder = find.byType(Switch).last;
+      await tester.ensureVisible(switchFinder);
+      await tester.pumpAndSettle();
       await tester.tap(switchFinder);
       await tester.pumpAndSettle();
 

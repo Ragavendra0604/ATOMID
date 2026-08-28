@@ -6,16 +6,17 @@
 /// has been shrunk by a multiplier stops scanning long before it stops looking
 /// reasonable on screen.
 enum PriceTagSize {
-  /// Roughly 42 x 30 mm on A4. Shelf-edge labels, where the barcode and the
-  /// price are all that matter — the logo is dropped to keep the barcode
-  /// large enough for a scanner.
+  /// Roughly 42 x 30 mm on A4. Shelf-edge labels. The logo sits inline
+  /// beside the product name rather than on its own row, so it is present on
+  /// every tag without taking vertical space away from the barcode.
   small(
     label: 'Small',
     columns: 5,
     rows: 10,
     padding: 2,
-    showLogo: false,
-    logoSize: 0,
+    showLogo: true,
+    logoInline: true,
+    logoSize: 8,
     nameFontSize: 6.5,
     codeFontSize: 5,
     sizeFontSize: 6.5,
@@ -32,6 +33,7 @@ enum PriceTagSize {
     rows: 6,
     padding: 4,
     showLogo: true,
+    logoInline: false,
     logoSize: 24,
     nameFontSize: 10,
     codeFontSize: 8,
@@ -49,6 +51,7 @@ enum PriceTagSize {
     rows: 4,
     padding: 6,
     showLogo: true,
+    logoInline: false,
     logoSize: 34,
     nameFontSize: 14,
     codeFontSize: 11,
@@ -65,6 +68,7 @@ enum PriceTagSize {
     required this.rows,
     required this.padding,
     required this.showLogo,
+    required this.logoInline,
     required this.logoSize,
     required this.nameFontSize,
     required this.codeFontSize,
@@ -80,6 +84,12 @@ enum PriceTagSize {
   final int rows;
   final double padding;
   final bool showLogo;
+
+  /// Whether the logo shares a row with the product name (true) or sits on
+  /// its own row above it (false). Inline keeps short tags from spending
+  /// scarce height on the logo.
+  final bool logoInline;
+
   final double logoSize;
   final double nameFontSize;
   final double codeFontSize;

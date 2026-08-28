@@ -36,7 +36,9 @@ class ScreenHarness {
   StorageRepository get repository => store.repository;
 
   static Future<ScreenHarness> open() async {
-    final store = await TestStore.open();
+    // Checkout is one of the screens rendered here, and it will not price a
+    // bill for a shop with no state. A configured shop is the normal case.
+    final store = await TestStore.open(configureShop: true);
     final firebaseRepo = FirebaseRepository();
     final authService = AuthService(firebaseRepo);
     final session = SessionService(authService);

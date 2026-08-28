@@ -54,16 +54,25 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     BuildContext context,
     List<ActionHistory> filteredList,
   ) {
+    // Search and filters live in the body rather than in `AppBar.bottom`.
+    // That slot needs a height declared up front, and the 120 points it was
+    // given were less than the field and the chip row actually take once the
+    // text scale or a landscape toolbar changes — which is where the overflow
+    // stripes in landscape came from.
     return Scaffold(
       appBar: AppBar(
         title: const Text('Action History'),
         actions: [_buildClearButton()],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(120),
-          child: _buildSearchAndFilters(isDesktop: false),
+      ),
+      body: SafeArea(
+        child: Column(
+          children: [
+            _buildSearchAndFilters(isDesktop: false),
+            const Divider(height: 1),
+            Expanded(child: _buildDataTable(filteredList)),
+          ],
         ),
       ),
-      body: _buildDataTable(filteredList),
     );
   }
 
@@ -79,10 +88,14 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
       body: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
+          SizedBox(
             width: 300,
-            padding: const EdgeInsets.all(16),
-            child: _buildSearchAndFilters(isDesktop: true),
+            // The filter column is taller than a short window, so it scrolls
+            // rather than overflowing.
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: _buildSearchAndFilters(isDesktop: true),
+            ),
           ),
           const VerticalDivider(width: 1),
           Expanded(
@@ -198,7 +211,10 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
               filtersWidget,
             ],
           )
-        : Column(children: [searchField, filtersWidget]);
+        : Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [searchField, filtersWidget],
+          );
   }
 
   Widget _buildDataTable(List<ActionHistory> list) {

@@ -32,13 +32,19 @@ class ProductAdapter extends TypeAdapter<Product> {
       isDeleted: fields[12] == null ? false : fields[12] as bool,
       lastSyncedAt: fields[13] as DateTime?,
       isSynced: fields[14] == null ? false : fields[14] as bool,
+      hsn: fields[15] == null ? '' : fields[15] as String,
+      uqc: fields[16] == null ? 'PCS' : fields[16] as String,
+      gstTreatment: fields[17] == null ? 'TAXABLE' : fields[17] as String,
+      gstRate: fields[18] == null ? 0.0 : (fields[18] as num?)?.toDouble(),
+      cessRate: fields[19] == null ? 0.0 : (fields[19] as num).toDouble(),
+      gstRateConfigId: fields[20] as String?,
     );
   }
 
   @override
   void write(BinaryWriter writer, Product obj) {
     writer
-      ..writeByte(15)
+      ..writeByte(21)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -68,7 +74,19 @@ class ProductAdapter extends TypeAdapter<Product> {
       ..writeByte(13)
       ..write(obj.lastSyncedAt)
       ..writeByte(14)
-      ..write(obj.isSynced);
+      ..write(obj.isSynced)
+      ..writeByte(15)
+      ..write(obj.hsn)
+      ..writeByte(16)
+      ..write(obj.uqc)
+      ..writeByte(17)
+      ..write(obj.gstTreatment)
+      ..writeByte(18)
+      ..write(obj.gstRate)
+      ..writeByte(19)
+      ..write(obj.cessRate)
+      ..writeByte(20)
+      ..write(obj.gstRateConfigId);
   }
 
   @override
@@ -102,13 +120,14 @@ class ProductVariantAdapter extends TypeAdapter<ProductVariant> {
       stockOut: fields[6] == null ? 0 : (fields[6] as num).toInt(),
       reorderLevel: fields[7] == null ? 5 : (fields[7] as num).toInt(),
       sku: fields[8] == null ? '' : fields[8] as String,
+      costPrice: fields[9] == null ? 0.0 : (fields[9] as num).toDouble(),
     );
   }
 
   @override
   void write(BinaryWriter writer, ProductVariant obj) {
     writer
-      ..writeByte(9)
+      ..writeByte(10)
       ..writeByte(0)
       ..write(obj.size)
       ..writeByte(1)
@@ -126,7 +145,9 @@ class ProductVariantAdapter extends TypeAdapter<ProductVariant> {
       ..writeByte(7)
       ..write(obj.reorderLevel)
       ..writeByte(8)
-      ..write(obj.sku);
+      ..write(obj.sku)
+      ..writeByte(9)
+      ..write(obj.costPrice);
   }
 
   @override

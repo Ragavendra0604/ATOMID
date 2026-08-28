@@ -60,7 +60,8 @@ void main() {
     final saved = store.repository.getProductById(product.id)!;
     expect(saved.variants.first.quantity, 12);
 
-    final movements = store.repository.getAllMovements()
+    final movements = store.repository
+        .getAllMovements()
         .where((m) => m.variantBarcode == barcode)
         .toList();
     expect(movements, hasLength(1));
@@ -78,7 +79,8 @@ void main() {
     final saved = store.repository.getProductById(product.id)!;
     expect(saved.variants.first.quantity, 4);
 
-    final movements = store.repository.getAllMovements()
+    final movements = store.repository
+        .getAllMovements()
         .where((m) => m.variantBarcode == product.variants.first.barcode)
         .toList();
     expect(movements, hasLength(1));

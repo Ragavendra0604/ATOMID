@@ -440,25 +440,25 @@ class PurchaseDetailsScreen extends ConsumerWidget {
                 children: [
                   Text(
                     '${Fmt.money(outstanding, symbol)} outstanding',
-                style: Theme.of(ctx).textTheme.bodySmall,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: amountCtrl,
-                autofocus: true,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: InputDecoration(
-                  labelText: 'Amount',
-                  prefixText: symbol,
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: notesCtrl,
-                decoration: const InputDecoration(labelText: 'Notes'),
-              ),
+                    style: Theme.of(ctx).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: amountCtrl,
+                    autofocus: true,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: InputDecoration(
+                      labelText: 'Amount',
+                      prefixText: symbol,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: notesCtrl,
+                    decoration: const InputDecoration(labelText: 'Notes'),
+                  ),
                 ],
               ),
             ),
@@ -500,14 +500,10 @@ class PurchaseDetailsScreen extends ConsumerWidget {
               notes: notesCtrl.text.trim(),
             );
         messenger.showSnackBar(
-          SnackBar(
-            content: Text('${Fmt.money(amount, symbol)} recorded.'),
-          ),
+          SnackBar(content: Text('${Fmt.money(amount, symbol)} recorded.')),
         );
       } catch (error) {
-        messenger.showSnackBar(
-          SnackBar(content: Text(describeError(error))),
-        );
+        messenger.showSnackBar(SnackBar(content: Text(describeError(error))));
       }
     } finally {
       // Built per invocation: without this every payment leaks two

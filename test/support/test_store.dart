@@ -6,6 +6,7 @@ import 'package:atomid/core/utils/ids.dart';
 import 'package:atomid/data/models/customer_model.dart';
 import 'package:atomid/data/models/product_model.dart';
 import 'package:atomid/data/models/supplier_model.dart';
+import 'package:atomid/data/models/company_model.dart';
 import 'package:atomid/data/repositories/storage_repository.dart';
 
 /// Spins up a real [StorageRepository] on a throwaway Hive directory.
@@ -21,12 +22,34 @@ class TestStore {
 
   /// Pass [repository] to substitute a subclass that fails on demand, for
   /// tests that need a write to blow up part way through a transaction.
-  static Future<TestStore> open({StorageRepository? repository}) async {
+  /// Opens an empty store — a fresh install, with nothing configured.
+  ///
+  /// GST refuses to guess where the shop is, so a store with no company
+  /// cannot bill at all. That is correct on a fresh install and the wrong
+  /// starting point for a test about billing, so those pass
+  /// `configureShop: true`. It stays opt-in because seeding a company also
+  /// queues a sync record, which the sync tests count.
+  static Future<TestStore> open({
+    StorageRepository? repository,
+    bool configureShop = false,
+  }) async {
     final directory = await Directory.systemTemp.createTemp('atomid_test_');
 
     final repo = repository ?? StorageRepository();
     await repo.init(storagePath: directory.path);
     repo.deviceId = 'dev_test_abcd';
+
+    if (configureShop) {
+      await repo.saveCompany(
+        CompanyModel(
+          name: 'Atomid Store',
+          gstNumber: '33AAAAA0000A1Z5',
+          state: 'Tamil Nadu',
+          stateCode: '33',
+        ),
+      );
+    }
+
     return TestStore._(repo, directory);
   }
 
@@ -47,6 +70,7 @@ class TestStore {
     double price = 100,
     int quantity = 10,
     int reorderLevel = 3,
+    double? gstRate,
   }) async {
     final product = Product(
       id: Ids.generate(),
@@ -55,6 +79,8 @@ class TestStore {
       category: 'General',
       brand: 'Brand',
       color: 'Red',
+      gstTreatment: 'TAXABLE',
+      gstRate: gstRate ?? 0.0,
       createdDate: DateTime.now(),
       updatedDate: DateTime.now(),
       variants: [
@@ -90,12 +116,24 @@ class TestStore {
     return customer;
   }
 
-  Future<Supplier> addSupplier({String name = 'Acme Textiles'}) async {
+  /// A supplier in the shop's own state unless told otherwise.
+  ///
+  /// The state is not decoration: purchase GST refuses to guess where a
+  /// supplier is, so a fixture without one cannot be taxed at all.
+  Future<Supplier> addSupplier({
+    String name = 'Acme Textiles',
+    String state = 'Tamil Nadu',
+    String stateCode = '33',
+    String gstNumber = '',
+  }) async {
     final supplier = Supplier(
       id: Ids.generate(),
       supplierCode: 'S-1',
       supplierName: name,
       phone: '9000000002',
+      state: state,
+      stateCode: stateCode,
+      gstNumber: gstNumber,
       createdDate: DateTime.now(),
       updatedDate: DateTime.now(),
     );

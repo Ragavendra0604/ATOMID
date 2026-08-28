@@ -6,6 +6,8 @@ import 'package:atomid/core/utils/app_error.dart';
 import 'package:atomid/core/utils/formatters.dart';
 import 'package:atomid/core/utils/responsive.dart';
 import 'package:atomid/data/models/customer_model.dart';
+import 'package:atomid/data/models/settings_model.dart';
+import 'package:atomid/domain/gst/gst_states.dart';
 import 'package:atomid/domain/pricing.dart';
 import 'package:atomid/domain/services/sale_service.dart';
 import 'package:atomid/presentation/features/billing/invoice_preview_screen.dart';
@@ -23,8 +25,6 @@ class CheckoutScreen extends ConsumerStatefulWidget {
 
 class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   static const _paymentMethods = ['Cash', 'UPI', 'Card', 'Credit'];
-
-  /// Offered as one-tap chips; a cashier at a queue should not have to type.
   static const _discountPresets = [0.0, 5.0, 10.0, 15.0, 20.0];
 
   final _notesController = TextEditingController();
@@ -32,6 +32,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
 
   String _paymentMethod = 'Cash';
   Customer? _customer;
+  String? _destinationStateCode;
   bool _redeemPoints = false;
   double _discountPercent = 0;
   bool _isProcessing = false;
@@ -46,6 +47,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   CheckoutRequest _buildRequest() => CheckoutRequest(
     items: ref.read(cartProvider),
     customer: _customer,
+    destinationStateCode: _destinationStateCode,
     paymentMethod: _paymentMethod,
     notes: _notesController.text.trim(),
     discountPercent: _discountPercent,
@@ -54,8 +56,6 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   );
 
   Future<void> _confirmSale() async {
-    // Re-entrancy guard. setState only schedules a rebuild, so two taps landing
-    // in the same frame both reach here and bill the customer twice.
     if (_isProcessing) return;
     setState(() => _isProcessing = true);
     try {
@@ -113,12 +113,17 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
             children: [
               CircularProgressIndicator(),
               SizedBox(height: 20),
-              Text('Recording sale and updating stock…'),
+              Text('Recording sale and freezing tax snapshot…'),
             ],
           ),
         ),
       );
     }
+
+    final hasTaxIssues = totals.gstResult != null && !totals.gstResult!.isValid;
+    final isGstinValid =
+        _customer?.gstNumber.isNotEmpty == true &&
+        GstStates.isValidGstin(_customer!.gstNumber);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Checkout')),
@@ -130,30 +135,122 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _sectionTitle('Customer'),
+                if (hasTaxIssues)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50,
+                      border: Border.all(color: Colors.red.shade300),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.error_outline, color: Colors.red.shade800),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            totals.gstResult!.errors.join('\n'),
+                            style: TextStyle(
+                              color: Colors.red.shade900,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                _sectionTitle('Customer (Optional for Walk-in)'),
                 CustomerLookupField(
                   selected: _customer,
                   onSelected: (c) => setState(() {
                     _customer = c;
                     _redeemPoints = false;
+                    if (c != null && c.stateCode.isNotEmpty) {
+                      _destinationStateCode = c.stateCode;
+                    }
                   }),
                 ),
-                if (_customer != null && loyalty.isLoyaltyEnabled)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: RewardDiscountWidget(
-                      availablePoints: _customer!.totalRewardPoints,
-                      maxRedeemableValue: SalePricing.maxRedeemableValue(
-                        loyalty: loyalty,
-                        availablePoints: _customer!.totalRewardPoints,
-                        subtotal: totals.subtotal,
+                if (_customer != null) ...[
+                  if (_customer!.gstNumber.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6, left: 4),
+                      child: Row(
+                        children: [
+                          Icon(
+                            isGstinValid
+                                ? Icons.check_circle
+                                : Icons.error_outline,
+                            size: 16,
+                            color: isGstinValid ? Colors.green : Colors.orange,
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              isGstinValid
+                                  ? 'B2B GSTIN format valid (${_customer!.gstNumber})'
+                                  : 'GSTIN format incomplete (${_customer!.gstNumber})',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                color: isGstinValid
+                                    ? Colors.green
+                                    : Colors.orange,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                      isRedeeming: _redeemPoints,
-                      currencySymbol: settings.currencySymbol,
-                      onChanged: (value) =>
-                          setState(() => _redeemPoints = value ?? false),
                     ),
+                  if (loyalty.isLoyaltyEnabled)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: RewardDiscountWidget(
+                        availablePoints: _customer!.totalRewardPoints,
+                        maxRedeemableValue: SalePricing.maxRedeemableValue(
+                          loyalty: loyalty,
+                          availablePoints: _customer!.totalRewardPoints,
+                          subtotal: totals.subtotal,
+                        ),
+                        isRedeeming: _redeemPoints,
+                        currencySymbol: settings.currencySymbol,
+                        onChanged: (value) =>
+                            setState(() => _redeemPoints = value ?? false),
+                      ),
+                    ),
+                ],
+
+                if (settings.walkInPosPolicy == 'ASK_AT_CHECKOUT' ||
+                    (_customer?.state.isNotEmpty == true)) ...[
+                  const SizedBox(height: 20),
+                  _sectionTitle('Place of Supply (Destination)'),
+                  DropdownButtonFormField<String>(
+                    initialValue:
+                        _destinationStateCode ??
+                        (_customer?.stateCode.isNotEmpty == true
+                            ? _customer!.stateCode
+                            : null),
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Place of Supply (Delivery State)',
+                      border: OutlineInputBorder(),
+                      helperText:
+                          'Determines whether bill is Intra-State (CGST+SGST) or Inter-State (IGST)',
+                    ),
+                    items: GstStates.allStates.map((s) {
+                      return DropdownMenuItem(
+                        value: s.code,
+                        child: Text(
+                          '${s.name} (${s.code})',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: (val) =>
+                        setState(() => _destinationStateCode = val),
                   ),
+                ],
 
                 const SizedBox(height: 28),
                 _sectionTitle('Discount'),
@@ -198,7 +295,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                 ),
 
                 const SizedBox(height: 28),
-                _sectionTitle('Payment method'),
+                _sectionTitle('Payment Method'),
                 const SizedBox(height: 4),
                 _PaymentMethodSelector(
                   methods: _paymentMethods,
@@ -220,19 +317,19 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                 _SummaryCard(totals: totals, settings: settings),
 
                 const SizedBox(height: 28),
-                _sectionTitle('Notes'),
+                _sectionTitle('Notes / Remarks'),
                 TextField(
                   controller: _notesController,
                   maxLines: 2,
                   decoration: const InputDecoration(
-                    hintText: 'Optional note for this invoice',
+                    hintText: 'Optional note printed on this invoice',
                     border: OutlineInputBorder(),
                   ),
                 ),
 
                 const SizedBox(height: 32),
                 FilledButton.icon(
-                  onPressed: _confirmSale,
+                  onPressed: hasTaxIssues ? null : _confirmSale,
                   icon: const Icon(Icons.check_circle_outline),
                   label: Text(
                     'Charge ${Fmt.money(totals.grandTotal, settings.currencySymbol)}',
@@ -254,8 +351,6 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     );
   }
 
-  /// Turns the percentage into money as the cashier types, so the figure
-  /// they are giving away is never left to mental arithmetic.
   String? _discountHelper(SaleTotals totals, String symbol) {
     if (_discountPercent <= 0) return null;
     if (totals.discountPercent < _discountPercent) {
@@ -288,13 +383,17 @@ class _PaymentMethodSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SegmentedButton<String>(
-      segments: methods
-          .map((m) => ButtonSegment(value: m, label: Text(m)))
-          .toList(),
-      selected: {selected},
-      showSelectedIcon: false,
-      onSelectionChanged: (values) => onChanged(values.first),
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: methods.map((m) {
+        final isSelected = selected == m;
+        return ChoiceChip(
+          label: Text(m),
+          selected: isSelected,
+          onSelected: (_) => onChanged(m),
+        );
+      }).toList(),
     );
   }
 }
@@ -374,25 +473,59 @@ class _CreditNotice extends StatelessWidget {
 
 class _SummaryCard extends StatelessWidget {
   final SaleTotals totals;
-  final dynamic settings;
+  final SettingsModel settings;
 
   const _SummaryCard({required this.totals, required this.settings});
 
   @override
   Widget build(BuildContext context) {
-    final symbol = settings.currencySymbol as String;
+    final symbol = settings.currencySymbol;
     final theme = Theme.of(context);
 
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _row(context, 'Subtotal', Fmt.money(totals.subtotal, symbol)),
+            Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                Text(
+                  'Tax & Invoice Breakdown',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                if (totals.placeOfSupply.isNotEmpty)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      'POS: ${totals.placeOfSupply} (${totals.isInterState ? "Inter-State" : "Intra-State"})',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _row(context, 'Gross Subtotal', Fmt.money(totals.subtotal, symbol)),
             if (totals.rewardDiscount > 0)
               _row(
                 context,
-                'Reward points',
+                'Reward Points Discount',
                 '−${Fmt.money(totals.rewardDiscount, symbol)}',
                 color: Colors.green.shade700,
               ),
@@ -403,23 +536,57 @@ class _SummaryCard extends StatelessWidget {
                 '−${Fmt.money(totals.manualDiscount, symbol)}',
                 color: Colors.orange.shade800,
               ),
-            if (totals.taxAmount > 0)
+            if (totals.taxableAmount > 0)
               _row(
                 context,
-                settings.taxMode == TaxMode.inclusive
-                    ? 'Tax (${settings.taxRate}% incl.)'
-                    : 'Tax (${settings.taxRate}%)',
-                Fmt.money(totals.taxAmount, symbol),
+                'Net Taxable Value',
+                Fmt.money(totals.taxableAmount, symbol),
               ),
-            const Divider(height: 28),
+            if (totals.isInterState) ...[
+              if (totals.igstAmount > 0)
+                _row(
+                  context,
+                  'Integrated GST (IGST)',
+                  Fmt.money(totals.igstAmount, symbol),
+                ),
+            ] else ...[
+              if (totals.cgstAmount > 0)
+                _row(
+                  context,
+                  'Central GST (CGST)',
+                  Fmt.money(totals.cgstAmount, symbol),
+                ),
+              if (totals.isUtgst && totals.utgstAmount > 0)
+                _row(
+                  context,
+                  'Union Territory GST (UTGST)',
+                  Fmt.money(totals.utgstAmount, symbol),
+                )
+              else if (totals.sgstAmount > 0)
+                _row(
+                  context,
+                  'State GST (SGST)',
+                  Fmt.money(totals.sgstAmount, symbol),
+                ),
+            ],
+            if (totals.cessAmount > 0)
+              _row(
+                context,
+                'Compensation Cess',
+                Fmt.money(totals.cessAmount, symbol),
+              ),
+            if (totals.roundOff != 0.0)
+              _row(
+                context,
+                'Round-Off Adjustment',
+                '${totals.roundOff >= 0 ? "+" : ""}${Fmt.money(totals.roundOff, symbol)}',
+                color: Colors.blueGrey,
+              ),
+            const Divider(height: 24),
             Row(
               children: [
-                Text('Total due', style: theme.textTheme.titleMedium),
+                Text('Payable Amount', style: theme.textTheme.titleMedium),
                 const SizedBox(width: 12),
-                // The amount is set in a headline face, so on a 320px phone
-                // the pair outgrew the card. It takes the remaining width and
-                // shrinks to fit rather than overflowing — the figure the
-                // customer pays must stay legible and whole.
                 Expanded(
                   child: FittedBox(
                     fit: BoxFit.scaleDown,
@@ -449,7 +616,7 @@ class _SummaryCard extends StatelessWidget {
                     ),
                     const SizedBox(width: 6),
                     Text(
-                      'Earns ${Fmt.points(totals.pointsEarned)}',
+                      'Customer earns ${Fmt.points(totals.pointsEarned)} points',
                       style: TextStyle(
                         fontSize: 12,
                         color: Colors.green.shade700,
@@ -472,18 +639,15 @@ class _SummaryCard extends StatelessWidget {
     Color? color,
   }) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         children: [
-          // The label yields space rather than pushing the amount off the
-          // card; what the customer is charged must never be the part that
-          // gets clipped.
           Expanded(
             child: Text(
               label,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                fontSize: 15,
+                fontSize: 14,
                 color: color ?? Theme.of(context).colorScheme.onSurfaceVariant,
               ),
             ),
@@ -492,7 +656,7 @@ class _SummaryCard extends StatelessWidget {
           Text(
             value,
             style: TextStyle(
-              fontSize: 15,
+              fontSize: 14,
               fontWeight: FontWeight.w600,
               color: color,
               fontFeatures: const [FontFeature.tabularFigures()],

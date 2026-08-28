@@ -38,12 +38,20 @@ void main() {
     });
 
     test('an order with no payments has had nothing paid', () {
-      expect(PurchasePayment.paidAgainst('PO-9', [row(reference: 'PO-1', debit: 10)]), 0);
+      expect(
+        PurchasePayment.paidAgainst('PO-9', [
+          row(reference: 'PO-1', debit: 10),
+        ]),
+        0,
+      );
     });
 
     test('an empty purchase number matches nothing', () {
       // Guards against a blank reference sweeping up every account-level row.
-      expect(PurchasePayment.paidAgainst('', [row(reference: '', debit: 500)]), 0);
+      expect(
+        PurchasePayment.paidAgainst('', [row(reference: '', debit: 500)]),
+        0,
+      );
     });
   });
 
@@ -106,16 +114,17 @@ void main() {
       // The excess is real and sits on the supplier balance, which is where a
       // shopkeeper looks for it — an order showing minus one thousand due is
       // just confusing.
-      expect(
-        PurchasePayment.outstanding(grandTotal: 5000, paidSoFar: 6000),
-        0,
-      );
+      expect(PurchasePayment.outstanding(grandTotal: 5000, paidSoFar: 6000), 0);
     });
   });
 
   group('allocating an existing shop\'s payments', () {
-    Purchase order(String number, double total, DateTime when,
-        {String status = 'Received'}) => Purchase(
+    Purchase order(
+      String number,
+      double total,
+      DateTime when, {
+      String status = 'Received',
+    }) => Purchase(
       id: Ids.generate(),
       purchaseNumber: number,
       supplierId: 's1',
@@ -208,5 +217,4 @@ void main() {
       expect(paid['PO-1'], isNull, reason: 'a credit is the bill, not payment');
     });
   });
-
 }

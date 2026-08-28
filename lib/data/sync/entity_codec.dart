@@ -2,6 +2,7 @@ import 'package:atomid/data/models/company_model.dart';
 import 'package:atomid/data/models/customer_ledger_model.dart';
 import 'package:atomid/data/models/customer_model.dart';
 import 'package:atomid/data/models/expense_model.dart';
+import 'package:atomid/data/models/gst_rate_config_model.dart';
 import 'package:atomid/data/models/inventory_movement_model.dart';
 import 'package:atomid/data/models/invoice_settings_model.dart';
 import 'package:atomid/data/models/loyalty_settings_model.dart';
@@ -13,12 +14,7 @@ import 'package:atomid/data/models/settings_model.dart';
 import 'package:atomid/data/models/supplier_ledger_model.dart';
 import 'package:atomid/data/models/supplier_model.dart';
 
-/// Rebuilds local models from Firestore documents.
-///
-/// The encode side lives in `StorageRepository.getEntityJson`; this is its
-/// mirror. Anything added to a model must appear in both, and
-/// `test/unit/sync_payload_test.dart` asserts the round trip so a field cannot
-/// go missing silently the way `Expense.title` and `Purchase.status` did.
+/// Rebuilds local models from Firestore documents and cloud backups.
 class EntityCodec {
   const EntityCodec._();
 
@@ -47,6 +43,8 @@ class EntityCodec {
         return 'customerLedgers';
       case 'SupplierLedger':
         return 'supplierLedgers';
+      case 'GstRateConfig':
+        return 'gstRateConfigs';
       case 'SettingsModel':
       case 'CompanyModel':
       case 'InvoiceSettingsModel':
@@ -58,28 +56,23 @@ class EntityCodec {
   }
 
   /// Types that are always fetched in full, never incrementally.
-  ///
-  /// These are the one-document-per-store config records. They now carry a
-  /// real `updatedAt`, so recency *is* comparable — but documents written by
-  /// an older build do not, and Firestore omits those from a range query
-  /// rather than ranking them. Five documents in total, so fetching them
-  /// whole costs nothing worth optimising and cannot strand an old one.
   static const alwaysFullPull = {
     'SettingsModel',
     'CompanyModel',
     'InvoiceSettingsModel',
     'LoyaltySettingsModel',
     'ExpenseCategory',
+    'GstRateConfig',
   };
 
-  /// Entity types pulled down on a refresh, in dependency order — products and
-  /// customers must exist before the sales that reference them.
+  /// Entity types pulled down on a refresh, in dependency order.
   static const pullOrder = [
     'SettingsModel',
     'CompanyModel',
     'InvoiceSettingsModel',
     'LoyaltySettingsModel',
     'ExpenseCategory',
+    'GstRateConfig',
     'Product',
     'Customer',
     'Supplier',
@@ -97,27 +90,15 @@ class EntityCodec {
   static String _str(dynamic value, [String fallback = '']) =>
       value is String ? value : fallback;
 
-  /// Largest and smallest values a 64-bit int can hold, as doubles. A double
-  /// outside this range has no faithful int representation.
   static const double _maxInt = 9223372036854775807.0;
   static const double _minInt = -9223372036854775808.0;
 
-  /// A number, rejecting the ones that are technically `num` but not usable.
-  ///
-  /// `NaN` and `Infinity` are both `num`, and Firestore will store them
-  /// happily. Letting one through is worse than a crash: `Fmt.round2` and
-  /// every `fold` in the app propagate `NaN`, so a single poisoned price turns
-  /// a subtotal, a grand total, a day's takings and an exported report all
-  /// into `NaN` with nothing pointing back at the cause.
   static double _dbl(dynamic value, [double fallback = 0]) =>
       value is num && value.isFinite ? value.toDouble() : fallback;
 
-  /// An integer, rejecting non-finite and out-of-range values.
-  ///
-  /// `toInt()` throws outright on `NaN`/`Infinity` — which aborted the pull
-  /// for a whole collection — and cannot faithfully represent a double beyond
-  /// the 64-bit range. Both resolve to the fallback rather than to a crash or
-  /// an arbitrary number. Found by fuzzing.
+  static double? _dblOrNull(dynamic value) =>
+      value is num && value.isFinite ? value.toDouble() : null;
+
   static int _int(dynamic value, [int fallback = 0]) {
     if (value is! num || !value.isFinite) return fallback;
     if (value > _maxInt || value < _minInt) return fallback;
@@ -141,33 +122,11 @@ class EntityCodec {
   static List<String> _strList(dynamic value) =>
       value is List ? value.whereType<String>().toList() : const [];
 
-  /// A list field, or empty when the payload holds something else.
-  ///
-  /// Every scalar above type-checks and falls back. The list fields did not —
-  /// they used a raw `as List?`, which throws a `TypeError` on a Map, String,
-  /// bool or number. That is not a one-record failure: `SyncService.pullAll`
-  /// catches per *collection*, so a single malformed document aborted the pull
-  /// for every product (or sale, or purchase) in the store, and because the
-  /// watermark only advances on a fully successful pull, that collection then
-  /// stayed behind indefinitely. Found by fuzzing the decoder.
   static List<dynamic> _list(dynamic value) =>
       value is List ? value : const <dynamic>[];
 
-  /// An optional string, or null when the payload holds a non-string.
-  ///
-  /// `as String?` throws on an int; this is the same defensive shape as
-  /// [_str] but preserving the "absent" case the models expect.
   static String? _strOrNull(dynamic value) => value is String ? value : null;
 
-  /// The timestamp used to decide which copy of a record wins.
-  ///
-  /// The most recent of everything the payload offers, rather than the first
-  /// field that happens to be present. Payloads now carry a uniform
-  /// `updatedAt` alongside whatever the model calls its own timestamp
-  /// (`updatedDate` on Product and Supplier), and preferring one blindly
-  /// means any disagreement between them can reject a genuinely newer record
-  /// — silently, and in the direction that loses an edit. Taking the maximum
-  /// cannot fail that way: a newer value wins whichever field it arrives in.
   static DateTime? remoteUpdatedAt(Map<String, dynamic> json) {
     final candidates = <DateTime>[
       for (final key in const ['updatedAt', 'updatedDate', 'createdDate'])
@@ -194,6 +153,12 @@ class EntityCodec {
     isDeleted: _bool(json['isDeleted']),
     isSynced: true,
     lastSyncedAt: DateTime.now(),
+    hsn: _str(json['hsn']),
+    uqc: _str(json['uqc'], 'PCS'),
+    gstTreatment: _str(json['gstTreatment'], 'TAXABLE'),
+    gstRate: _dblOrNull(json['gstRate']),
+    cessRate: _dbl(json['cessRate']),
+    gstRateConfigId: _strOrNull(json['gstRateConfigId']),
     variants: _list(json['variants'])
         .whereType<Map>()
         .map(
@@ -207,6 +172,7 @@ class EntityCodec {
             stockOut: _int(v['stockOut']),
             reorderLevel: _int(v['reorderLevel'], 5),
             lastStockUpdated: _dateOrNull(v['lastStockUpdated']),
+            costPrice: _dbl(v['costPrice']),
           ),
         )
         .toList(),
@@ -239,6 +205,10 @@ class EntityCodec {
     notes: _str(json['notes']),
     tags: _strList(json['tags']),
     attachments: _strList(json['attachments']),
+    state: _str(json['state']),
+    stateCode: _str(json['stateCode']),
+    city: _str(json['city']),
+    pincode: _str(json['pincode']),
   );
 
   static Supplier supplier(Map<String, dynamic> json) => Supplier(
@@ -261,6 +231,10 @@ class EntityCodec {
     supplierCategory: _str(json['supplierCategory']),
     attachments: _strList(json['attachments']),
     isDeleted: _bool(json['isDeleted']),
+    state: _str(json['state']),
+    stateCode: _str(json['stateCode']),
+    city: _str(json['city']),
+    pincode: _str(json['pincode']),
   );
 
   static Sale sale(Map<String, dynamic> json) => Sale(
@@ -285,6 +259,29 @@ class EntityCodec {
     deviceId: _str(json['deviceId']),
     createdBy: _str(json['createdBy']),
     isDeleted: _bool(json['isDeleted']),
+    sellerGstin: _str(json['sellerGstin']),
+    sellerState: _str(json['sellerState']),
+    sellerStateCode: _str(json['sellerStateCode']),
+    sellerLegalName: _str(json['sellerLegalName']),
+    sellerAddress: _str(json['sellerAddress']),
+    customerGstin: _str(json['customerGstin']),
+    customerState: _str(json['customerState']),
+    customerStateCode: _str(json['customerStateCode']),
+    customerAddress: _str(json['customerAddress']),
+    customerPhone: _str(json['customerPhone']),
+    placeOfSupply: _str(json['placeOfSupply']),
+    placeOfSupplyBasis: _str(json['placeOfSupplyBasis']),
+    pricingMode: _str(json['pricingMode'], 'inclusive'),
+    taxableAmount: _dbl(json['taxableAmount']),
+    cgstAmount: _dbl(json['cgstAmount']),
+    sgstAmount: _dbl(json['sgstAmount']),
+    utgstAmount: _dbl(json['utgstAmount']),
+    igstAmount: _dbl(json['igstAmount']),
+    cessAmount: _dbl(json['cessAmount']),
+    preRoundTotal: _dbl(json['preRoundTotal']),
+    roundOff: _dbl(json['roundOff']),
+    documentType: _str(json['documentType'], 'Tax Invoice'),
+    isInterState: _bool(json['isInterState']),
     items: _list(json['items'])
         .whereType<Map>()
         .map(
@@ -297,6 +294,19 @@ class EntityCodec {
             price: _dbl(i['price']),
             quantity: _int(i['quantity']),
             total: _dbl(i['total']),
+            hsn: _str(i['hsn']),
+            uqc: _str(i['uqc'], 'PCS'),
+            gstRate: _dblOrNull(i['gstRate']),
+            gstTreatment: _str(i['gstTreatment'], 'TAXABLE'),
+            cessRate: _dbl(i['cessRate']),
+            taxableValue: _dbl(i['taxableValue']),
+            discountAmount: _dbl(i['discountAmount']),
+            cgstAmount: _dbl(i['cgstAmount']),
+            sgstAmount: _dbl(i['sgstAmount']),
+            utgstAmount: _dbl(i['utgstAmount']),
+            igstAmount: _dbl(i['igstAmount']),
+            cessAmount: _dbl(i['cessAmount']),
+            gstRateConfigId: _strOrNull(i['gstRateConfigId']),
           ),
         )
         .toList(),
@@ -324,6 +334,27 @@ class EntityCodec {
     deviceId: _str(json['deviceId']),
     createdBy: _str(json['createdBy']),
     isDeleted: _bool(json['isDeleted']),
+    supplierInvoiceNumber: _str(json['supplierInvoiceNumber']),
+    supplierInvoiceDate: _dateOrNull(json['supplierInvoiceDate']),
+    supplierGstin: _str(json['supplierGstin']),
+    supplierState: _str(json['supplierState']),
+    supplierStateCode: _str(json['supplierStateCode']),
+    supplierAddress: _str(json['supplierAddress']),
+    itcEligibility: _str(json['itcEligibility'], 'REQUIRES_DETERMINATION'),
+    taxableAmount: _dbl(json['taxableAmount']),
+    cgstAmount: _dbl(json['cgstAmount']),
+    sgstAmount: _dbl(json['sgstAmount']),
+    utgstAmount: _dbl(json['utgstAmount']),
+    igstAmount: _dbl(json['igstAmount']),
+    cessAmount: _dbl(json['cessAmount']),
+    roundOff: _dbl(json['roundOff']),
+    preRoundTotal: _dbl(json['preRoundTotal']),
+    pricingMode: _str(json['pricingMode'], 'exclusive'),
+    recipientName: _str(json['recipientName']),
+    recipientGstin: _str(json['recipientGstin']),
+    recipientState: _str(json['recipientState']),
+    recipientStateCode: _str(json['recipientStateCode']),
+    isInterState: _bool(json['isInterState']),
     items: _list(json['items'])
         .whereType<Map>()
         .map(
@@ -338,6 +369,19 @@ class EntityCodec {
             sellingPrice: _dbl(i['sellingPrice']),
             lineTotal: _dbl(i['lineTotal']),
             receivedQuantity: _int(i['receivedQuantity']),
+            hsn: _str(i['hsn']),
+            uqc: _str(i['uqc'], 'PCS'),
+            gstRate: _dblOrNull(i['gstRate']),
+            gstTreatment: _str(i['gstTreatment'], 'TAXABLE'),
+            cessRate: _dbl(i['cessRate']),
+            taxableValue: _dbl(i['taxableValue']),
+            discountAmount: _dbl(i['discountAmount']),
+            cgstAmount: _dbl(i['cgstAmount']),
+            sgstAmount: _dbl(i['sgstAmount']),
+            utgstAmount: _dbl(i['utgstAmount']),
+            igstAmount: _dbl(i['igstAmount']),
+            cessAmount: _dbl(i['cessAmount']),
+            gstRateConfigId: _strOrNull(i['gstRateConfigId']),
           ),
         )
         .toList(),
@@ -357,12 +401,6 @@ class EntityCodec {
     isSynced: true,
   );
 
-  /// The itemised credit history behind a customer's balance.
-  ///
-  /// The balance itself rides on the customer record, so it always survived a
-  /// device swap — but the entries that explain it did not, because ledgers
-  /// were never in the syncable set. "You owe 4,200" with no statement behind
-  /// it is not a usable answer for the person being asked to pay it.
   static CustomerLedger customerLedger(Map<String, dynamic> json) =>
       CustomerLedger(
         id: _str(json['id']),
@@ -427,6 +465,20 @@ class EntityCodec {
         updatedAt: _dateOrNull(json['updatedAt']),
       );
 
+  static GstRateConfig gstRateConfig(Map<String, dynamic> json) =>
+      GstRateConfig(
+        id: _str(json['id']),
+        rateName: _str(json['rateName']),
+        rate: _dbl(json['rate']),
+        cessRate: _dbl(json['cessRate']),
+        effectiveFrom: _date(json['effectiveFrom'], DateTime(2017, 7, 1)),
+        effectiveTo: _dateOrNull(json['effectiveTo']),
+        description: _str(json['description']),
+        isDeleted: _bool(json['isDeleted']),
+        updatedAt: _dateOrNull(json['updatedAt']),
+        isSynced: true,
+      );
+
   static SettingsModel settings(Map<String, dynamic> json) => SettingsModel(
     isDarkMode: _bool(json['isDarkMode'], true),
     companyName: _str(json['companyName'], 'ATOMID STORE'),
@@ -435,6 +487,15 @@ class EntityCodec {
     taxMode: _str(json['taxMode'], 'inclusive'),
     taxRate: _dbl(json['taxRate']),
     updatedAt: _dateOrNull(json['updatedAt']),
+    roundOffEnabled: _bool(json['roundOffEnabled'], true),
+    hsnRequired: _bool(json['hsnRequired'], false),
+    walkInPosPolicy: _str(json['walkInPosPolicy'], 'USE_SHOP_STATE'),
+    showGstBreakdown: _bool(json['showGstBreakdown'], true),
+    showHsnSummary: _bool(json['showHsnSummary'], true),
+    defaultUqc: _str(json['defaultUqc'], 'PCS'),
+    thermalReceiptSize: _str(json['thermalReceiptSize'], '80mm'),
+    showTaxOnThermalReceipt: _bool(json['showTaxOnThermalReceipt'], true),
+    inclusiveTaxRounding: _str(json['inclusiveTaxRounding'], 'SHELF_PRICE'),
   );
 
   static CompanyModel company(Map<String, dynamic> json) => CompanyModel(
@@ -457,6 +518,9 @@ class EntityCodec {
     currency: _str(json['currency'], '₹'),
     financialYear: _str(json['financialYear']),
     updatedAt: _dateOrNull(json['updatedAt']),
+    stateCode: _str(json['stateCode']),
+    gstRegistrationStatus: _str(json['gstRegistrationStatus'], 'Registered'),
+    tradeName: _str(json['tradeName']),
   );
 
   static InvoiceSettingsModel invoiceSettings(Map<String, dynamic> json) =>
@@ -469,6 +533,7 @@ class EntityCodec {
         termsAndConditions: _str(json['termsAndConditions']),
         fontName: _str(json['fontName'], 'Roboto'),
         updatedAt: _dateOrNull(json['updatedAt']),
+        showSignature: _bool(json['showSignature'], true),
       );
 
   static LoyaltySettingsModel loyaltySettings(Map<String, dynamic> json) =>

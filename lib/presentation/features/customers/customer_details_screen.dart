@@ -52,15 +52,31 @@ class _CustomerDetailsScreenState extends ConsumerState<CustomerDetailsScreen> {
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
                 initialValue: paymentMode,
+                isExpanded: true,
                 decoration: const InputDecoration(
                   labelText: 'Payment Mode',
                   border: OutlineInputBorder(),
                 ),
                 items: const [
-                  DropdownMenuItem(value: 'Cash', child: Text('Cash')),
-                  DropdownMenuItem(value: 'UPI', child: Text('UPI')),
-                  DropdownMenuItem(value: 'Card', child: Text('Card')),
-                  DropdownMenuItem(value: 'Bank', child: Text('Bank Transfer')),
+                  DropdownMenuItem(
+                    value: 'Cash',
+                    child: Text('Cash', overflow: TextOverflow.ellipsis),
+                  ),
+                  DropdownMenuItem(
+                    value: 'UPI',
+                    child: Text('UPI', overflow: TextOverflow.ellipsis),
+                  ),
+                  DropdownMenuItem(
+                    value: 'Card',
+                    child: Text('Card', overflow: TextOverflow.ellipsis),
+                  ),
+                  DropdownMenuItem(
+                    value: 'Bank',
+                    child: Text(
+                      'Bank Transfer',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
                 ],
                 onChanged: (v) => paymentMode = v!,
               ),
@@ -144,6 +160,7 @@ class _CustomerDetailsScreenState extends ConsumerState<CustomerDetailsScreen> {
                   ),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<Customer>(
+                    isExpanded: true,
                     decoration: const InputDecoration(
                       labelText: 'Secondary Customer',
                       border: OutlineInputBorder(),
@@ -152,7 +169,10 @@ class _CustomerDetailsScreenState extends ConsumerState<CustomerDetailsScreen> {
                         .map(
                           (c) => DropdownMenuItem(
                             value: c,
-                            child: Text('${c.name} (${c.mobile})'),
+                            child: Text(
+                              '${c.name} (${c.mobile})',
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                         )
                         .toList(),

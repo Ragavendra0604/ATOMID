@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+
+import 'package:atomid/domain/gst/gst_states.dart';
+import 'package:atomid/presentation/widgets/gstin_state_fields.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:atomid/data/models/supplier_model.dart';
 import 'package:atomid/presentation/providers/app_providers.dart';
@@ -29,6 +32,7 @@ class _SupplierFormScreenState extends ConsumerState<SupplierFormScreen> {
   String _supplierCategory = 'General';
   String _paymentTerms = 'Net 30';
   double _rating = 0.0;
+  String _stateCode = '';
 
   @override
   void initState() {
@@ -44,6 +48,7 @@ class _SupplierFormScreenState extends ConsumerState<SupplierFormScreen> {
     _notesCtrl = TextEditingController(text: s?.notes ?? '');
     _openingBalanceCtrl = TextEditingController(text: '0');
 
+    _stateCode = s?.stateCode ?? '';
     _supplierCategory = s?.supplierCategory ?? 'General';
     _paymentTerms = s?.paymentTerms ?? 'Net 30';
     _rating = s?.rating ?? 0.0;
@@ -91,7 +96,9 @@ class _SupplierFormScreenState extends ConsumerState<SupplierFormScreen> {
       phone: _phoneCtrl.text.trim(),
       email: _emailCtrl.text.trim(),
       address: _addressCtrl.text.trim(),
-      gstNumber: _gstCtrl.text.trim(),
+      gstNumber: _gstCtrl.text.trim().toUpperCase(),
+      state: GstStates.findByCode(_stateCode)?.name ?? '',
+      stateCode: _stateCode,
       contactPerson: _contactPersonCtrl.text.trim(),
       notes: _notesCtrl.text.trim(),
       createdDate: widget.existingSupplier?.createdDate ?? DateTime.now(),
@@ -193,6 +200,7 @@ class _SupplierFormScreenState extends ConsumerState<SupplierFormScreen> {
                           const SizedBox(height: 16),
                           DropdownButtonFormField<String>(
                             initialValue: _supplierCategory,
+                            isExpanded: true,
                             decoration: const InputDecoration(
                               labelText: 'Category',
                               prefixIcon: Icon(Icons.category),
@@ -302,12 +310,13 @@ class _SupplierFormScreenState extends ConsumerState<SupplierFormScreen> {
                             ),
                           ),
                           const SizedBox(height: 16),
-                          TextFormField(
-                            controller: _gstCtrl,
-                            decoration: const InputDecoration(
-                              labelText: 'GST Number',
-                              prefixIcon: Icon(Icons.receipt_long),
-                            ),
+                          GstinStateFields(
+                            partyLabel: 'Supplier',
+                            gstinController: _gstCtrl,
+                            stateCode: _stateCode,
+                            onGstinChanged: () => setState(() {}),
+                            onStateChanged: (code) =>
+                                setState(() => _stateCode = code),
                           ),
                           const SizedBox(height: 16),
                           TextFormField(
@@ -321,6 +330,7 @@ class _SupplierFormScreenState extends ConsumerState<SupplierFormScreen> {
                           const SizedBox(height: 16),
                           DropdownButtonFormField<String>(
                             initialValue: _paymentTerms,
+                            isExpanded: true,
                             decoration: const InputDecoration(
                               labelText: 'Payment Terms',
                               prefixIcon: Icon(Icons.payment),

@@ -29,13 +29,14 @@ class InvoiceSettingsModelAdapter extends TypeAdapter<InvoiceSettingsModel> {
           : fields[5] as String,
       fontName: fields[6] == null ? 'Roboto' : fields[6] as String,
       updatedAt: fields[7] as DateTime?,
+      showSignature: fields[8] == null ? true : fields[8] as bool,
     );
   }
 
   @override
   void write(BinaryWriter writer, InvoiceSettingsModel obj) {
     writer
-      ..writeByte(8)
+      ..writeByte(9)
       ..writeByte(0)
       ..write(obj.footerText)
       ..writeByte(1)
@@ -51,7 +52,9 @@ class InvoiceSettingsModelAdapter extends TypeAdapter<InvoiceSettingsModel> {
       ..writeByte(6)
       ..write(obj.fontName)
       ..writeByte(7)
-      ..write(obj.updatedAt);
+      ..write(obj.updatedAt)
+      ..writeByte(8)
+      ..write(obj.showSignature);
   }
 
   @override

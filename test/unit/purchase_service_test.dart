@@ -3,7 +3,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:atomid/core/utils/app_error.dart';
 import 'package:atomid/core/utils/ids.dart';
 import 'package:atomid/data/models/product_model.dart';
+import 'package:atomid/data/models/company_model.dart';
 import 'package:atomid/data/models/purchase_model.dart';
+import 'package:atomid/domain/gst/gst_treatment.dart';
 import 'package:atomid/data/models/supplier_model.dart';
 import 'package:atomid/domain/services/purchase_service.dart';
 
@@ -18,6 +20,16 @@ void main() {
   setUp(() async {
     store = await TestStore.open();
     service = PurchaseService(store.repository);
+    // The engine refuses to guess a shop state, so the business has to be
+    // configured before a purchase can be taxed.
+    await store.repository.saveCompany(
+      CompanyModel(
+        name: 'Atomid Store',
+        gstNumber: '33AAAAA0000A1Z5',
+        state: 'Tamil Nadu',
+        stateCode: '33',
+      ),
+    );
   });
 
   tearDown(() => store.close());
@@ -50,6 +62,9 @@ void main() {
           costPrice: cost,
           sellingPrice: variant.price,
           lineTotal: cost * quantity,
+          // Explicitly nil-rated: these cases exercise stock and ledger
+          // mechanics, and GST must now be configured rather than defaulted.
+          gstTreatment: GstTreatment.nilRated,
         ),
       ],
     );

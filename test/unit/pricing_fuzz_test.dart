@@ -102,9 +102,10 @@ void main() {
       final afterDiscounts = Fmt.round2(
         t.subtotal - t.manualDiscount - t.rewardDiscount,
       );
-      final expected = taxIsExclusive
+      final expectedPreRound = taxIsExclusive
           ? Fmt.round2(afterDiscounts + t.taxAmount)
           : afterDiscounts;
+      final expected = Fmt.round2(expectedPreRound + t.roundOff);
       expect(
         (expected - t.grandTotal).abs(),
         lessThan(0.005),
@@ -334,7 +335,8 @@ void main() {
       expect(
         (implied - totals.manualDiscount).abs(),
         lessThan(0.005),
-        reason: 'a printed percentage a customer cannot reproduce is worse '
+        reason:
+            'a printed percentage a customer cannot reproduce is worse '
             'than printing none',
       );
     });

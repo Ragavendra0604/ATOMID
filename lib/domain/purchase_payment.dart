@@ -31,7 +31,10 @@ class PurchasePayment {
   static const double _tolerance = 0.005;
 
   /// Total paid against one purchase number.
-  static double paidAgainst(String purchaseNumber, Iterable<SupplierLedger> ledger) {
+  static double paidAgainst(
+    String purchaseNumber,
+    Iterable<SupplierLedger> ledger,
+  ) {
     if (purchaseNumber.isEmpty) return 0;
     var total = 0.0;
     for (final entry in ledger) {
@@ -44,7 +47,10 @@ class PurchasePayment {
   ///
   /// An order that owes nothing is [paid] whatever has been paid against it —
   /// a zero-value order is not perpetually outstanding.
-  static String status({required double grandTotal, required double paidSoFar}) {
+  static String status({
+    required double grandTotal,
+    required double paidSoFar,
+  }) {
     if (grandTotal <= _tolerance) return paid;
     if (paidSoFar <= _tolerance) return unpaid;
     if (paidSoFar + _tolerance >= grandTotal) return paid;
@@ -117,7 +123,10 @@ class PurchasePayment {
   /// An overpayment shows as settled rather than as a negative amount due:
   /// the excess is real and sits on the supplier's balance, which is where a
   /// shopkeeper looks for it.
-  static double outstanding({required double grandTotal, required double paidSoFar}) {
+  static double outstanding({
+    required double grandTotal,
+    required double paidSoFar,
+  }) {
     final left = grandTotal - paidSoFar;
     return left < 0 ? 0 : left;
   }

@@ -43,9 +43,38 @@ void main() {
       }
     });
 
-    test('the small tag drops the logo to protect the barcode', () {
-      expect(PriceTagSize.small.showLogo, isFalse);
+    test('every size carries the logo', () {
+      for (final size in PriceTagSize.values) {
+        expect(
+          size.showLogo,
+          isTrue,
+          reason: '${size.label} must show the company logo',
+        );
+        expect(
+          size.logoSize,
+          greaterThan(0),
+          reason: '${size.label} logo must have a drawable size',
+        );
+      }
+    });
+
+    test('the small tag keeps the logo inline to protect the barcode', () {
+      expect(PriceTagSize.small.logoInline, isTrue);
       expect(PriceTagSize.small.barcodeHeight, greaterThanOrEqualTo(16));
+      // The taller sizes have room for a row of their own.
+      expect(PriceTagSize.medium.logoInline, isFalse);
+      expect(PriceTagSize.large.logoInline, isFalse);
+    });
+
+    test('an inline logo leaves the name room on the same row', () {
+      for (final size in PriceTagSize.values.where((s) => s.logoInline)) {
+        final cellWidth = PdfPageFormat.a4.width / size.columns;
+        expect(
+          size.logoSize + size.padding * 3,
+          lessThan(cellWidth / 2),
+          reason: '${size.label} logo crowds out the product name',
+        );
+      }
     });
 
     test('medium still matches the long-standing default layout', () {

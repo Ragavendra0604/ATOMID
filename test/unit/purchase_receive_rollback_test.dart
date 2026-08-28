@@ -3,7 +3,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:atomid/core/utils/app_error.dart';
 import 'package:atomid/core/utils/ids.dart';
 import 'package:atomid/data/models/product_model.dart';
+import 'package:atomid/data/models/company_model.dart';
 import 'package:atomid/data/models/purchase_model.dart';
+import 'package:atomid/domain/gst/gst_treatment.dart';
 import 'package:atomid/data/models/supplier_model.dart';
 import 'package:atomid/data/repositories/storage_repository.dart';
 import 'package:atomid/domain/services/purchase_service.dart';
@@ -86,6 +88,7 @@ void main() {
           variantSize: productA.variants.first.size,
           quantity: 10,
           costPrice: 60,
+          gstTreatment: GstTreatment.nilRated,
           sellingPrice: productA.variants.first.price,
           lineTotal: 600,
         ),
@@ -96,6 +99,7 @@ void main() {
           variantSize: productB.variants.first.size,
           quantity: 10,
           costPrice: 60,
+          gstTreatment: GstTreatment.nilRated,
           sellingPrice: productB.variants.first.price,
           lineTotal: 600,
         ),
@@ -110,6 +114,14 @@ void main() {
     setUp(() async {
       store = await TestStore.open();
       service = PurchaseService(store.repository);
+      await store.repository.saveCompany(
+        CompanyModel(
+          name: 'Atomid Store',
+          gstNumber: '33AAAAA0000A1Z5',
+          state: 'Tamil Nadu',
+          stateCode: '33',
+        ),
+      );
     });
 
     tearDown(() => store.close());
@@ -164,6 +176,14 @@ void main() {
     setUp(() async {
       store = await TestStore.open(repository: _SecondStockInFailsRepository());
       service = PurchaseService(store.repository);
+      await store.repository.saveCompany(
+        CompanyModel(
+          name: 'Atomid Store',
+          gstNumber: '33AAAAA0000A1Z5',
+          state: 'Tamil Nadu',
+          stateCode: '33',
+        ),
+      );
     });
 
     tearDown(() => store.close());
@@ -230,20 +250,22 @@ void main() {
     setUp(() async {
       store = await TestStore.open(repository: _SavePurchaseFailsRepository());
       service = PurchaseService(store.repository);
+      await store.repository.saveCompany(
+        CompanyModel(
+          name: 'Atomid Store',
+          gstNumber: '33AAAAA0000A1Z5',
+          state: 'Tamil Nadu',
+          stateCode: '33',
+        ),
+      );
     });
 
     tearDown(() => store.close());
 
     test('the supplier is not left owed for goods never received', () async {
       final supplier = await store.addSupplier();
-      final productA = await store.addProduct(
-        barcode: 'BC-A',
-        quantity: 5,
-      );
-      final productB = await store.addProduct(
-        barcode: 'BC-B',
-        quantity: 5,
-      );
+      final productA = await store.addProduct(barcode: 'BC-A', quantity: 5);
+      final productB = await store.addProduct(barcode: 'BC-B', quantity: 5);
 
       final order = buildTwoItemOrder(
         supplier: supplier,
@@ -282,5 +304,4 @@ void main() {
       );
     });
   });
-
 }

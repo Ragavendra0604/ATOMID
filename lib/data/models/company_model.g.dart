@@ -36,13 +36,18 @@ class CompanyModelAdapter extends TypeAdapter<CompanyModel> {
       currency: fields[16] == null ? '₹' : fields[16] as String,
       financialYear: fields[17] == null ? '' : fields[17] as String,
       updatedAt: fields[18] as DateTime?,
+      stateCode: fields[19] == null ? '' : fields[19] as String,
+      gstRegistrationStatus: fields[20] == null
+          ? 'Registered'
+          : fields[20] as String,
+      tradeName: fields[21] == null ? '' : fields[21] as String,
     );
   }
 
   @override
   void write(BinaryWriter writer, CompanyModel obj) {
     writer
-      ..writeByte(19)
+      ..writeByte(22)
       ..writeByte(0)
       ..write(obj.name)
       ..writeByte(1)
@@ -80,7 +85,13 @@ class CompanyModelAdapter extends TypeAdapter<CompanyModel> {
       ..writeByte(17)
       ..write(obj.financialYear)
       ..writeByte(18)
-      ..write(obj.updatedAt);
+      ..write(obj.updatedAt)
+      ..writeByte(19)
+      ..write(obj.stateCode)
+      ..writeByte(20)
+      ..write(obj.gstRegistrationStatus)
+      ..writeByte(21)
+      ..write(obj.tradeName);
   }
 
   @override

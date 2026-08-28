@@ -22,22 +22,43 @@ class SettingsModel extends HiveObject {
   @HiveField(5)
   double taxRate;
 
-  // Field 6 held `isBiometricEnabled`. The Settings screen offered it as
-  // "Enable Biometric Login", and it was stored, synced and preserved across
-  // restores — but nothing in the app ever read it, and there is no lock of
-  // any kind here. A control that reports protection it does not provide is
-  // worse than no control, so the setting was removed rather than left
-  // standing as a promise the code does not keep.
-  //
-  // Fields 7, 8 and 9 held the outbound email credential and the shop join
-  // code. They went with OTP sign-in and staff sign-up. The numbers are left
-  // unused rather than recycled: Hive resolves fields by index, so reusing one
-  // would read an old value back as whatever replaced it.
-
-  /// When this record last changed, so two devices editing the same
-  /// settings resolve on recency rather than on which pull landed last.
+  /// When this record last changed.
   @HiveField(10)
   DateTime? updatedAt;
+
+  // Additive GST & billing configuration fields
+  @HiveField(11)
+  bool roundOffEnabled;
+
+  @HiveField(12)
+  bool hsnRequired;
+
+  @HiveField(13)
+  String walkInPosPolicy; // 'USE_SHOP_STATE', 'REQUIRE_STATE', 'ASK_AT_CHECKOUT'
+
+  @HiveField(14)
+  bool showGstBreakdown;
+
+  @HiveField(15)
+  bool showHsnSummary;
+
+  @HiveField(16)
+  String defaultUqc;
+
+  @HiveField(17)
+  String thermalReceiptSize; // '58mm' or '80mm'
+
+  @HiveField(18)
+  bool showTaxOnThermalReceipt;
+
+  /// How tax is split out of a tax-inclusive price when the two readings
+  /// disagree by a paisa. 'SHELF_PRICE' keeps the marked price exact and
+  /// takes the tax as the remainder; 'TAX_RATE' computes every tax figure as
+  /// rate x taxable, which can put the line total a paisa above the shelf
+  /// price. A shop preference — neither reading has been confirmed as the
+  /// legally required one.
+  @HiveField(19)
+  String inclusiveTaxRounding; // 'SHELF_PRICE' or 'TAX_RATE'
 
   SettingsModel({
     this.isDarkMode = true,
@@ -47,13 +68,18 @@ class SettingsModel extends HiveObject {
     this.taxMode = 'inclusive',
     this.taxRate = 0,
     this.updatedAt,
+    this.roundOffEnabled = true,
+    this.hsnRequired = false,
+    this.walkInPosPolicy = 'USE_SHOP_STATE',
+    this.showGstBreakdown = true,
+    this.showHsnSummary = true,
+    this.defaultUqc = 'PCS',
+    this.thermalReceiptSize = '80mm',
+    this.showTaxOnThermalReceipt = true,
+    this.inclusiveTaxRounding = 'SHELF_PRICE',
   });
 
   /// Returns a copy with only the named fields changed.
-  ///
-  /// Screens must build their next settings record through this rather than
-  /// calling the constructor: rebuilding from a subset of fields silently
-  /// reset tax on every save and on every dark-mode toggle.
   SettingsModel copyWith({
     bool? isDarkMode,
     String? companyName,
@@ -62,6 +88,15 @@ class SettingsModel extends HiveObject {
     String? taxMode,
     double? taxRate,
     DateTime? updatedAt,
+    bool? roundOffEnabled,
+    bool? hsnRequired,
+    String? walkInPosPolicy,
+    bool? showGstBreakdown,
+    bool? showHsnSummary,
+    String? defaultUqc,
+    String? thermalReceiptSize,
+    bool? showTaxOnThermalReceipt,
+    String? inclusiveTaxRounding,
   }) {
     return SettingsModel(
       isDarkMode: isDarkMode ?? this.isDarkMode,
@@ -71,6 +106,16 @@ class SettingsModel extends HiveObject {
       taxMode: taxMode ?? this.taxMode,
       taxRate: taxRate ?? this.taxRate,
       updatedAt: updatedAt ?? this.updatedAt,
+      roundOffEnabled: roundOffEnabled ?? this.roundOffEnabled,
+      hsnRequired: hsnRequired ?? this.hsnRequired,
+      walkInPosPolicy: walkInPosPolicy ?? this.walkInPosPolicy,
+      showGstBreakdown: showGstBreakdown ?? this.showGstBreakdown,
+      showHsnSummary: showHsnSummary ?? this.showHsnSummary,
+      defaultUqc: defaultUqc ?? this.defaultUqc,
+      thermalReceiptSize: thermalReceiptSize ?? this.thermalReceiptSize,
+      showTaxOnThermalReceipt:
+          showTaxOnThermalReceipt ?? this.showTaxOnThermalReceipt,
+      inclusiveTaxRounding: inclusiveTaxRounding ?? this.inclusiveTaxRounding,
     );
   }
 }

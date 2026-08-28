@@ -58,10 +58,18 @@ class CompanyModel extends HiveObject {
   @HiveField(17)
   String financialYear;
 
-  /// When this record last changed, so two devices editing the same
-  /// settings resolve on recency rather than on which pull landed last.
   @HiveField(18)
   DateTime? updatedAt;
+
+  // Additive GST fields
+  @HiveField(19)
+  String stateCode;
+
+  @HiveField(20)
+  String gstRegistrationStatus; // 'Registered', 'Unregistered', 'Composition'
+
+  @HiveField(21)
+  String tradeName;
 
   CompanyModel({
     this.name = '',
@@ -83,5 +91,11 @@ class CompanyModel extends HiveObject {
     this.currency = '₹',
     this.financialYear = '',
     this.updatedAt,
+    this.stateCode = '',
+    this.gstRegistrationStatus = 'Registered',
+    this.tradeName = '',
   });
+
+  bool get isGstRegistered =>
+      gstRegistrationStatus == 'Registered' && gstNumber.trim().isNotEmpty;
 }

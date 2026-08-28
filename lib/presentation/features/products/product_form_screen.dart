@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:atomid/data/models/product_model.dart';
-import 'package:atomid/data/models/action_history_model.dart';
-import 'package:atomid/presentation/widgets/adaptive_dialog.dart';
-import 'package:atomid/presentation/providers/app_providers.dart';
-import 'package:atomid/core/utils/responsive.dart';
 import 'package:uuid/uuid.dart';
+
+import 'package:atomid/core/utils/formatters.dart';
+import 'package:atomid/core/utils/ids.dart';
+import 'package:atomid/core/utils/responsive.dart';
+import 'package:atomid/data/models/action_history_model.dart';
+import 'package:atomid/data/models/product_model.dart';
+import 'package:atomid/domain/gst/gst_treatment.dart';
+import 'package:atomid/presentation/providers/app_providers.dart';
+import 'package:atomid/presentation/widgets/adaptive_dialog.dart';
 
 class ProductFormScreen extends ConsumerStatefulWidget {
   final Product? existingProduct;
@@ -32,10 +36,20 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   late TextEditingController _brandCtrl;
   late TextEditingController _colorCtrl;
   late TextEditingController _categoryCtrl;
+  late TextEditingController _hsnCtrl;
+  late TextEditingController _cessCtrl;
+  late TextEditingController _customRateCtrl;
+
+  late String _gstTreatment;
+  double? _selectedGstRate;
+  late String _uqc;
+  String? _selectedRateConfigId;
+  bool _isCustomRate = false;
 
   final List<String> _availableSizes = ['S', 'M', 'L', 'XL', 'XXL'];
   final Map<String, bool> _selectedSizes = {};
   final Map<String, TextEditingController> _priceCtrls = {};
+  final Map<String, TextEditingController> _costPriceCtrls = {};
   final Map<String, TextEditingController> _qtyCtrls = {};
   final Map<String, TextEditingController> _barcodeCtrls = {};
   final Map<String, TextEditingController> _skuCtrls = {};
@@ -48,25 +62,38 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   @override
   void initState() {
     super.initState();
-    _nameCtrl = TextEditingController(
-      text: widget.existingProduct?.productName ?? '',
-    );
+    final p = widget.existingProduct;
+    final settings = ref.read(settingsProvider);
+
+    _nameCtrl = TextEditingController(text: p?.productName ?? '');
     _codeCtrl = TextEditingController(
-      text: widget.existingProduct?.productCode ?? widget.initialCode ?? '',
+      text: p?.productCode ?? widget.initialCode ?? '',
     );
-    _brandCtrl = TextEditingController(
-      text: widget.existingProduct?.brand ?? '',
+    _brandCtrl = TextEditingController(text: p?.brand ?? '');
+    _colorCtrl = TextEditingController(text: p?.color ?? '');
+    _categoryCtrl = TextEditingController(text: p?.category ?? 'Dresses');
+    _hsnCtrl = TextEditingController(text: p?.hsn ?? '');
+    _cessCtrl = TextEditingController(
+      text: p != null ? Fmt.amount(p.cessRate) : '0',
     );
-    _colorCtrl = TextEditingController(
-      text: widget.existingProduct?.color ?? '',
-    );
-    _categoryCtrl = TextEditingController(
-      text: widget.existingProduct?.category ?? 'General',
+    _gstTreatment = p?.gstTreatment.isNotEmpty == true
+        ? p!.gstTreatment
+        : GstTreatment.taxable;
+    _uqc = p?.uqc.isNotEmpty == true
+        ? p!.uqc
+        : (settings.defaultUqc.isNotEmpty ? settings.defaultUqc : 'PCS');
+    _selectedGstRate =
+        p?.gstRate ?? (settings.taxRate > 0 ? settings.taxRate : 5.0);
+    _selectedRateConfigId = p?.gstRateConfigId;
+
+    _customRateCtrl = TextEditingController(
+      text: _selectedGstRate != null ? Fmt.amount(_selectedGstRate!) : '5',
     );
 
     for (var s in _availableSizes) {
       _selectedSizes[s] = false;
       _priceCtrls[s] = TextEditingController(text: widget.initialPrice ?? '0');
+      _costPriceCtrls[s] = TextEditingController(text: '0');
       _qtyCtrls[s] = TextEditingController(text: '10');
       _barcodeCtrls[s] = TextEditingController(text: _generateMockBarcode());
       _skuCtrls[s] = TextEditingController();
@@ -75,12 +102,13 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
       _reorderLevelCtrls[s] = TextEditingController(text: '5');
     }
 
-    if (widget.existingProduct != null) {
-      for (var variant in widget.existingProduct!.variants) {
+    if (p != null) {
+      for (var variant in p.variants) {
         if (!_availableSizes.contains(variant.size)) {
           _availableSizes.add(variant.size);
           _selectedSizes[variant.size] = false;
           _priceCtrls[variant.size] = TextEditingController();
+          _costPriceCtrls[variant.size] = TextEditingController();
           _qtyCtrls[variant.size] = TextEditingController();
           _barcodeCtrls[variant.size] = TextEditingController();
           _skuCtrls[variant.size] = TextEditingController();
@@ -90,6 +118,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
         }
         _selectedSizes[variant.size] = true;
         _priceCtrls[variant.size]!.text = variant.price.toString();
+        _costPriceCtrls[variant.size]!.text = variant.costPrice.toString();
         _qtyCtrls[variant.size]!.text = variant.quantity.toString();
         _barcodeCtrls[variant.size]!.text = variant.barcode;
         _skuCtrls[variant.size]!.text = variant.sku;
@@ -106,6 +135,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
         _priceCtrls[s] = TextEditingController(
           text: widget.initialPrice ?? '0',
         );
+        _costPriceCtrls[s] = TextEditingController(text: '0');
         _qtyCtrls[s] = TextEditingController(text: '10');
         _barcodeCtrls[s] = TextEditingController(text: _generateMockBarcode());
         _skuCtrls[s] = TextEditingController();
@@ -143,7 +173,13 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     _brandCtrl.dispose();
     _colorCtrl.dispose();
     _categoryCtrl.dispose();
+    _hsnCtrl.dispose();
+    _cessCtrl.dispose();
+    _customRateCtrl.dispose();
     for (var c in _priceCtrls.values) {
+      c.dispose();
+    }
+    for (var c in _costPriceCtrls.values) {
       c.dispose();
     }
     for (var c in _qtyCtrls.values) {
@@ -169,6 +205,11 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final settings = ref.watch(settingsProvider);
+    final rateConfigs = ref
+        .watch(storageRepositoryProvider)
+        .getGstRateConfigs();
+
     return Scaffold(
       appBar: AppBar(
         title: Text(
@@ -200,45 +241,21 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
+                          Text(
                             'Basic Information',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
+                            style: Theme.of(context).textTheme.titleLarge
+                                ?.copyWith(fontWeight: FontWeight.bold),
                           ),
                           const SizedBox(height: 16),
                           TextFormField(
                             controller: _nameCtrl,
                             decoration: const InputDecoration(
-                              labelText: 'Product Name',
-                              prefixIcon: Icon(Icons.inventory_2),
-                            ),
-                            validator: (val) =>
-                                val == null || val.trim().isEmpty
-                                ? 'Name is required'
-                                : null,
-                          ),
-                          const SizedBox(height: 16),
-                          TextFormField(
-                            controller: _codeCtrl,
-                            decoration: const InputDecoration(
-                              labelText: 'Product Code',
-                              prefixIcon: Icon(Icons.qr_code),
+                              labelText: 'Product Name *',
+                              prefixIcon: Icon(Icons.shopping_bag_outlined),
                             ),
                             validator: (val) {
                               if (val == null || val.trim().isEmpty) {
-                                return 'Code is required';
-                              }
-                              // Check for duplicate code
-                              final repo = ref.read(storageRepositoryProvider);
-                              final existing = repo.getAllProducts().where(
-                                (p) =>
-                                    p.productCode == val.trim() &&
-                                    p.id != widget.existingProduct?.id,
-                              );
-                              if (existing.isNotEmpty) {
-                                return 'Product Code already exists';
+                                return 'Product name is required';
                               }
                               return null;
                             },
@@ -248,10 +265,36 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                             children: [
                               Expanded(
                                 child: TextFormField(
+                                  controller: _codeCtrl,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Product Code / Style #',
+                                    prefixIcon: Icon(Icons.qr_code_2),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: TextFormField(
+                                  controller: _categoryCtrl,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Category',
+                                    prefixIcon: Icon(Icons.category_outlined),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextFormField(
                                   controller: _brandCtrl,
                                   decoration: const InputDecoration(
                                     labelText: 'Brand',
-                                    prefixIcon: Icon(Icons.branding_watermark),
+                                    prefixIcon: Icon(
+                                      Icons.branding_watermark_outlined,
+                                    ),
                                   ),
                                 ),
                               ),
@@ -260,39 +303,328 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                                 child: TextFormField(
                                   controller: _colorCtrl,
                                   decoration: const InputDecoration(
-                                    labelText: 'Color',
-                                    prefixIcon: Icon(Icons.color_lens),
+                                    labelText: 'Color / Pattern',
+                                    prefixIcon: Icon(Icons.palette_outlined),
                                   ),
                                 ),
                               ),
                             ],
                           ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // GST & Statutory Tax Configuration Card
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.account_balance_outlined,
+                                color: Colors.blue,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'GST & Tax Configuration',
+                                style: Theme.of(context).textTheme.titleLarge
+                                    ?.copyWith(fontWeight: FontWeight.bold),
+                              ),
+                            ],
+                          ),
                           const SizedBox(height: 16),
-                          TextFormField(
-                            controller: _categoryCtrl,
-                            decoration: const InputDecoration(
-                              labelText: 'Category',
-                              prefixIcon: Icon(Icons.category),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: DropdownButtonFormField<String>(
+                                  initialValue: _gstTreatment,
+                                  isExpanded: true,
+                                  decoration: const InputDecoration(
+                                    labelText: 'GST Tax Treatment *',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                  items: const [
+                                    DropdownMenuItem(
+                                      value: GstTreatment.taxable,
+                                      child: Text(
+                                        'TAXABLE (Standard GST)',
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    DropdownMenuItem(
+                                      value: GstTreatment.nilRated,
+                                      child: Text(
+                                        'NIL RATED (0% Statutory)',
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    DropdownMenuItem(
+                                      value: GstTreatment.exempt,
+                                      child: Text(
+                                        'EXEMPT (Non-taxable goods)',
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    DropdownMenuItem(
+                                      value: GstTreatment.nonGst,
+                                      child: Text(
+                                        'NON-GST (Outside GST scope)',
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    DropdownMenuItem(
+                                      value: GstTreatment.zeroRated,
+                                      child: Text(
+                                        'ZERO RATED (Export / SEZ)',
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                  onChanged: (val) {
+                                    if (val != null) {
+                                      setState(() {
+                                        _gstTreatment = val;
+                                        if (!GstTreatment.attractsTax(val)) {
+                                          _selectedGstRate = 0.0;
+                                        }
+                                      });
+                                    }
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (GstTreatment.attractsTax(_gstTreatment)) ...[
+                            const SizedBox(height: 16),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: DropdownButtonFormField<double?>(
+                                    initialValue: _isCustomRate
+                                        ? null
+                                        : _selectedGstRate,
+                                    isExpanded: true,
+                                    decoration: const InputDecoration(
+                                      labelText: 'GST Rate % *',
+                                      border: OutlineInputBorder(),
+                                    ),
+                                    items: [
+                                      for (final config in rateConfigs)
+                                        DropdownMenuItem<double?>(
+                                          value: config.rate,
+                                          child: Text(
+                                            '${config.rateName} (${Fmt.amount(config.rate)}%)',
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      const DropdownMenuItem<double?>(
+                                        value: -1.0,
+                                        child: Text(
+                                          'Custom Rate %',
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
+                                    onChanged: (val) {
+                                      if (val == -1.0) {
+                                        setState(() {
+                                          _isCustomRate = true;
+                                          _selectedRateConfigId = null;
+                                        });
+                                      } else {
+                                        setState(() {
+                                          _isCustomRate = false;
+                                          _selectedGstRate = val;
+                                          final found = rateConfigs
+                                              .where((r) => r.rate == val)
+                                              .firstOrNull;
+                                          _selectedRateConfigId = found?.id;
+                                        });
+                                      }
+                                    },
+                                  ),
+                                ),
+                                if (_isCustomRate) ...[
+                                  const SizedBox(width: 16),
+                                  Expanded(
+                                    child: TextFormField(
+                                      controller: _customRateCtrl,
+                                      keyboardType:
+                                          const TextInputType.numberWithOptions(
+                                            decimal: true,
+                                          ),
+                                      decoration: const InputDecoration(
+                                        labelText: 'Custom GST %',
+                                        suffixText: '%',
+                                        border: OutlineInputBorder(),
+                                      ),
+                                      validator: (val) {
+                                        final rate = double.tryParse(val ?? '');
+                                        if (rate == null ||
+                                            rate < 0 ||
+                                            rate > 100) {
+                                          return 'Enter 0 to 100';
+                                        }
+                                        return null;
+                                      },
+                                    ),
+                                  ),
+                                ],
+                              ],
                             ),
+                            const SizedBox(height: 16),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextFormField(
+                                    controller: _cessCtrl,
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                          decimal: true,
+                                        ),
+                                    decoration: const InputDecoration(
+                                      labelText:
+                                          'Compensation Cess % (Optional)',
+                                      suffixText: '%',
+                                      border: OutlineInputBorder(),
+                                      helperText:
+                                          'Usually 0% for retail garments.',
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              Expanded(
+                                flex: 3,
+                                child: TextFormField(
+                                  controller: _hsnCtrl,
+                                  keyboardType: TextInputType.number,
+                                  decoration: InputDecoration(
+                                    labelText: settings.hsnRequired
+                                        ? 'HSN Code *'
+                                        : 'HSN Code',
+                                    border: const OutlineInputBorder(),
+                                    helperText:
+                                        'Statutory 2, 4, 6, or 8-digit HSN code (e.g. 6204 for Women Suits/Dresses)',
+                                  ),
+                                  validator: (val) {
+                                    final trimmed = val?.trim() ?? '';
+                                    if (settings.hsnRequired &&
+                                        trimmed.isEmpty) {
+                                      return 'HSN Code is required by store policy';
+                                    }
+                                    if (trimmed.isNotEmpty &&
+                                        !RegExp(
+                                          r'^\d{2,8}$',
+                                        ).hasMatch(trimmed)) {
+                                      return 'HSN must be 2 to 8 digits';
+                                    }
+                                    return null;
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                flex: 2,
+                                child: DropdownButtonFormField<String>(
+                                  initialValue: _uqc,
+                                  isExpanded: true,
+                                  decoration: const InputDecoration(
+                                    labelText: 'UQC Unit',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                  items: const [
+                                    DropdownMenuItem(
+                                      value: 'PCS',
+                                      child: Text(
+                                        'PCS (Pieces)',
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    DropdownMenuItem(
+                                      value: 'NOS',
+                                      child: Text(
+                                        'NOS (Numbers)',
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    DropdownMenuItem(
+                                      value: 'SET',
+                                      child: Text(
+                                        'SET (Sets)',
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    DropdownMenuItem(
+                                      value: 'MTR',
+                                      child: Text(
+                                        'MTR (Meters)',
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    DropdownMenuItem(
+                                      value: 'KGS',
+                                      child: Text(
+                                        'KGS (Kilograms)',
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                  onChanged: (val) {
+                                    if (val != null) setState(() => _uqc = val);
+                                  },
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
                     ),
                   ),
-                  const SizedBox(height: 24),
-                  const Text(
-                    'Variants (Sizes & Inventory)',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
+
                   const SizedBox(height: 16),
-                  ..._availableSizes.map((s) => _buildVariantCard(s)),
-                  const SizedBox(height: 16),
-                  ElevatedButton.icon(
-                    onPressed: () => _showAddSizeDialog(),
-                    icon: const Icon(Icons.add),
-                    label: const Text('Add Custom Size'),
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Variants (Size & Pricing)',
+                                style: Theme.of(context).textTheme.titleLarge
+                                    ?.copyWith(fontWeight: FontWeight.bold),
+                              ),
+                              TextButton.icon(
+                                onPressed: _showAddSizeDialog,
+                                icon: const Icon(Icons.add),
+                                label: const Text('Add Size'),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          const Text(
+                            'Select size variants available for this garment. Each variant tracks independent stock, cost price, and barcodes.',
+                            style: TextStyle(color: Colors.grey, fontSize: 13),
+                          ),
+                          const SizedBox(height: 16),
+                          ..._availableSizes.map((s) => _buildVariantCard(s)),
+                        ],
+                      ),
+                    ),
                   ),
-                  const SizedBox(height: 48),
+                  const SizedBox(height: 80),
                 ],
               ),
             ),
@@ -309,13 +641,13 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
 
   Widget _buildVariantCard(String size) {
     final isSelected = _selectedSizes[size] ?? false;
+    final theme = Theme.of(context);
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       shape: RoundedRectangleBorder(
         side: BorderSide(
-          color: isSelected
-              ? Theme.of(context).colorScheme.primary
-              : Colors.transparent,
+          color: isSelected ? theme.colorScheme.primary : Colors.transparent,
           width: 2,
         ),
         borderRadius: BorderRadius.circular(12),
@@ -335,6 +667,15 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
           'Size: $size',
           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
         ),
+        subtitle: isSelected
+            ? Text(
+                'MRP / Selling: ₹${_priceCtrls[size]?.text ?? "0"} • Stock: ${_qtyCtrls[size]?.text ?? "0"}',
+                style: TextStyle(
+                  color: theme.colorScheme.primary,
+                  fontSize: 13,
+                ),
+              )
+            : null,
         children: [
           if (isSelected)
             Padding(
@@ -350,14 +691,15 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                             decimal: true,
                           ),
                           decoration: const InputDecoration(
-                            labelText: 'Price',
-                            prefixIcon: Icon(Icons.attach_money),
+                            labelText: 'Selling Price (MRP) *',
+                            prefixIcon: Icon(Icons.currency_rupee),
+                            border: OutlineInputBorder(),
                           ),
                           validator: (val) {
                             if (!isSelected) return null;
                             final price = double.tryParse(val ?? '');
                             if (price == null || price < 0) {
-                              return 'Invalid price';
+                              return 'Invalid selling price';
                             }
                             return null;
                           },
@@ -366,11 +708,31 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                       const SizedBox(width: 16),
                       Expanded(
                         child: TextFormField(
+                          controller: _costPriceCtrls[size],
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          decoration: const InputDecoration(
+                            labelText: 'Cost Price (Purchase)',
+                            prefixIcon: Icon(Icons.shopping_bag_outlined),
+                            border: OutlineInputBorder(),
+                            helperText: 'For gross margin tracking',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
                           controller: _qtyCtrls[size],
                           keyboardType: TextInputType.number,
                           decoration: const InputDecoration(
-                            labelText: 'Available Qty',
-                            prefixIcon: Icon(Icons.production_quantity_limits),
+                            labelText: 'Available Stock Qty *',
+                            prefixIcon: Icon(Icons.inventory_2_outlined),
+                            border: OutlineInputBorder(),
                           ),
                           validator: (val) {
                             if (!isSelected) return null;
@@ -380,16 +742,29 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                           },
                         ),
                       ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: TextFormField(
+                          controller: _reorderLevelCtrls[size],
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(
+                            labelText: 'Low Stock Alert Level',
+                            prefixIcon: Icon(Icons.warning_amber_outlined),
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 16),
                   TextFormField(
                     controller: _barcodeCtrls[size],
                     decoration: InputDecoration(
-                      labelText: 'Barcode',
-                      prefixIcon: const Icon(Icons.barcode_reader),
+                      labelText: 'Barcode *',
+                      prefixIcon: const Icon(Icons.qr_code),
+                      border: const OutlineInputBorder(),
                       suffixIcon: IconButton(
-                        tooltip: 'Generate a new barcode',
+                        tooltip: 'Generate fresh barcode',
                         icon: const Icon(Icons.refresh),
                         onPressed: () {
                           setState(() {
@@ -403,7 +778,6 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                       if (val == null || val.trim().isEmpty) {
                         return 'Barcode is required';
                       }
-                      // Check for duplicate barcode across all products
                       final repo = ref.read(storageRepositoryProvider);
                       final existingProduct = repo.getProductByBarcode(
                         val.trim(),
@@ -419,8 +793,9 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                   TextFormField(
                     controller: _skuCtrls[size],
                     decoration: InputDecoration(
-                      labelText: 'SKU',
+                      labelText: 'SKU Code',
                       prefixIcon: const Icon(Icons.label_outline),
+                      border: const OutlineInputBorder(),
                       suffixIcon: IconButton(
                         icon: const Icon(Icons.auto_fix_high),
                         tooltip: 'Auto-generate SKU',
@@ -431,45 +806,6 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                         },
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextFormField(
-                          controller: _stockInCtrls[size],
-                          readOnly: widget.existingProduct != null,
-                          keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(
-                            labelText: 'Total Stock In',
-                            isDense: true,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: TextFormField(
-                          controller: _stockOutCtrls[size],
-                          readOnly: widget.existingProduct != null,
-                          keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(
-                            labelText: 'Total Stock Out',
-                            isDense: true,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: TextFormField(
-                          controller: _reorderLevelCtrls[size],
-                          keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(
-                            labelText: 'Reorder Lvl',
-                            isDense: true,
-                          ),
-                        ),
-                      ),
-                    ],
                   ),
                 ],
               ),
@@ -488,7 +824,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
         content: TextField(
           controller: ctrl,
           decoration: const InputDecoration(
-            labelText: 'Size Label (e.g. 32, 34, OS)',
+            labelText: 'Size Label (e.g. 32, 34, Free Size)',
           ),
           autofocus: true,
         ),
@@ -505,6 +841,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                   _availableSizes.add(newSize);
                   _selectedSizes[newSize] = true;
                   _priceCtrls[newSize] = TextEditingController(text: '0');
+                  _costPriceCtrls[newSize] = TextEditingController(text: '0');
                   _qtyCtrls[newSize] = TextEditingController(text: '10');
                   _barcodeCtrls[newSize] = TextEditingController(
                     text: _generateMockBarcode(),
@@ -531,14 +868,12 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
   Future<void> _saveProduct() async {
     if (!_formKey.currentState!.validate()) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please fix the errors in the form')),
+        const SnackBar(content: Text('Please fix errors in the form')),
       );
       return;
     }
 
     final variants = <ProductVariant>[];
-
-    // Validate that barcodes are unique among the selected variants
     final currentBarcodes = <String>{};
 
     for (var s in _availableSizes) {
@@ -546,9 +881,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
         final barcode = _barcodeCtrls[s]!.text.trim();
         if (currentBarcodes.contains(barcode)) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Duplicate barcode detected in form: $barcode'),
-            ),
+            SnackBar(content: Text('Duplicate barcode detected: $barcode')),
           );
           return;
         }
@@ -558,6 +891,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
           ProductVariant(
             size: s,
             price: double.tryParse(_priceCtrls[s]!.text) ?? 0.0,
+            costPrice: double.tryParse(_costPriceCtrls[s]?.text ?? '') ?? 0.0,
             quantity: int.tryParse(_qtyCtrls[s]!.text) ?? 0,
             barcode: barcode,
             sku: _skuCtrls[s]?.text.trim() ?? '',
@@ -582,6 +916,14 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     final isNew = widget.existingProduct == null;
     final productId = widget.existingProduct?.id ?? _uuid.v4();
 
+    final rate = GstTreatment.attractsTax(_gstTreatment)
+        ? (_isCustomRate
+              ? (double.tryParse(_customRateCtrl.text.trim()) ?? 0.0)
+              : _selectedGstRate)
+        : 0.0;
+
+    final cess = double.tryParse(_cessCtrl.text.trim()) ?? 0.0;
+
     final product = Product(
       id: productId,
       productName: _nameCtrl.text.trim(),
@@ -593,45 +935,42 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
       color: _colorCtrl.text.trim(),
       createdDate: widget.existingProduct?.createdDate ?? DateTime.now(),
       updatedDate: DateTime.now(),
+      hsn: _hsnCtrl.text.trim(),
+      uqc: _uqc,
+      gstTreatment: _gstTreatment,
+      gstRate: rate,
+      cessRate: cess,
+      gstRateConfigId: _selectedRateConfigId,
       variants: variants,
     );
 
     final repo = ref.read(storageRepositoryProvider);
-    // Edits go through the audited path so a stock correction made here
-    // leaves the same movement trail as one made from the stock-in screen.
     if (isNew) {
       await repo.saveProduct(product);
     } else {
-      await repo.saveProductWithStockAudit(product);
-    }
-
-    if (isNew) {
-      await repo.saveHistory(
-        ActionHistory(
-          id: _uuid.v4(),
-          barcode: variants.first.barcode,
-          productName: product.productName,
-          action: 'Product Created',
-          date: DateTime.now(),
-        ),
-      );
-    } else {
-      await repo.saveHistory(
-        ActionHistory(
-          id: _uuid.v4(),
-          barcode: variants.first.barcode,
-          productName: product.productName,
-          action: 'Product Updated',
-          date: DateTime.now(),
-        ),
+      await repo.saveProductWithStockAudit(
+        product,
+        performedBy: 'Product form edit',
+        reason: 'Updated variant specifications',
       );
     }
 
-    if (mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Product saved successfully')));
-      Navigator.pop(context);
-    }
+    await repo.saveHistory(
+      ActionHistory(
+        id: Ids.generate(),
+        barcode: product.variants.first.barcode,
+        productName: product.productName,
+        action: isNew ? 'Created Product' : 'Updated Product',
+        date: DateTime.now(),
+      ),
+    );
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Product ${isNew ? "created" : "updated"} successfully.'),
+      ),
+    );
+    Navigator.pop(context, true);
   }
 }

@@ -35,9 +35,6 @@ class _PosScreenState extends ConsumerState<PosScreen> {
     super.dispose();
   }
 
-  /// The camera is only held while the scanner is on screen — keeping a
-  /// controller alive for the whole session drains battery and blocks other
-  /// apps from the camera.
   Future<void> _toggleScanner() async {
     if (_isScanning) {
       setState(() => _isScanning = false);
@@ -67,8 +64,6 @@ class _PosScreenState extends ConsumerState<PosScreen> {
 
     final repo = ref.read(storageRepositoryProvider);
 
-    // An exact barcode goes straight into the basket — the fast path a
-    // cashier uses hundreds of times a day.
     final scanned = repo.getProductByBarcode(trimmed);
     if (scanned != null) {
       final variant = scanned.variants.firstWhere(
@@ -217,12 +212,14 @@ class _PosScreenState extends ConsumerState<PosScreen> {
     final cartItems = ref.watch(cartProvider);
     final settings = ref.watch(settingsProvider);
     final loyalty = ref.watch(loyaltySettingsProvider);
+    final company = ref.watch(companyProvider);
     final products = ref.watch(productsProvider);
 
-    final totals = SalePricing.compute(
-      lineItemTotal: cartItems.fold(0.0, (sum, item) => sum + item.total),
+    final totals = SalePricing.computeCart(
+      items: cartItems,
       settings: settings,
       loyalty: loyalty,
+      company: company,
     );
 
     final cart = _CartPane(
@@ -234,7 +231,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Billing'),
+        title: const Text('Billing & POS'),
         actions: [
           const SyncStatusWidget(),
           if (cartItems.isNotEmpty)
@@ -248,190 +245,123 @@ class _PosScreenState extends ConsumerState<PosScreen> {
       body: ResponsiveBuilder(
         mobileBuilder: (context) => Column(
           children: [
-            _buildSearchBar(),
-            if (_isScanning) _buildScanner(),
+            _SearchBar(
+              controller: _searchController,
+              focusNode: _searchFocus,
+              isScanning: _isScanning,
+              onSubmitted: _processSearch,
+              onToggleScanner: _toggleScanner,
+            ),
+            if (_isScanning) _buildCameraPreview(),
             Expanded(child: cart),
           ],
         ),
-        tabletBuilder: (context) =>
-            _splitLayout(products, cart, catalogFlex: 5),
-        desktopBuilder: (context) =>
-            _splitLayout(products, cart, catalogFlex: 6),
-      ),
-    );
-  }
-
-  Widget _splitLayout(
-    List<Product> products,
-    Widget cart, {
-    required int catalogFlex,
-  }) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Expanded(
-          flex: catalogFlex,
-          child: Column(
-            children: [
-              _buildSearchBar(),
-              if (_isScanning) _buildScanner(),
-              Expanded(child: _buildCatalog(products)),
-            ],
-          ),
-        ),
-        const VerticalDivider(width: 1),
-        Expanded(flex: 4, child: cart),
-      ],
-    );
-  }
-
-  Widget _buildSearchBar() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      color: Theme.of(context).colorScheme.surfaceContainerLow,
-      child: Row(
-        children: [
-          Expanded(
-            child: TextField(
-              controller: _searchController,
-              focusNode: _searchFocus,
-              autofocus: true,
-              textInputAction: TextInputAction.search,
-              decoration: InputDecoration(
-                hintText: 'Scan a barcode or search by name',
-                prefixIcon: const Icon(Icons.search),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
+        tabletBuilder: (context) => Row(
+          children: [
+            Expanded(
+              flex: 5,
+              child: Column(
+                children: [
+                  _SearchBar(
+                    controller: _searchController,
+                    focusNode: _searchFocus,
+                    isScanning: _isScanning,
+                    onSubmitted: _processSearch,
+                    onToggleScanner: _toggleScanner,
+                  ),
+                  if (_isScanning) _buildCameraPreview(),
+                  Expanded(
+                    child: _CatalogueGrid(
+                      products: products,
+                      onPick: _openVariantPicker,
+                    ),
+                  ),
+                ],
               ),
-              onSubmitted: _processSearch,
+            ),
+            const VerticalDivider(width: 1),
+            Expanded(flex: 4, child: cart),
+          ],
+        ),
+        desktopBuilder: (context) => Row(
+          children: [
+            Expanded(
+              flex: 6,
+              child: Column(
+                children: [
+                  _SearchBar(
+                    controller: _searchController,
+                    focusNode: _searchFocus,
+                    isScanning: _isScanning,
+                    onSubmitted: _processSearch,
+                    onToggleScanner: _toggleScanner,
+                  ),
+                  if (_isScanning) _buildCameraPreview(),
+                  Expanded(
+                    child: _CatalogueGrid(
+                      products: products,
+                      onPick: _openVariantPicker,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const VerticalDivider(width: 1),
+            SizedBox(width: 440, child: cart),
+          ],
+        ),
+      ),
+      floatingActionButton:
+          ResponsiveHelper.isMobile(context) && cartItems.isNotEmpty
+          ? FloatingActionButton.extended(
+              onPressed: _openCheckout,
+              icon: const Icon(Icons.shopping_cart_checkout),
+              label: Text(
+                '${cartItems.length} · ${Fmt.money(totals.grandTotal, settings.currencySymbol)}',
+              ),
+            )
+          : null,
+    );
+  }
+
+  Widget _buildCameraPreview() {
+    return SizedBox(
+      height: 220,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          if (_scannerController != null)
+            MobileScanner(
+              controller: _scannerController!,
+              onDetect: _onBarcodeDetected,
+            ),
+          Container(
+            width: 220,
+            height: 120,
+            decoration: BoxDecoration(
+              border: Border.all(
+                color: Theme.of(context).colorScheme.primary,
+                width: 2,
+              ),
+              borderRadius: BorderRadius.circular(12),
             ),
           ),
-          const SizedBox(width: 12),
-          IconButton.filled(
-            onPressed: _toggleScanner,
-            tooltip: _isScanning ? 'Stop scanning' : 'Scan barcode',
-            icon: Icon(_isScanning ? Icons.stop : Icons.qr_code_scanner),
-            style: IconButton.styleFrom(
-              backgroundColor: _isScanning
-                  ? Theme.of(context).colorScheme.error
-                  : Theme.of(context).colorScheme.primary,
-              padding: const EdgeInsets.all(16),
-              shape: RoundedRectangleBorder(
+          Positioned(
+            bottom: 8,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.black54,
                 borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Text(
+                'Point at barcode',
+                style: TextStyle(color: Colors.white, fontSize: 12),
               ),
             ),
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildScanner() {
-    final controller = _scannerController;
-    if (controller == null) return const SizedBox.shrink();
-    return SizedBox(
-      height: 220,
-      child: MobileScanner(
-        controller: controller,
-        onDetect: _onBarcodeDetected,
-        errorBuilder: (context, error) => Center(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Text(
-              'Camera unavailable. Type or paste the barcode instead.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCatalog(List<Product> products) {
-    if (products.isEmpty) {
-      return const EmptyState(
-        icon: Icons.inventory_2_outlined,
-        title: 'No products yet',
-        message: 'Add your first product to start billing.',
-      );
-    }
-
-    final symbol = ref.watch(currencySymbolProvider);
-
-    return GridView.builder(
-      padding: const EdgeInsets.all(16),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 190,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
-        childAspectRatio: 0.95,
-      ),
-      itemCount: products.length,
-      itemBuilder: (context, index) {
-        final product = products[index];
-        final stock = product.variants.fold<int>(
-          0,
-          (sum, v) => sum + v.quantity,
-        );
-        final lowest = product.variants.isEmpty
-            ? 0.0
-            : product.variants
-                  .map((v) => v.price)
-                  .reduce((a, b) => a < b ? a : b);
-
-        return Card(
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: stock <= 0
-                ? null
-                : () {
-                    if (product.variants.length == 1) {
-                      _addToCart(product, product.variants.first);
-                    } else {
-                      _openVariantPicker(product);
-                    }
-                  },
-            child: Opacity(
-              opacity: stock <= 0 ? 0.45 : 1,
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Align(
-                      alignment: Alignment.topRight,
-                      child: _StockBadge(quantity: stock),
-                    ),
-                    const Spacer(),
-                    Text(
-                      product.productName,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      product.variants.length > 1
-                          ? 'from ${Fmt.money(lowest, symbol)}'
-                          : Fmt.money(lowest, symbol),
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context).colorScheme.primary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
-      },
     );
   }
 
@@ -443,6 +373,149 @@ class _PosScreenState extends ConsumerState<PosScreen> {
   }
 }
 
+class _SearchBar extends StatelessWidget {
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final bool isScanning;
+  final ValueChanged<String> onSubmitted;
+  final VoidCallback onToggleScanner;
+
+  const _SearchBar({
+    required this.controller,
+    required this.focusNode,
+    required this.isScanning,
+    required this.onSubmitted,
+    required this.onToggleScanner,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      child: TextField(
+        controller: controller,
+        focusNode: focusNode,
+        autofocus: true,
+        textInputAction: TextInputAction.search,
+        onSubmitted: onSubmitted,
+        decoration: InputDecoration(
+          hintText: 'Scan barcode, type style code or product name…',
+          prefixIcon: const Icon(Icons.search),
+          suffixIcon: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (controller.text.isNotEmpty)
+                IconButton(
+                  tooltip: 'Clear search',
+                  icon: const Icon(Icons.clear),
+                  onPressed: () {
+                    controller.clear();
+                    focusNode.requestFocus();
+                  },
+                ),
+              IconButton(
+                tooltip: isScanning ? 'Close scanner' : 'Scan with camera',
+                icon: Icon(
+                  isScanning ? Icons.camera_alt : Icons.camera_alt_outlined,
+                  color: isScanning
+                      ? Theme.of(context).colorScheme.primary
+                      : null,
+                ),
+                onPressed: onToggleScanner,
+              ),
+            ],
+          ),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      ),
+    );
+  }
+}
+
+class _CatalogueGrid extends StatelessWidget {
+  final List<Product> products;
+  final ValueChanged<Product> onPick;
+
+  const _CatalogueGrid({required this.products, required this.onPick});
+
+  @override
+  Widget build(BuildContext context) {
+    if (products.isEmpty) {
+      return const EmptyState(
+        icon: Icons.inventory_2_outlined,
+        title: 'No products yet',
+        message: 'Add products to your catalogue to start ringing up sales.',
+      );
+    }
+
+    return GridView.builder(
+      padding: const EdgeInsets.all(16),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 220,
+        mainAxisSpacing: 12,
+        crossAxisSpacing: 12,
+        childAspectRatio: 1.2,
+      ),
+      itemCount: products.length,
+      itemBuilder: (context, index) {
+        final product = products[index];
+        final inStock = product.variants.fold<int>(
+          0,
+          (sum, v) => sum + v.quantity,
+        );
+        final minPrice = product.variants.isEmpty
+            ? 0.0
+            : product.variants
+                  .map((v) => v.price)
+                  .reduce((a, b) => a < b ? a : b);
+
+        return Card(
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: inStock > 0 ? () => onPick(product) : null,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    product.productName,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  const Spacer(),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'from ${Fmt.money(minPrice, '')}',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                      Text(
+                        inStock > 0 ? '$inStock in stock' : 'Out of stock',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: inStock > 0
+                              ? Colors.green.shade700
+                              : Colors.red.shade700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
 class _StockBadge extends StatelessWidget {
   final int quantity;
 
@@ -450,26 +523,31 @@ class _StockBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final (label, color) = switch (quantity) {
-      <= 0 => ('Out of stock', scheme.error),
-      < 5 => ('$quantity left', Colors.orange.shade800),
-      _ => ('$quantity in stock', Colors.green.shade700),
-    };
+    final theme = Theme.of(context);
+    final isOut = quantity <= 0;
+    final isLow = !isOut && quantity <= 5;
+
+    final bg = isOut
+        ? theme.colorScheme.errorContainer
+        : isLow
+        ? Colors.amber.shade100
+        : theme.colorScheme.surfaceContainerHighest;
+
+    final fg = isOut
+        ? theme.colorScheme.onErrorContainer
+        : isLow
+        ? Colors.amber.shade900
+        : theme.colorScheme.onSurfaceVariant;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(20),
+        color: bg,
+        borderRadius: BorderRadius.circular(6),
       ),
       child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 10.5,
-          fontWeight: FontWeight.w700,
-          color: color,
-        ),
+        isOut ? 'Out' : '$quantity in stock',
+        style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: fg),
       ),
     );
   }
@@ -492,16 +570,42 @@ class _CartPane extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     if (items.isEmpty) {
       return const EmptyState(
-        icon: Icons.shopping_cart_outlined,
+        icon: Icons.shopping_basket_outlined,
         title: 'Basket is empty',
-        message: 'Scan a barcode or tap a product to begin.',
+        message: 'Scan or search a dress to add it to the bill.',
       );
     }
 
     final symbol = settings.currencySymbol;
+    final hasTaxIssues = totals.gstResult != null && !totals.gstResult!.isValid;
 
     return Column(
       children: [
+        if (hasTaxIssues)
+          Container(
+            color: Colors.amber.shade100,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.warning_amber_rounded,
+                  color: Colors.amber.shade900,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    totals.gstResult!.errors.first,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.amber.shade900,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         Expanded(
           child: ListView.separated(
             padding: const EdgeInsets.symmetric(vertical: 8),
@@ -534,7 +638,8 @@ class _CartPane extends ConsumerWidget {
                   ),
                   subtitle: Text(
                     'Size ${item.variant.size} · '
-                    '${Fmt.money(item.variant.price, symbol)}',
+                    '${Fmt.money(item.variant.price, symbol)}'
+                    '${item.product.hsn.isNotEmpty ? " · HSN: ${item.product.hsn}" : ""}',
                   ),
                   trailing: SizedBox(
                     width: 180,
@@ -600,7 +705,7 @@ class _CartPane extends ConsumerWidget {
           settings: settings,
           totals: totals,
           itemCount: items.fold(0, (sum, i) => sum + i.quantity),
-          onCheckout: onCheckout,
+          onCheckout: hasTaxIssues ? null : onCheckout,
         ),
       ],
     );
@@ -631,27 +736,55 @@ class _CartFooter extends StatelessWidget {
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
           child: Column(
             children: [
               _row(
                 context,
-                '$itemCount ${itemCount == 1 ? 'item' : 'items'}',
+                '$itemCount ${itemCount == 1 ? 'item' : 'items'} (Gross)',
                 Fmt.money(totals.subtotal, symbol),
               ),
+              if (totals.taxableAmount > 0)
+                _row(
+                  context,
+                  'Taxable Value',
+                  Fmt.money(totals.taxableAmount, symbol),
+                ),
               if (totals.taxAmount > 0)
                 _row(
                   context,
                   settings.taxMode == TaxMode.inclusive
-                      ? 'Includes tax (${settings.taxRate}%)'
-                      : 'Tax (${settings.taxRate}%)',
+                      ? 'GST Included (CGST+SGST/IGST)'
+                      : 'GST Added (CGST+SGST/IGST)',
                   Fmt.money(totals.taxAmount, symbol),
                 ),
-              const Divider(height: 20),
+              if (totals.roundOff != 0.0)
+                _row(
+                  context,
+                  'Round-Off',
+                  '${totals.roundOff >= 0 ? "+" : ""}${Fmt.money(totals.roundOff, symbol)}',
+                ),
+              const Divider(height: 16),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('Total', style: Theme.of(context).textTheme.titleMedium),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Payable Amount',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      if (totals.placeOfSupply.isNotEmpty)
+                        Text(
+                          'POS: ${totals.placeOfSupply}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                    ],
+                  ),
                   Text(
                     Fmt.money(totals.grandTotal, symbol),
                     style: Theme.of(context).textTheme.headlineSmall?.copyWith(
@@ -661,15 +794,18 @@ class _CartFooter extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 12),
               FilledButton.icon(
                 onPressed: onCheckout,
                 icon: const Icon(Icons.arrow_forward),
-                label: const Text('Checkout', style: TextStyle(fontSize: 17)),
+                label: const Text(
+                  'Proceed to Checkout',
+                  style: TextStyle(fontSize: 16),
+                ),
                 style: FilledButton.styleFrom(
-                  minimumSize: const Size.fromHeight(54),
+                  minimumSize: const Size.fromHeight(50),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(12),
                   ),
                 ),
               ),
@@ -682,19 +818,21 @@ class _CartFooter extends StatelessWidget {
 
   Widget _row(BuildContext context, String label, String value) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
+      padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(
             label,
             style: TextStyle(
+              fontSize: 13,
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
           Text(
             value,
             style: const TextStyle(
+              fontSize: 13,
               fontFeatures: [FontFeature.tabularFigures()],
             ),
           ),

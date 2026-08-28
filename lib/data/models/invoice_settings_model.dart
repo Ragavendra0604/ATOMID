@@ -30,6 +30,13 @@ class InvoiceSettingsModel extends HiveObject {
   @HiveField(7)
   DateTime? updatedAt;
 
+  /// Prints the `For <business>` / `Authorized Signatory` block at the foot of
+  /// the invoice. On by default: Rule 46(q) of the CGST Rules requires a tax
+  /// invoice to carry the supplier's signature unless it is issued
+  /// electronically with a digital signature or an e-invoice IRN.
+  @HiveField(8)
+  bool showSignature;
+
   InvoiceSettingsModel({
     this.footerText = 'Thank you for your business!',
     this.showUpiQr = false,
@@ -40,5 +47,6 @@ class InvoiceSettingsModel extends HiveObject {
         '1. Goods once sold will not be taken back.\n2. Subject to local jurisdiction.',
     this.fontName = 'Roboto',
     this.updatedAt,
+    this.showSignature = true,
   });
 }

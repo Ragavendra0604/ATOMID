@@ -227,11 +227,13 @@ class _SupplierDetailsScreenState extends ConsumerState<SupplierDetailsScreen> {
                     children: [
                       const Icon(Icons.receipt_long, size: 20),
                       const SizedBox(width: 8),
-                      Text(
-                        'Purchase History (${purchases.length})',
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
+                      Expanded(
+                        child: Text(
+                          'Purchase History (${purchases.length})',
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                     ],
@@ -304,37 +306,51 @@ class _SupplierDetailsScreenState extends ConsumerState<SupplierDetailsScreen> {
                 Container(
                   padding: const EdgeInsets.all(16),
                   color: Theme.of(context).cardColor,
+                  // The balance takes whatever the button leaves rather than
+                  // both children claiming their natural width: a six-figure
+                  // balance at 24pt beside "Record Payment" is wider than a
+                  // phone, and the row overflowed.
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Current Balance (Owed)',
-                            style: TextStyle(
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.onSurfaceVariant,
+                      Expanded(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Current Balance (Owed)',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
                             ),
-                          ),
-                          Text(
-                            Fmt.money(
-                              freshSupplier.currentBalance,
-                              settings.currencySymbol,
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                Fmt.money(
+                                  freshSupplier.currentBalance,
+                                  settings.currencySymbol,
+                                ),
+                                maxLines: 1,
+                                style: TextStyle(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.bold,
+                                  color: freshSupplier.currentBalance > 0
+                                      ? Colors.red
+                                      : (freshSupplier.currentBalance < 0
+                                            ? Colors.green
+                                            : Colors.grey),
+                                ),
+                              ),
                             ),
-                            style: TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                              color: freshSupplier.currentBalance > 0
-                                  ? Colors.red
-                                  : (freshSupplier.currentBalance < 0
-                                        ? Colors.green
-                                        : Colors.grey),
-                            ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
+                      const SizedBox(width: 12),
                       ElevatedButton.icon(
                         icon: const Icon(Icons.payment),
                         label: const Text('Record Payment'),
@@ -375,34 +391,65 @@ class _SupplierDetailsScreenState extends ConsumerState<SupplierDetailsScreen> {
                                     color: isDebit ? Colors.green : Colors.red,
                                   ),
                                 ),
-                                title: Text(l.transactionType),
+                                // Named, not merely coloured. "Debit" reads
+                                // the opposite way on the customer ledger, and
+                                // a "+/-" in red or green is not enough to
+                                // tell a shopkeeper which direction money went.
+                                title: Text(
+                                  isDebit ? 'Payment made' : 'Amount payable',
+                                ),
                                 subtitle: Text(
-                                  '${_formatDate(l.date)} • Ref: ${l.referenceId}\n${l.notes}',
+                                  '${l.transactionType} • ${_formatDate(l.date)}'
+                                  ' • Ref: ${l.referenceId}\n${l.notes}',
                                 ),
                                 isThreeLine: true,
-                                trailing: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  crossAxisAlignment: CrossAxisAlignment.end,
-                                  children: [
-                                    Text(
-                                      '${isDebit ? '-' : '+'}${Fmt.money(isDebit ? l.debit : l.credit, settings.currencySymbol)}',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        color: isDebit
-                                            ? Colors.green
-                                            : Colors.red,
+                                // Bounded and shrink-to-fit. `ListTile` hands
+                                // its trailing whatever width the title left
+                                // over and a tight height; an unbounded
+                                // two-line Column of money strings overflowed
+                                // that box on a phone, which is what put the
+                                // error screen up after recording a payment.
+                                trailing: ConstrainedBox(
+                                  constraints: const BoxConstraints(
+                                    maxWidth: 132,
+                                  ),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      FittedBox(
+                                        fit: BoxFit.scaleDown,
+                                        alignment: Alignment.centerRight,
+                                        child: Text(
+                                          '${isDebit ? 'Paid ' : 'Payable '}'
+                                          '${Fmt.money(isDebit ? l.debit : l.credit, settings.currencySymbol)}',
+                                          maxLines: 1,
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            color: isDebit
+                                                ? Colors.green
+                                                : Colors.red,
+                                          ),
+                                        ),
                                       ),
-                                    ),
-                                    Text(
-                                      'Balance ${Fmt.money(l.balance, settings.currencySymbol)}',
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        color: Theme.of(
-                                          context,
-                                        ).colorScheme.onSurfaceVariant,
+                                      FittedBox(
+                                        fit: BoxFit.scaleDown,
+                                        alignment: Alignment.centerRight,
+                                        child: Text(
+                                          'Balance owed '
+                                          '${Fmt.money(l.balance, settings.currencySymbol)}',
+                                          maxLines: 1,
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.onSurfaceVariant,
+                                          ),
+                                        ),
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ),
                             );
@@ -447,96 +494,160 @@ class _SupplierDetailsScreenState extends ConsumerState<SupplierDetailsScreen> {
     return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
   }
 
-  void _showRecordPaymentDialog(BuildContext context, Supplier supplier) {
-    final amountCtrl = TextEditingController();
-    final refCtrl = TextEditingController();
-    final notesCtrl = TextEditingController();
-
-    showDialog(
+  /// Collects a payment, then writes it once the dialog is gone.
+  ///
+  /// The dialog owns its own controllers (see [_RecordPaymentDialog]) and
+  /// hands back a value. The previous version created the controllers here and
+  /// disposed them from the dialog future's `whenComplete`, which fires while
+  /// the route is still animating out — the fields were rebuilt one more frame
+  /// later against controllers that had already been disposed, and that
+  /// assertion is what put the error screen up after confirming a payment.
+  Future<void> _showRecordPaymentDialog(
+    BuildContext context,
+    Supplier supplier,
+  ) async {
+    final entry = await showDialog<_PaymentEntry>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Record Payment'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: amountCtrl,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: const InputDecoration(
-                  labelText: 'Amount Paid',
-                  prefixIcon: Icon(Icons.attach_money),
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: refCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Reference ID (e.g. Check #, Transaction ID)',
-                  prefixIcon: Icon(Icons.receipt),
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: notesCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Notes',
-                  prefixIcon: Icon(Icons.notes),
-                ),
-              ),
-            ],
-          ),
+      builder: (_) => const _RecordPaymentDialog(),
+    );
+
+    if (entry == null || !context.mounted) return;
+
+    final reference = entry.reference.isEmpty
+        ? 'PAY-${DateTime.now().millisecondsSinceEpoch.toString().substring(5)}'
+        : entry.reference;
+
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref
+          .read(storageRepositoryProvider)
+          .addSupplierLedgerEntry(
+            supplierId: supplier.id,
+            date: DateTime.now(),
+            transactionType: 'Payment',
+            referenceId: reference,
+            debit: entry.amount, // Payment decreases owed amount
+            notes: entry.notes,
+          );
+    } catch (error) {
+      // A failed write surfaces as a message rather than an unhandled error
+      // from a callback whose dialog has gone.
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Could not record the payment: $error'),
+          backgroundColor: Colors.red,
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final amount = double.tryParse(amountCtrl.text) ?? 0.0;
-              if (amount <= 0) {
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(const SnackBar(content: Text('Invalid amount')));
-                return;
-              }
-              Navigator.pop(ctx);
+      );
+      return;
+    }
 
-              final repo = ref.read(storageRepositoryProvider);
-              await repo.addSupplierLedgerEntry(
-                supplierId: supplier.id,
-                date: DateTime.now(),
-                transactionType: 'Payment',
-                referenceId: refCtrl.text.isEmpty
-                    ? 'PAY-${DateTime.now().millisecondsSinceEpoch.toString().substring(5)}'
-                    : refCtrl.text,
-                debit: amount, // Payment decreases owed amount
-                notes: notesCtrl.text,
-              );
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Payment recorded successfully')),
+    );
+  }
+}
 
-              // Refresh
+/// What the payment dialog hands back.
+class _PaymentEntry {
+  const _PaymentEntry({
+    required this.amount,
+    required this.reference,
+    required this.notes,
+  });
 
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Payment recorded successfully'),
-                  ),
-                );
-              }
-            },
-            child: const Text('Record'),
-          ),
-        ],
+  final double amount;
+  final String reference;
+  final String notes;
+}
+
+/// The Record Payment form.
+///
+/// Stateful so the framework disposes the controllers when the route is
+/// actually unmounted, rather than at the moment the pop is requested.
+class _RecordPaymentDialog extends StatefulWidget {
+  const _RecordPaymentDialog();
+
+  @override
+  State<_RecordPaymentDialog> createState() => _RecordPaymentDialogState();
+}
+
+class _RecordPaymentDialogState extends State<_RecordPaymentDialog> {
+  final _amountCtrl = TextEditingController();
+  final _refCtrl = TextEditingController();
+  final _notesCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _amountCtrl.dispose();
+    _refCtrl.dispose();
+    _notesCtrl.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final amount = double.tryParse(_amountCtrl.text.trim()) ?? 0.0;
+    if (amount <= 0) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Invalid amount')));
+      return;
+    }
+    Navigator.pop(
+      context,
+      _PaymentEntry(
+        amount: amount,
+        reference: _refCtrl.text.trim(),
+        notes: _notesCtrl.text.trim(),
       ),
-      // Built per invocation, so without this every payment recorded leaks
-      // three controllers for the life of the session.
-    ).whenComplete(() {
-      amountCtrl.dispose();
-      refCtrl.dispose();
-      notesCtrl.dispose();
-    });
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Record Payment'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _amountCtrl,
+              autofocus: true,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              onSubmitted: (_) => _submit(),
+              decoration: const InputDecoration(
+                labelText: 'Amount Paid',
+                prefixIcon: Icon(Icons.attach_money),
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _refCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Reference ID (e.g. Check #, Transaction ID)',
+                prefixIcon: Icon(Icons.receipt),
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _notesCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Notes',
+                prefixIcon: Icon(Icons.notes),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(onPressed: _submit, child: const Text('Record')),
+      ],
+    );
   }
 }

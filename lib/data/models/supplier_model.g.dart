@@ -42,13 +42,17 @@ class SupplierAdapter extends TypeAdapter<Supplier> {
       attachments: fields[22] == null
           ? const []
           : (fields[22] as List).cast<String>(),
+      state: fields[23] == null ? '' : fields[23] as String,
+      stateCode: fields[24] == null ? '' : fields[24] as String,
+      city: fields[25] == null ? '' : fields[25] as String,
+      pincode: fields[26] == null ? '' : fields[26] as String,
     );
   }
 
   @override
   void write(BinaryWriter writer, Supplier obj) {
     writer
-      ..writeByte(23)
+      ..writeByte(27)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -94,7 +98,15 @@ class SupplierAdapter extends TypeAdapter<Supplier> {
       ..writeByte(21)
       ..write(obj.supplierCategory)
       ..writeByte(22)
-      ..write(obj.attachments);
+      ..write(obj.attachments)
+      ..writeByte(23)
+      ..write(obj.state)
+      ..writeByte(24)
+      ..write(obj.stateCode)
+      ..writeByte(25)
+      ..write(obj.city)
+      ..writeByte(26)
+      ..write(obj.pincode);
   }
 
   @override

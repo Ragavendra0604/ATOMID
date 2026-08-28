@@ -241,6 +241,7 @@ class _ExpenseFormScreenState extends ConsumerState<ExpenseFormScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       DropdownButtonFormField<ExpenseCategory>(
+                        isExpanded: true,
                         decoration: const InputDecoration(
                           labelText: 'Category *',
                           border: OutlineInputBorder(),
@@ -259,7 +260,12 @@ class _ExpenseFormScreenState extends ConsumerState<ExpenseFormScreen> {
                                   ).colorScheme.onSurfaceVariant,
                                 ),
                                 const SizedBox(width: 12),
-                                Text(c.name),
+                                Expanded(
+                                  child: Text(
+                                    c.name,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
                               ],
                             ),
                           );

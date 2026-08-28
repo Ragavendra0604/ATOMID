@@ -82,6 +82,19 @@ class Customer extends HiveObject {
   @HiveField(25)
   List<String> attachments;
 
+  // Additive GST fields
+  @HiveField(26)
+  String state;
+
+  @HiveField(27)
+  String stateCode;
+
+  @HiveField(28)
+  String city;
+
+  @HiveField(29)
+  String pincode;
+
   Customer({
     required this.id,
     required this.code,
@@ -109,5 +122,9 @@ class Customer extends HiveObject {
     this.notes = '',
     this.tags = const [],
     this.attachments = const [],
+    this.state = '',
+    this.stateCode = '',
+    this.city = '',
+    this.pincode = '',
   });
 }

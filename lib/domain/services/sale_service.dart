@@ -18,10 +18,11 @@ class CheckoutRequest {
   final String paymentMethod;
   final String notes;
 
-  /// What the cashier typed into the discount box, as a percentage of the
-  /// subtotal. Percentages are what a till operator thinks in, and they scale
-  /// with the basket rather than needing mental arithmetic per sale.
+  /// What the cashier typed into the discount box, as a percentage of the subtotal.
   final double discountPercent;
+
+  /// Explicit delivery destination state code if different from customer/shop.
+  final String? destinationStateCode;
 
   final bool redeemPoints;
   final String createdBy;
@@ -32,6 +33,7 @@ class CheckoutRequest {
     this.customer,
     this.notes = '',
     this.discountPercent = 0,
+    this.destinationStateCode,
     this.redeemPoints = false,
     this.createdBy = 'POS',
   });
@@ -39,52 +41,36 @@ class CheckoutRequest {
   bool get isCredit => paymentMethod.toLowerCase() == 'credit';
 }
 
-/// Owns the checkout transaction.
-///
-/// A sale touches five stores — sales, products, movements, ledger, loyalty.
-/// Hive has no multi-box transaction, so every write is recorded as it happens
-/// and unwound in reverse if a later step fails. Without this a failure part
-/// way through left a committed sale, a debited customer and stock deducted
-/// for only some of the basket.
+/// Owns the checkout transaction with complete statutory GST snapshotting.
 class SaleService {
   final StorageRepository _repo;
   final SessionService _session;
 
   SaleService(this._repo, this._session);
 
-  /// The stored record for the request's customer, falling back to the object
-  /// the caller passed.
-  ///
-  /// A `Customer` handed in from a screen is a snapshot taken when the cashier
-  /// picked them. This app is offline-first and syncs in the background, so a
-  /// second till can move that customer's points or balance while the basket
-  /// sits open — and both are figures this service refuses or approves a sale
-  /// on. `_updateLifetimeSpend` already re-reads for exactly this reason; the
-  /// point balance and the credit check were reading the snapshot.
-  ///
-  /// Falls back rather than throwing so a caller can still price a cart for a
-  /// customer that is not in storage, which the tests and the new-customer
-  /// flow both do.
   Customer? _currentCustomer(CheckoutRequest request) {
     final requested = request.customer;
     if (requested == null) return null;
     return _repo.getCustomerById(requested.id) ?? requested;
   }
 
-  /// Prices a cart without committing anything. Used to render the checkout
-  /// summary so the preview and the receipt come from one calculation.
-  SaleTotals preview(CheckoutRequest request) {
-    return SalePricing.compute(
-      lineItemTotal: request.items.fold(0.0, (sum, i) => sum + i.total),
+  /// Prices a cart using the central GST engine without committing anything.
+  SaleTotals preview(CheckoutRequest request, {DateTime? date}) {
+    return SalePricing.computeCart(
+      items: request.items,
       settings: _repo.getSettings(),
       loyalty: _repo.getLoyaltySettings(),
+      company: _repo.getCompany(),
+      customer: _currentCustomer(request),
+      destinationStateCode: request.destinationStateCode,
       requestedDiscountPercent: request.discountPercent,
       availablePoints: _currentCustomer(request)?.totalRewardPoints ?? 0,
       redeemPoints: request.redeemPoints,
+      transactionDate: date,
     );
   }
 
-  /// Validates and commits a sale, or throws having changed nothing.
+  /// Validates and commits a sale with complete GST snapshotting, or throws having changed nothing.
   Future<Sale> checkout(CheckoutRequest request) async {
     if (request.items.isEmpty) {
       throw const AppException('Add at least one item before checking out.');
@@ -92,30 +78,72 @@ class SaleService {
 
     _assertStockAvailable(request);
 
-    final totals = preview(request);
+    final now = DateTime.now();
+    final totals = preview(request, date: now);
+
+    if (totals.gstResult != null && !totals.gstResult!.isValid) {
+      final errorList = totals.gstResult!.errors.join('\n• ');
+      throw AppException('Cannot complete billing:\n• $errorList');
+    }
+
     _assertCreditAllowed(request, totals);
 
-    final now = DateTime.now();
+    final company = _repo.getCompany();
+    final settings = _repo.getSettings();
+    final customer = _currentCustomer(request);
+
+    final gstRes = totals.gstResult;
+
+    final saleItems = <SaleItem>[];
+    for (int i = 0; i < request.items.length; i++) {
+      final item = request.items[i];
+      final lineRes = (gstRes != null && i < gstRes.lines.length)
+          ? gstRes.lines[i]
+          : null;
+
+      saleItems.add(
+        SaleItem(
+          productId: item.product.id,
+          productName: item.product.productName,
+          productCode: item.product.productCode,
+          variantBarcode: item.variant.barcode,
+          variantSize: item.variant.size,
+          price: item.variant.price,
+          quantity: item.quantity,
+          total: lineRes != null ? lineRes.lineTotal : Fmt.round2(item.total),
+          hsn: lineRes?.hsn ?? item.product.hsn,
+          uqc:
+              lineRes?.uqc ??
+              (item.product.uqc.isNotEmpty
+                  ? item.product.uqc
+                  : settings.defaultUqc),
+          gstRate: lineRes?.gstRate ?? item.product.gstRate,
+          gstTreatment: lineRes?.gstTreatment ?? item.product.gstTreatment,
+          cessRate: lineRes?.cessRate ?? item.product.cessRate,
+          taxableValue: lineRes?.taxableValue ?? 0.0,
+          discountAmount: lineRes?.discountAllocated ?? 0.0,
+          cgstAmount: lineRes?.cgstAmount ?? 0.0,
+          sgstAmount: lineRes?.sgstAmount ?? 0.0,
+          utgstAmount: lineRes?.utgstAmount ?? 0.0,
+          igstAmount: lineRes?.igstAmount ?? 0.0,
+          cessAmount: lineRes?.cessAmount ?? 0.0,
+          gstRateConfigId:
+              lineRes?.gstRateConfigId ?? item.product.gstRateConfigId,
+        ),
+      );
+    }
+
+    final docType = (company.isGstRegistered || totals.taxAmount > 0)
+        ? 'Tax Invoice'
+        : 'Bill of Supply';
+
     final sale = Sale(
       id: Ids.generate(),
       invoiceNumber: _repo.getNextInvoiceNumber(),
       date: now,
-      customerId: request.customer?.id ?? '',
-      customerName: request.customer?.name ?? 'Walk-In Customer',
-      items: request.items
-          .map(
-            (item) => SaleItem(
-              productId: item.product.id,
-              productName: item.product.productName,
-              productCode: item.product.productCode,
-              variantBarcode: item.variant.barcode,
-              variantSize: item.variant.size,
-              price: item.variant.price,
-              quantity: item.quantity,
-              total: Fmt.round2(item.total),
-            ),
-          )
-          .toList(),
+      customerId: customer?.id ?? '',
+      customerName: customer?.name ?? 'Walk-In Customer',
+      items: saleItems,
       subtotal: totals.subtotal,
       discountPercent: totals.discountPercent,
       discountAmount: totals.manualDiscount,
@@ -128,22 +156,40 @@ class SaleService {
       deviceId: _session.deviceId,
       createdBy: request.createdBy,
       updatedAt: now,
+      sellerGstin: company.gstNumber,
+      sellerState: company.state,
+      sellerStateCode: company.stateCode,
+      sellerLegalName: company.name,
+      sellerAddress: company.address,
+      customerGstin: customer?.gstNumber ?? '',
+      customerState: customer?.state ?? '',
+      customerStateCode: customer?.stateCode ?? '',
+      customerAddress: customer?.address ?? '',
+      customerPhone: customer?.mobile ?? '',
+      placeOfSupply: totals.placeOfSupply,
+      placeOfSupplyBasis: gstRes?.placeOfSupplyBasis ?? '',
+      pricingMode: settings.taxMode,
+      taxableAmount: totals.taxableAmount,
+      cgstAmount: totals.cgstAmount,
+      sgstAmount: totals.sgstAmount,
+      utgstAmount: totals.utgstAmount,
+      igstAmount: totals.igstAmount,
+      cessAmount: totals.cessAmount,
+      preRoundTotal: totals.preRoundTotal,
+      roundOff: totals.roundOff,
+      documentType: docType,
+      isInterState: totals.isInterState,
     );
 
     final undo = <Future<void> Function()>[];
 
-    // Declared before the first write. [undo] below unwinds a failure this
-    // process lives to see; the journal is what unwinds one it does not —
-    // a power cut or a kill part way through leaves these writes committed
-    // with nothing in memory left to reverse them, so startup finds the open
-    // journal row and reverses them there.
-    final storedCustomer = request.customer == null
+    final storedCustomer = customer == null
         ? null
-        : _repo.getCustomerById(request.customer!.id);
+        : _repo.getCustomerById(customer.id);
     await _repo.openCheckoutJournal(
       saleId: sale.id,
       invoiceNumber: sale.invoiceNumber,
-      customerId: request.customer?.id ?? '',
+      customerId: customer?.id ?? '',
       previousLifetimeSpend: storedCustomer?.lifetimeSpend,
       previousUpdatedAt: storedCustomer?.updatedAt,
     );
@@ -173,13 +219,12 @@ class SaleService {
         );
       }
 
-      if (request.customer != null) {
+      if (customer != null) {
         await _recordLedger(sale, request, undo);
         await _recordLoyalty(sale, request, totals, undo);
-        await _updateLifetimeSpend(request.customer!, totals.grandTotal, undo);
+        await _updateLifetimeSpend(customer, totals.grandTotal, undo);
       }
 
-      // Every write landed: there is nothing left for startup to reverse.
       await _repo.closeCheckoutJournal(sale.id);
       return sale;
     } catch (error, stack) {
@@ -193,18 +238,12 @@ class SaleService {
         stack: stack,
       );
       await _unwind(undo, sale);
-      // Closed after unwinding rather than left open: this path already
-      // reversed everything in memory, so leaving the row would make the next
-      // launch re-reverse an order that no longer exists and report a
-      // recovery to the shop that never happened.
       await _repo.closeCheckoutJournal(sale.id);
       rethrow;
     }
   }
 
   void _assertStockAvailable(CheckoutRequest request) {
-    // Sum per variant: the same variant can appear once but with a quantity
-    // that has since outrun the shelf.
     final wanted = <String, int>{};
     for (final item in request.items) {
       wanted.update(
@@ -241,8 +280,6 @@ class SaleService {
   }
 
   void _assertCreditAllowed(CheckoutRequest request, SaleTotals totals) {
-    // Storage, not the snapshot: a limit checked against a balance another
-    // device has already moved is not a limit.
     final customer = _currentCustomer(request);
     if (!request.isCredit) return;
 
@@ -251,7 +288,7 @@ class SaleService {
         'Select a customer before taking a sale on credit.',
       );
     }
-    if (customer.creditLimit <= 0) return; // no limit configured
+    if (customer.creditLimit <= 0) return;
 
     final projected = customer.currentBalance + totals.grandTotal;
     if (projected > customer.creditLimit) {
@@ -263,8 +300,6 @@ class SaleService {
     }
   }
 
-  /// Registers each reversal onto [undo] as its write lands, so a failure on
-  /// the second leg still unwinds the first.
   Future<void> _recordLedger(
     Sale sale,
     CheckoutRequest request,
@@ -293,8 +328,6 @@ class SaleService {
     }
   }
 
-  /// Registers each reversal onto [undo] as its write lands, so a failure on
-  /// the earn leg still unwinds the redemption.
   Future<void> _recordLoyalty(
     Sale sale,
     CheckoutRequest request,
@@ -328,7 +361,6 @@ class SaleService {
     }
   }
 
-  /// Adds to the customer's lifetime spend and registers the restore on [undo].
   Future<void> _updateLifetimeSpend(
     Customer customer,
     double amount,
@@ -353,17 +385,12 @@ class SaleService {
     });
   }
 
-  /// Runs compensating actions newest-first. Each is isolated: one failing
-  /// reversal must not prevent the others from running.
   Future<void> _unwind(List<Future<void> Function()> undo, Sale sale) async {
     for (final step in undo.reversed) {
       try {
         await step();
       } catch (e, stack) {
         debugPrint('Reversal step failed for sale ${sale.invoiceNumber}: $e');
-        // ERROR, not WARNING: the checkout failure above was contained, but a
-        // reversal that itself fails leaves stock or the ledger disagreeing
-        // with the sale. That is the one state here a person must resolve.
         await _repo.recordDiagnostic(
           severity: DiagnosticSeverity.error,
           area: DiagnosticArea.checkout,

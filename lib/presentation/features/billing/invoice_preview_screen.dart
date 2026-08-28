@@ -83,19 +83,27 @@ class InvoicePreviewScreen extends ConsumerWidget {
         children: [
           Expanded(
             child: PdfPreview(
+              // The document is laid out for the format being previewed or
+              // printed, rather than always for A4. Returning a fixed A4 page
+              // to a print job on other paper left the platform to scale and
+              // crop it, so the printout did not match this preview.
               build: (format) => ExportService.generateInvoicePdf(
                 sale,
                 settings,
                 company,
                 invoiceSettings,
+                pageFormat: format,
               ).then((pdf) => pdf.save()),
               allowPrinting: true,
               allowSharing: true,
               canChangeOrientation: false,
               canChangePageFormat: false,
-              initialPageFormat: settings.pdfPageSize == 'A4'
-                  ? PdfPageFormat.a4
-                  : PdfPageFormat.roll80,
+              // A tax invoice is a sheet, never an 80mm till roll — that is
+              // what the Thermal Receipt button is for. The old fallback sent
+              // every non-A4 shop (Letter) to roll80.
+              initialPageFormat: settings.pdfPageSize == 'Letter'
+                  ? PdfPageFormat.letter
+                  : PdfPageFormat.a4,
             ),
           ),
           Container(
@@ -123,14 +131,19 @@ class InvoicePreviewScreen extends ConsumerWidget {
                 ),
                 ElevatedButton.icon(
                   onPressed: () async {
-                    final pdf = await ExportService.generateInvoicePdf(
-                      sale,
-                      settings,
-                      company,
-                      invoiceSettings,
-                    );
+                    // Built inside onLayout so the invoice is laid out for
+                    // the paper the print dialog actually reports.
                     await Printing.layoutPdf(
-                      onLayout: (PdfPageFormat format) async => pdf.save(),
+                      onLayout: (PdfPageFormat format) async {
+                        final pdf = await ExportService.generateInvoicePdf(
+                          sale,
+                          settings,
+                          company,
+                          invoiceSettings,
+                          pageFormat: format,
+                        );
+                        return pdf.save();
+                      },
                       name: 'Invoice_${sale.invoiceNumber}',
                     );
                     if (context.mounted) Navigator.pop(context);

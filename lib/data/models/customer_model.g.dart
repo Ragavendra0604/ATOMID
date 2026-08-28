@@ -47,13 +47,17 @@ class CustomerAdapter extends TypeAdapter<Customer> {
       attachments: fields[25] == null
           ? const []
           : (fields[25] as List).cast<String>(),
+      state: fields[26] == null ? '' : fields[26] as String,
+      stateCode: fields[27] == null ? '' : fields[27] as String,
+      city: fields[28] == null ? '' : fields[28] as String,
+      pincode: fields[29] == null ? '' : fields[29] as String,
     );
   }
 
   @override
   void write(BinaryWriter writer, Customer obj) {
     writer
-      ..writeByte(26)
+      ..writeByte(30)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -105,7 +109,15 @@ class CustomerAdapter extends TypeAdapter<Customer> {
       ..writeByte(24)
       ..write(obj.tags)
       ..writeByte(25)
-      ..write(obj.attachments);
+      ..write(obj.attachments)
+      ..writeByte(26)
+      ..write(obj.state)
+      ..writeByte(27)
+      ..write(obj.stateCode)
+      ..writeByte(28)
+      ..write(obj.city)
+      ..writeByte(29)
+      ..write(obj.pincode);
   }
 
   @override

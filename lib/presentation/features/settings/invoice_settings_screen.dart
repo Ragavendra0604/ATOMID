@@ -23,6 +23,7 @@ class _InvoiceSettingsScreenState extends ConsumerState<InvoiceSettingsScreen> {
 
   bool _showUpiQr = false;
   bool _showCompanyLogo = true;
+  bool _showSignature = true;
   String _upiQrImagePath = '';
   String _fontName = InvoiceFonts.defaultFont;
 
@@ -37,6 +38,7 @@ class _InvoiceSettingsScreenState extends ConsumerState<InvoiceSettingsScreen> {
 
     _showUpiQr = settings.showUpiQr;
     _showCompanyLogo = settings.showCompanyLogo;
+    _showSignature = settings.showSignature;
     _upiQrImagePath = settings.upiQrImagePath;
     _fontName = settings.fontName;
   }
@@ -71,6 +73,7 @@ class _InvoiceSettingsScreenState extends ConsumerState<InvoiceSettingsScreen> {
       showCompanyLogo: _showCompanyLogo,
       termsAndConditions: _termsController.text.trim(),
       fontName: _fontName,
+      showSignature: _showSignature,
     );
 
     await ref.read(storageRepositoryProvider).saveInvoiceSettings(newSettings);
@@ -120,15 +123,27 @@ class _InvoiceSettingsScreenState extends ConsumerState<InvoiceSettingsScreen> {
                 value: _showCompanyLogo,
                 onChanged: (val) => setState(() => _showCompanyLogo = val),
               ),
+              SwitchListTile(
+                title: const Text('Show Signature Block'),
+                subtitle: const Text('Print space for an authorised signature'),
+                value: _showSignature,
+                onChanged: (val) => setState(() => _showSignature = val),
+              ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
                 initialValue: _fontName,
+                isExpanded: true,
                 decoration: const InputDecoration(
                   labelText: 'Invoice Font',
                   border: OutlineInputBorder(),
                 ),
                 items: InvoiceFonts.availableFonts
-                    .map((f) => DropdownMenuItem(value: f, child: Text(f)))
+                    .map(
+                      (f) => DropdownMenuItem(
+                        value: f,
+                        child: Text(f, overflow: TextOverflow.ellipsis),
+                      ),
+                    )
                     .toList(),
                 onChanged: (val) {
                   if (val != null) {

@@ -162,7 +162,10 @@ class _StockInScreenState extends ConsumerState<StockInScreen> {
                   items: products.map((p) {
                     return DropdownMenuItem(
                       value: p,
-                      child: Text('${p.productName} (${p.productCode})'),
+                      child: Text(
+                        '${p.productName} (${p.productCode})',
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     );
                   }).toList(),
                   onChanged: (p) {
@@ -194,6 +197,7 @@ class _StockInScreenState extends ConsumerState<StockInScreen> {
                         value: v,
                         child: Text(
                           'Size: ${v.size} | Qty: ${v.quantity} | ${v.barcode}',
+                          overflow: TextOverflow.ellipsis,
                         ),
                       );
                     }).toList(),
@@ -264,12 +268,16 @@ class _StockInScreenState extends ConsumerState<StockInScreen> {
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
                     initialValue: _selectedReason,
+                    isExpanded: true,
                     decoration: const InputDecoration(
                       prefixIcon: Icon(Icons.description),
                       border: OutlineInputBorder(),
                     ),
                     items: _reasons.map((r) {
-                      return DropdownMenuItem(value: r, child: Text(r));
+                      return DropdownMenuItem(
+                        value: r,
+                        child: Text(r, overflow: TextOverflow.ellipsis),
+                      );
                     }).toList(),
                     onChanged: (r) {
                       if (r != null) setState(() => _selectedReason = r);

@@ -1,0 +1,844 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AtomID GST Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&family=Public+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<style>
+:root {
+  --paper: #FBFBF9;
+  --surface: #FFFFFF;
+  --surface-sunk: #F3F4F1;
+  --ink: #15191C;
+  --ink-soft: #4E5A5C;
+  --ink-faint: #7B8688;
+  --rule: #E1E5E0;
+  --rule-strong: #C7CEC8;
+  --accent: #1B6A53;
+  --accent-soft: #E7F0EB;
+  --warn: #8A5A12;
+  --warn-soft: #F7EFDF;
+  --stop: #93302B;
+  --stop-soft: #F8EAE7;
+
+  --f-display: "Newsreader", Georgia, "Times New Roman", serif;
+  --f-body: "Public Sans", -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  --f-mono: "IBM Plex Mono", "SF Mono", Consolas, monospace;
+
+  --measure: 68ch;
+  --step: clamp(0.9rem, 0.6rem + 0.4vw, 1.05rem);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #11151700;
+    --paper: #111517;
+    --surface: #171C1E;
+    --surface-sunk: #1C2224;
+    --ink: #E7EBE9;
+    --ink-soft: #A9B4B3;
+    --ink-faint: #7E8A89;
+    --rule: #28302F;
+    --rule-strong: #3A4443;
+    --accent: #63C0A0;
+    --accent-soft: #172A25;
+    --warn: #D9A85B;
+    --warn-soft: #2A2317;
+    --stop: #E29089;
+    --stop-soft: #2C1B19;
+  }
+}
+
+:root[data-theme="dark"] {
+  --paper: #111517;
+  --surface: #171C1E;
+  --surface-sunk: #1C2224;
+  --ink: #E7EBE9;
+  --ink-soft: #A9B4B3;
+  --ink-faint: #7E8A89;
+  --rule: #28302F;
+  --rule-strong: #3A4443;
+  --accent: #63C0A0;
+  --accent-soft: #172A25;
+  --warn: #D9A85B;
+  --warn-soft: #2A2317;
+  --stop: #E29089;
+  --stop-soft: #2C1B19;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--f-body);
+  font-size: var(--step);
+  line-height: 1.62;
+  -webkit-font-smoothing: antialiased;
+}
+
+.page {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 clamp(1.1rem, 4vw, 3rem) 6rem;
+}
+
+@media (min-width: 1000px) {
+  .page { grid-template-columns: 15.5rem minmax(0, 1fr); gap: clamp(2rem, 5vw, 4.5rem); }
+}
+
+/* ---------- masthead ---------- */
+
+.masthead {
+  grid-column: 1 / -1;
+  border-bottom: 2px solid var(--ink);
+  padding: clamp(2.5rem, 6vw, 4.5rem) 0 1.4rem;
+  margin-bottom: 2.6rem;
+}
+
+.eyebrow {
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-weight: 600;
+  margin: 0 0 0.9rem;
+}
+
+.masthead h1 {
+  font-family: var(--f-display);
+  font-weight: 600;
+  font-size: clamp(2.3rem, 1.4rem + 3.6vw, 4rem);
+  line-height: 1.04;
+  letter-spacing: -0.02em;
+  margin: 0 0 0.7rem;
+  text-wrap: balance;
+}
+
+.standfirst {
+  font-family: var(--f-display);
+  font-size: clamp(1.05rem, 0.95rem + 0.5vw, 1.3rem);
+  line-height: 1.5;
+  color: var(--ink-soft);
+  max-width: 54ch;
+  margin: 0;
+}
+
+.masthead-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 2rem;
+  margin-top: 1.8rem;
+  font-size: 0.8rem;
+  color: var(--ink-faint);
+}
+
+.masthead-meta b { color: var(--ink-soft); font-weight: 600; }
+
+/* ---------- contents rail ---------- */
+
+.rail { display: none; }
+
+@media (min-width: 1000px) {
+  .rail {
+    display: block;
+    position: sticky;
+    top: 2rem;
+    align-self: start;
+    max-height: calc(100vh - 4rem);
+    overflow-y: auto;
+    font-size: 0.83rem;
+    line-height: 1.45;
+    padding-bottom: 2rem;
+  }
+}
+
+.rail h2 {
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  font-weight: 600;
+  margin: 0 0 0.85rem;
+}
+
+.rail ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.rail a { color: var(--ink-soft); text-decoration: none; display: block; border-left: 2px solid var(--rule); padding-left: 0.75rem; }
+.rail a:hover, .rail a:focus-visible { color: var(--accent); border-left-color: var(--accent); }
+
+/* ---------- body ---------- */
+
+main { min-width: 0; max-width: var(--measure); }
+
+section { margin: 0 0 3.6rem; scroll-margin-top: 1.5rem; }
+
+h2 {
+  font-family: var(--f-display);
+  font-size: clamp(1.5rem, 1.2rem + 1vw, 2rem);
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+  margin: 0 0 0.4rem;
+  text-wrap: balance;
+}
+
+h2 .num {
+  font-family: var(--f-mono);
+  font-size: 0.72em;
+  color: var(--accent);
+  margin-right: 0.55rem;
+  font-weight: 500;
+}
+
+h3 {
+  font-family: var(--f-body);
+  font-size: 1.02rem;
+  font-weight: 600;
+  margin: 2rem 0 0.5rem;
+  letter-spacing: -0.005em;
+}
+
+.deck { color: var(--ink-soft); margin: 0 0 1.6rem; max-width: 60ch; }
+
+p { margin: 0 0 1.05rem; }
+p:last-child { margin-bottom: 0; }
+
+a { color: var(--accent); }
+
+ul, ol.list { padding-left: 1.15rem; margin: 0 0 1.15rem; }
+li { margin-bottom: 0.45rem; }
+
+strong { font-weight: 600; }
+
+code {
+  font-family: var(--f-mono);
+  font-size: 0.88em;
+  background: var(--surface-sunk);
+  padding: 0.1em 0.35em;
+  border-radius: 3px;
+}
+
+/* ---------- steps ---------- */
+
+.steps { counter-reset: step; display: flex; flex-direction: column; gap: 1.9rem; margin: 0 0 1.5rem; }
+
+.step { display: grid; grid-template-columns: 2.2rem minmax(0, 1fr); gap: 0 0.9rem; }
+
+.step::before {
+  counter-increment: step;
+  content: counter(step);
+  font-family: var(--f-mono);
+  font-size: 0.82rem;
+  color: var(--accent);
+  background: var(--accent-soft);
+  width: 2.2rem; height: 2.2rem;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  font-weight: 500;
+}
+
+.step h3 { margin: 0.25rem 0 0.4rem; grid-column: 2; }
+.step > p, .step > ul, .step > .calc, .step > .note { grid-column: 2; }
+
+/* ---------- calculation blocks ---------- */
+
+.calc {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 1.1rem 1.2rem;
+  margin: 0 0 1.3rem;
+  font-family: var(--f-mono);
+  font-size: 0.83rem;
+  line-height: 1.75;
+  font-variant-numeric: tabular-nums;
+  overflow-x: auto;
+}
+
+.calc .cap {
+  font-family: var(--f-body);
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  font-weight: 600;
+  display: block;
+  margin-bottom: 0.7rem;
+}
+
+.calc .row { display: flex; justify-content: space-between; gap: 2rem; white-space: nowrap; }
+.calc .row span:first-child { color: var(--ink-soft); }
+.calc .sep { border-top: 1px solid var(--rule); margin: 0.55rem 0; }
+.calc .sep.double { border-top: 2px solid var(--rule-strong); }
+.calc .total { font-weight: 500; }
+.calc .total span:first-child { color: var(--ink); }
+.calc .aside { color: var(--ink-faint); font-size: 0.94em; white-space: normal; }
+
+/* ---------- tables ---------- */
+
+.table-wrap { overflow-x: auto; margin: 0 0 1.4rem; border: 1px solid var(--rule); border-radius: 4px; background: var(--surface); }
+
+table { border-collapse: collapse; width: 100%; font-size: 0.87rem; min-width: 30rem; }
+
+th, td { text-align: left; padding: 0.62rem 0.9rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+
+thead th {
+  font-size: 0.7rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  font-weight: 600;
+  background: var(--surface-sunk);
+  white-space: nowrap;
+}
+
+tbody tr:last-child td { border-bottom: none; }
+
+td.num, th.num { text-align: right; font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* ---------- notes ---------- */
+
+.note {
+  border-left: 3px solid var(--accent);
+  background: var(--accent-soft);
+  padding: 0.85rem 1.1rem;
+  border-radius: 0 4px 4px 0;
+  margin: 0 0 1.3rem;
+  font-size: 0.93rem;
+}
+
+.note.warn { border-left-color: var(--warn); background: var(--warn-soft); }
+.note.stop { border-left-color: var(--stop); background: var(--stop-soft); }
+.note p:last-child { margin-bottom: 0; }
+.note .lab {
+  display: block;
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+  color: var(--accent);
+}
+.note.warn .lab { color: var(--warn); }
+.note.stop .lab { color: var(--stop); }
+
+/* ---------- setting cards ---------- */
+
+.settings { display: grid; gap: 0.9rem; margin: 0 0 1.4rem; }
+
+.setting {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 0.9rem 1.1rem;
+}
+
+.setting h4 { margin: 0 0 0.15rem; font-size: 0.95rem; font-weight: 600; }
+.setting .where { font-size: 0.75rem; color: var(--ink-faint); margin: 0 0 0.5rem; font-family: var(--f-mono); }
+.setting p { margin: 0; font-size: 0.9rem; color: var(--ink-soft); }
+
+/* ---------- closing ---------- */
+
+.colophon {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--rule);
+  margin-top: 1rem;
+  padding-top: 1.4rem;
+  font-size: 0.8rem;
+  color: var(--ink-faint);
+  max-width: var(--measure);
+}
+
+@media (min-width: 1000px) {
+  .colophon { grid-column: 2; }
+}
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+
+@media print {
+  .rail { display: none; }
+  body { background: #fff; color: #000; }
+  section { break-inside: auto; }
+  h2 { break-after: avoid; }
+  .calc, .table-wrap, .note { break-inside: avoid; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="masthead">
+    <p class="eyebrow">AtomID Store &middot; Billing reference</p>
+    <h1>How AtomID works out GST</h1>
+    <p class="standfirst">Every rupee of tax on every bill this shop prints comes from one calculation. This guide explains that calculation in plain language, with the actual numbers worked out, so you can check any invoice by hand.</p>
+    <div class="masthead-meta">
+      <span><b>For</b> the shop owner and the accountant</span>
+      <span><b>Covers</b> sales, purchases, invoices and receipts</span>
+      <span><b>Version</b> August 2026</span>
+    </div>
+  </header>
+
+  <nav class="rail" aria-label="Contents">
+    <h2>Contents</h2>
+    <ol>
+      <li><a href="#start">Start here</a></li>
+      <li><a href="#setup">Three things to set up</a></li>
+      <li><a href="#treatments">The five tax treatments</a></li>
+      <li><a href="#steps">How a bill is worked out</a></li>
+      <li><a href="#split">CGST, SGST, IGST, UTGST</a></li>
+      <li><a href="#pos">Where the sale takes place</a></li>
+      <li><a href="#pricing">Tax inside the price, or on top</a></li>
+      <li><a href="#discounts">Discounts</a></li>
+      <li><a href="#roundoff">Round-off</a></li>
+      <li><a href="#paisa">The one-paisa question</a></li>
+      <li><a href="#refuse">When billing stops</a></li>
+      <li><a href="#frozen">What the invoice remembers</a></li>
+      <li><a href="#rates">The rate book</a></li>
+      <li><a href="#purchases">Purchases from suppliers</a></li>
+      <li><a href="#notdone">What this app does not do</a></li>
+      <li><a href="#reference">Settings reference</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <section id="start">
+      <h2>Start here</h2>
+      <p class="deck">The short version, for anyone who reads nothing else.</p>
+
+      <p>There is exactly <strong>one</strong> place in AtomID where tax is calculated. The billing screen, the printed invoice, the thermal receipt, the supplier purchase entry and every GST report all ask the same calculator for their numbers. Nothing computes tax on its own and nothing rounds a figure twice. That is why a total on screen is always the total on the printout.</p>
+
+      <p>The calculator needs three answers before it can work: <strong>who is selling</strong> (your shop's state), <strong>what is being sold</strong> (each product's tax treatment and rate), and <strong>where the sale takes place</strong> (the place of supply). If any of the three is missing, the app stops and says so rather than guessing &mdash; a guessed tax rate is a wrong invoice you would only discover at filing time.</p>
+
+      <div class="note">
+        <span class="lab">The rule behind every decision</span>
+        <p>When the app cannot be certain, it refuses to bill instead of assuming. Every refusal names what is missing and where to fix it.</p>
+      </div>
+    </section>
+
+    <section id="setup">
+      <h2>Three things to set up</h2>
+      <p class="deck">Do these once. Everything after that is automatic.</p>
+
+      <h3>1. Your shop's state</h3>
+      <p>Settings &rsaquo; Business Details. The state you enter here decides whether a sale is inside your state or outside it &mdash; which in turn decides whether the customer is charged CGST + SGST or IGST. Without it, nothing can be billed.</p>
+
+      <h3>2. Each product's tax treatment and rate</h3>
+      <p>On the product form. Every product carries its own treatment (taxable, nil rated, exempt, non-GST) and, if taxable, its own GST rate and cess rate. A product left <strong>unconfigured</strong> cannot be sold until you set it &mdash; the app will not treat "not set" as "0%".</p>
+
+      <h3>3. Whether your prices include tax</h3>
+      <p>Settings &rsaquo; one choice for the whole shop: prices on the shelf either already contain GST (inclusive) or GST is added at the counter (exclusive). Most Indian retail shops are inclusive, which is the default.</p>
+
+      <div class="note warn">
+        <span class="lab">Worth checking with your accountant</span>
+        <p>Your GST registration status (Regular or Composition) sits in Business Details too. A composition dealer must not collect GST, and the app prints a <strong>Bill of Supply</strong> instead of a <strong>Tax Invoice</strong> when the shop is not registered as regular and no tax was charged.</p>
+      </div>
+    </section>
+
+    <section id="treatments">
+      <h2>The five tax treatments</h2>
+      <p class="deck">What each setting on a product actually does to the bill.</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Treatment</th><th>What it means</th><th>Effect on the bill</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>Taxable</strong></td><td>Ordinary goods at a GST slab &mdash; 0.25%, 3%, 5%, 12%, 18%, 28%, plus cess where it applies</td><td>Tax is calculated at that rate</td></tr>
+            <tr><td><strong>Nil rated</strong></td><td>Goods whose statutory rate is 0%</td><td>No tax; the value still appears as taxable value on the invoice</td></tr>
+            <tr><td><strong>Exempt</strong></td><td>Goods exempted by notification</td><td>No tax</td></tr>
+            <tr><td><strong>Non-GST</strong></td><td>Goods outside GST altogether, such as alcohol or petrol</td><td>No tax</td></tr>
+            <tr><td><strong>Unconfigured</strong></td><td>Nobody has set this product up yet</td><td><strong>Billing stops.</strong> This is never treated as 0%</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>Nil rated, exempt and non-GST look the same on the bill &mdash; no tax &mdash; but they are different things in your returns, which is why the app keeps them apart and prints the treatment against each line.</p>
+    </section>
+
+    <section id="steps">
+      <h2>How a bill is worked out</h2>
+      <p class="deck">The same six steps, in the same order, every single time. We will follow one real basket all the way through.</p>
+
+      <div class="calc">
+        <span class="cap">The basket we will follow</span>
+        <div class="row"><span>2 &times; Cotton shirt @ &#8377;1,050.00 &mdash; GST 5%</span><span>2,100.00</span></div>
+        <div class="row"><span>1 &times; Denim jeans @ &#8377;1,120.00 &mdash; GST 12%</span><span>1,120.00</span></div>
+        <div class="sep"></div>
+        <div class="row aside"><span>Shop in Tamil Nadu &middot; walk-in customer &middot; prices include tax &middot; 10% discount</span><span></span></div>
+      </div>
+
+      <div class="steps">
+
+        <div class="step">
+          <h3>Check the shop and find the customer's state</h3>
+          <p>The app reads your shop state, and the customer's state if there is one. If the customer has a GSTIN, the first two digits of that number <em>are</em> the state code, so the app reads them straight from the number.</p>
+          <p>If the customer's recorded state and their GSTIN disagree, billing stops and names both values. The app never picks a side for you.</p>
+        </div>
+
+        <div class="step">
+          <h3>Decide the place of supply</h3>
+          <p>For our basket there is no customer record, so the walk-in rule applies and the place of supply is the shop's own state, Tamil Nadu. Seller state and place of supply match, so this is an <strong>intra-state</strong> sale: CGST + SGST. <a href="#pos">The full order of preference is here.</a></p>
+        </div>
+
+        <div class="step">
+          <h3>Confirm every product's rate</h3>
+          <p>Each line's rate is looked up against the rate book <em>for the date of the bill</em>, not for today. Anything unconfigured, or a rate that was not in force on that date, stops the bill here.</p>
+        </div>
+
+        <div class="step">
+          <h3>Add up, then spread the discount</h3>
+          <p>Lines are added to a subtotal, then any discount is shared across the lines in proportion to their value &mdash; because a discount reduces the taxable value of each line, not just the total at the bottom.</p>
+          <div class="calc">
+            <span class="cap">Step 4 &mdash; discount allocation</span>
+            <div class="row"><span>Subtotal</span><span>3,220.00</span></div>
+            <div class="row"><span>Discount 10%</span><span>&minus;322.00</span></div>
+            <div class="sep"></div>
+            <div class="row"><span>Shirts share &nbsp; 322 &times; 2,100 &divide; 3,220</span><span>&minus;210.00</span></div>
+            <div class="row"><span>Jeans share &nbsp; 322 &times; 1,120 &divide; 3,220</span><span>&minus;112.00</span></div>
+          </div>
+        </div>
+
+        <div class="step">
+          <h3>Work out the tax, line by line</h3>
+          <p>Because prices include tax, each line's discounted value is divided by <code>1 + rate</code> to find the value before tax. Whatever is left is the tax, and it is split half CGST, half SGST.</p>
+          <div class="calc">
+            <span class="cap">Step 5 &mdash; shirts, 5% inclusive</span>
+            <div class="row"><span>Value after discount</span><span>1,890.00</span></div>
+            <div class="row"><span>Taxable value &nbsp; 1,890 &divide; 1.05</span><span>1,800.00</span></div>
+            <div class="row"><span>GST &nbsp; 1,890 &minus; 1,800</span><span>90.00</span></div>
+            <div class="row"><span>CGST 2.5%</span><span>45.00</span></div>
+            <div class="row"><span>SGST 2.5%</span><span>45.00</span></div>
+            <div class="sep"></div>
+            <div class="row total"><span>Line total</span><span>1,890.00</span></div>
+          </div>
+          <div class="calc">
+            <span class="cap">Step 5 &mdash; jeans, 12% inclusive</span>
+            <div class="row"><span>Value after discount</span><span>1,008.00</span></div>
+            <div class="row"><span>Taxable value &nbsp; 1,008 &divide; 1.12</span><span>900.00</span></div>
+            <div class="row"><span>GST &nbsp; 1,008 &minus; 900</span><span>108.00</span></div>
+            <div class="row"><span>CGST 6%</span><span>54.00</span></div>
+            <div class="row"><span>SGST 6%</span><span>54.00</span></div>
+            <div class="sep"></div>
+            <div class="row total"><span>Line total</span><span>1,008.00</span></div>
+          </div>
+        </div>
+
+        <div class="step">
+          <h3>Total, and round off</h3>
+          <p>Line totals are added, and the bill is rounded to the nearest rupee if round-off is switched on. Here the total is already whole, so there is nothing to round.</p>
+          <div class="calc">
+            <span class="cap">The finished bill</span>
+            <div class="row"><span>Subtotal</span><span>3,220.00</span></div>
+            <div class="row"><span>Discount</span><span>&minus;322.00</span></div>
+            <div class="sep"></div>
+            <div class="row"><span>Taxable value</span><span>2,700.00</span></div>
+            <div class="row"><span>CGST</span><span>99.00</span></div>
+            <div class="row"><span>SGST</span><span>99.00</span></div>
+            <div class="row"><span>Round-off</span><span>0.00</span></div>
+            <div class="sep double"></div>
+            <div class="row total"><span>Net payable</span><span>2,898.00</span></div>
+          </div>
+        </div>
+
+      </div>
+
+      <p>Read the finished bill back and it holds together: taxable value 2,700 plus tax 198 equals the 2,898 the customer pays, and 2,898 is the 3,220 on the shelf less the 322 discount. Every invoice this app prints can be checked the same way.</p>
+    </section>
+
+    <section id="split">
+      <h2>CGST, SGST, IGST, UTGST</h2>
+      <p class="deck">Which of the four appears on the bill is decided by geography, never by a person.</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Situation</th><th>What the customer is charged</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Sale inside your own state</td><td><strong>CGST + SGST</strong>, each half the rate. A 12% item becomes 6% + 6%</td></tr>
+            <tr><td>Sale to another state</td><td><strong>IGST</strong> at the full rate. A 12% item is 12% IGST</td></tr>
+            <tr><td>Sale inside a union territory without its own legislature</td><td><strong>CGST + UTGST</strong>, each half the rate</td></tr>
+            <tr><td>Any of the above with a cess item</td><td>Cess is added on top of whichever of the three applies</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p><strong>The total does not change.</strong> Sell the same basket above to a customer in Karnataka and the tax is ₹198 of IGST instead of ₹99 + ₹99, and the customer still pays ₹2,898. Only the split changes &mdash; which matters for your returns, not for the customer's pocket.</p>
+
+      <p>Half of an odd rate cannot always be split evenly to the paisa. When it cannot, CGST takes the rounded half and SGST takes whatever is left, so the two together always equal the tax on the line exactly.</p>
+    </section>
+
+    <section id="pos">
+      <h2>Where the sale takes place</h2>
+      <p class="deck">The place of supply, and the order the app looks for it.</p>
+
+      <p>The app tries these in order and stops at the first one it finds. Every invoice records which one was used, so you can always see why a bill came out intra-state or inter-state.</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th class="num">Order</th><th>Source</th><th>When it is used</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="num">1</td><td>Delivery address</td><td>A delivery state was entered for this bill</td></tr>
+            <tr><td class="num">2</td><td>Customer's billing state</td><td>The customer record has a state</td></tr>
+            <tr><td class="num">3</td><td>Customer's GSTIN</td><td>No state recorded, but the GSTIN's first two digits give one</td></tr>
+            <tr><td class="num">4</td><td>Shop state, by counter-sale policy</td><td>A walk-in customer with nothing recorded</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>The counter-sale policy</h3>
+      <p>Step 4 is yours to choose, in Settings &rsaquo; <em>Walk-In Customer Place of Supply Policy</em>:</p>
+
+      <div class="settings">
+        <div class="setting">
+          <h4>Default to shop state</h4>
+          <p class="where">Recommended for an ordinary counter shop</p>
+          <p>A walk-in with no details is billed as a sale inside your own state. This is how over-the-counter retail normally works.</p>
+        </div>
+        <div class="setting">
+          <h4>Prompt at checkout</h4>
+          <p class="where">For shops that regularly serve out-of-state buyers</p>
+          <p>The cashier is asked for the state on every walk-in bill.</p>
+        </div>
+        <div class="setting">
+          <h4>Mandatory state selection</h4>
+          <p class="where">Strictest</p>
+          <p>No bill goes through without a state on the customer. Nothing is assumed.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="pricing">
+      <h2>Tax inside the price, or on top</h2>
+      <p class="deck">One shop-wide choice that changes what the customer pays.</p>
+
+      <p><strong>Inclusive</strong> &mdash; the price on the shelf is the price paid. The app works backwards to find how much of it was tax. A ₹1,050 shirt at 5% is ₹1,000 of value and ₹50 of tax; the customer pays ₹1,050.</p>
+
+      <p><strong>Exclusive</strong> &mdash; the price on the shelf is before tax, and tax is added at the counter. A ₹1,000 shirt at 5% becomes ₹1,050 at the till.</p>
+
+      <div class="calc">
+        <span class="cap">The same goods priced both ways &mdash; shirts 5%, jeans 12%</span>
+        <div class="row"><span>Inclusive tags &nbsp; 2 &times; 1,050.00 &nbsp; 1 &times; 1,120.00</span><span>3,220.00</span></div>
+        <div class="row"><span>&nbsp;&nbsp;of which taxable value</span><span>3,000.00</span></div>
+        <div class="row"><span>&nbsp;&nbsp;of which GST</span><span>220.00</span></div>
+        <div class="sep double"></div>
+        <div class="row"><span>Exclusive tags &nbsp; 2 &times; 1,000.00 &nbsp; 1 &times; 1,000.00</span><span>3,000.00</span></div>
+        <div class="row"><span>&nbsp;&nbsp;GST added at the till</span><span>220.00</span></div>
+        <div class="row total"><span>&nbsp;&nbsp;Customer pays</span><span>3,220.00</span></div>
+        <div class="sep"></div>
+        <div class="row aside"><span>Same shop, same goods, same money. Only the number on the tag differs.</span><span></span></div>
+      </div>
+
+      <div class="note">
+        <span class="lab">Which should a shop use</span>
+        <p>Whichever matches your price tags. If the tags show the price the customer pays, you are inclusive. Changing this setting does not re-price your products &mdash; it changes how the same number is read, so change it only with the accountant's agreement.</p>
+      </div>
+    </section>
+
+    <section id="discounts">
+      <h2>Discounts</h2>
+      <p class="deck">Three kinds, all of which reduce taxable value.</p>
+
+      <ul>
+        <li><strong>Line discount</strong> &mdash; taken off one line only. Used mainly on supplier purchase entries.</li>
+        <li><strong>Bill discount</strong> &mdash; a percentage or a rupee amount off the whole bill.</li>
+        <li><strong>Loyalty points redeemed</strong> &mdash; treated exactly like a bill discount.</li>
+      </ul>
+
+      <p>A bill discount is spread across the lines in proportion to their value <em>before</em> tax is worked out. This matters when the basket has more than one tax rate: ₹100 off a basket of 5% and 28% goods reduces the tax on both, in proportion, and never lands entirely on one rate.</p>
+
+      <h3>When the shares don't add up</h3>
+      <p>Proportional shares rounded to the paisa sometimes miss the discount by a paisa. Rather than lose it, the app puts the difference on the largest line.</p>
+
+      <div class="calc">
+        <span class="cap">&#8377;25 off three lines of 50.00, 50.00 and 50.50</span>
+        <div class="row"><span>Line 1 &nbsp; 25 &times; 50.00 &divide; 150.50</span><span>8.31</span></div>
+        <div class="row"><span>Line 2 &nbsp; 25 &times; 50.00 &divide; 150.50</span><span>8.31</span></div>
+        <div class="row"><span>Line 3 &nbsp; 25 &times; 50.50 &divide; 150.50</span><span>8.39</span></div>
+        <div class="sep"></div>
+        <div class="row"><span>Adds up to</span><span>25.01</span></div>
+        <div class="row aside"><span>a paisa too much, so the largest line gives it back</span><span></span></div>
+        <div class="sep"></div>
+        <div class="row"><span>Line 3 corrected</span><span>8.38</span></div>
+        <div class="row total"><span>Discount given</span><span>25.00</span></div>
+      </div>
+
+      <p>Two limits are enforced quietly: a discount can never exceed the value of the bill, and points redeemed plus discount together can never take the bill below zero.</p>
+    </section>
+
+    <section id="roundoff">
+      <h2>Round-off</h2>
+      <p class="deck">The last line before the total.</p>
+
+      <p>With round-off switched on, the payable amount is rounded to the nearest rupee and the adjustment is printed as its own line, so the invoice always adds up on paper.</p>
+
+      <div class="calc">
+        <span class="cap">Both directions</span>
+        <div class="row"><span>Bill comes to 599.40 &nbsp; round-off &minus;0.40</span><span>599.00</span></div>
+        <div class="row"><span>Bill comes to 599.60 &nbsp; round-off +0.40</span><span>600.00</span></div>
+      </div>
+
+      <p>Round-off is a whole-rupee adjustment on the final amount only. It never touches the tax figures, and no other rounding is ever folded into this line.</p>
+    </section>
+
+    <section id="paisa">
+      <h2>The one-paisa question</h2>
+      <p class="deck">A choice only your accountant can make, which is why the app leaves it to you.</p>
+
+      <p>When a price already includes tax and the numbers do not divide cleanly, two things cannot both be exact: the price on the shelf, and the tax figure as a straight percentage of the taxable value. They can differ by one paisa.</p>
+
+      <p>The clearest case is a ₹0.91 item at 28% GST plus 1% cess. Dividing by 1.29 gives ₹0.71 of value. From there:</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Setting</th><th class="num">Taxable</th><th class="num">CGST</th><th class="num">SGST</th><th class="num">Cess</th><th class="num">Customer pays</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>Marked price is exact</strong><br><span style="color:var(--ink-faint);font-size:0.9em">tax is the remainder</span></td><td class="num">0.71</td><td class="num">0.10</td><td class="num">0.09</td><td class="num">0.01</td><td class="num">0.91</td></tr>
+            <tr><td><strong>Tax matches the rate</strong><br><span style="color:var(--ink-faint);font-size:0.9em">28% of 0.71, exactly</span></td><td class="num">0.71</td><td class="num">0.10</td><td class="num">0.10</td><td class="num">0.01</td><td class="num">0.92</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>The first keeps your price tag honest &mdash; the customer pays what the tag says &mdash; at the cost of the GST shown sitting a paisa away from 28% of the taxable value. The second makes every tax figure reconcile against the rate, at the cost of billing a paisa more than the tag.</p>
+
+      <p>You choose, in Settings &rsaquo; <em>Tax-Inclusive Price Rounding</em>. The default is <strong>marked price is exact</strong>. On ordinary rate-and-price combinations the two settings give identical results &mdash; ₹1,050 at 5% is ₹1,000 and ₹50 either way &mdash; so most shops will never see the difference.</p>
+
+      <div class="note warn">
+        <span class="lab">Please read this one</span>
+        <p>Neither reading has been confirmed against an authoritative source as the legally required one, and this app does not claim otherwise. Ask your accountant which your books should follow, then set it once. Every invoice records the setting it was billed under, so a change later never makes an old invoice ambiguous.</p>
+      </div>
+    </section>
+
+    <section id="refuse">
+      <h2>When billing stops</h2>
+      <p class="deck">Every message, what caused it, and the fix.</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>What you see</th><th>Why</th><th>Fix</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Configure your shop state before billing</td><td>Business Details has no state, so intra- or inter-state cannot be decided</td><td>Settings &rsaquo; Business Details &rsaquo; State</td></tr>
+            <tr><td>Product tax treatment is unconfigured</td><td>The product was never set up for tax. It is never assumed to be 0%</td><td>Open the product and set its treatment and rate</td></tr>
+            <tr><td>Taxable product has no GST rate configured</td><td>Marked taxable but no rate given</td><td>Set the rate on the product</td></tr>
+            <tr><td>Customer GSTIN and customer state do not agree</td><td>The GSTIN's state code contradicts the state on the record</td><td>Correct whichever is wrong on the customer</td></tr>
+            <tr><td>GSTIN is not a valid GSTIN</td><td>The number's structure is wrong, so no state can be read from it</td><td>Correct the GSTIN, or set the customer's state</td></tr>
+            <tr><td>Place of supply is required</td><td>A named customer with no state at all</td><td>Add the state to the customer record</td></tr>
+            <tr><td>Place of supply must be confirmed at checkout</td><td>Your counter-sale policy asks for it every time</td><td>Choose the state in the checkout prompt</td></tr>
+            <tr><td>Rate not effective on this date</td><td>The bill's date falls outside the period that rate applies to</td><td>Check the bill date and the rate's validity dates</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note stop">
+        <span class="lab">Not a fault</span>
+        <p>These messages are the app protecting your returns. A bill that goes through with a guessed rate is a wrong invoice in the hands of a customer; a bill that stops is thirty seconds of setup.</p>
+      </div>
+    </section>
+
+    <section id="frozen">
+      <h2>What the invoice remembers</h2>
+      <p class="deck">Why an old invoice never changes when today's settings change.</p>
+
+      <p>At the moment a sale is saved, the app copies the facts that produced it onto the invoice itself &mdash; it does not look them up again later. Reprint a bill from six months ago and you get the bill as it was, not as today's settings would make it.</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Frozen on every invoice</th><th>Why it matters</th></tr></thead>
+          <tbody>
+            <tr><td>Shop's legal name, address, GSTIN, state</td><td>Moving premises or changing the trade name does not rewrite old invoices</td></tr>
+            <tr><td>Place of supply and how it was decided</td><td>You can always see why the bill was intra- or inter-state</td></tr>
+            <tr><td>Each line's rate, treatment, HSN, taxable value and every tax figure</td><td>A rate change tomorrow leaves yesterday's bill alone</td></tr>
+            <tr><td>Document type &mdash; Tax Invoice or Bill of Supply</td><td>What the document legally was on the day</td></tr>
+            <tr><td>Customer name and GSTIN as recorded then</td><td>Editing a customer later does not alter their old bills</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="rates">
+      <h2>The rate book</h2>
+      <p class="deck">Rates, cess, and why the bill's date matters.</p>
+
+      <p>The app ships with the standard slabs &mdash; 0%, 0.25%, 3%, 5%, 12%, 18% and 28% &mdash; each valid from 1 July 2017. A product points at one of them, and the rate is resolved <strong>against the date of the bill</strong>. That is what makes a reprint of an old invoice reproduce the old rate rather than the current one.</p>
+
+      <p><strong>Cess</strong>, where a product carries one, is calculated separately from GST and shown as its own figure on the invoice. It is never merged into the GST amount.</p>
+
+      <p>A rate that is not in the standard list is accepted as long as the bill is dated on or after 1 July 2017 &mdash; so an unusual notified rate can be used without waiting for an app update.</p>
+    </section>
+
+    <section id="purchases">
+      <h2>Purchases from suppliers</h2>
+      <p class="deck">The same calculator, pointed the other way.</p>
+
+      <p>When you record a supplier's invoice, the app runs the identical calculation &mdash; same rates, same place-of-supply logic, same rounding &mdash; with your shop as the buyer. That is how the input tax on a purchase and the output tax on a sale stay comparable in your reports.</p>
+
+      <p>One difference in practice: a supplier's invoice usually discounts individual lines rather than the whole bill, so line discounts are used there and are not spread across the other lines.</p>
+    </section>
+
+    <section id="notdone">
+      <h2>What this app does not do</h2>
+      <p class="deck">Said plainly, so nothing is a surprise at filing time.</p>
+
+      <ul>
+        <li><strong>No e-invoicing or IRN.</strong> Invoices are not registered with the government portal and carry no IRN or signed QR code. If your turnover crosses the e-invoicing threshold, you need that separately.</li>
+        <li><strong>No e-way bills.</strong> Nothing here generates or tracks them.</li>
+        <li><strong>No GSTR filing.</strong> The app gives you the figures and the HSN summary; filing is done on the portal or by your accountant.</li>
+        <li><strong>No reverse charge.</strong> Invoices print "Reverse Charge: No". Purchases attracting reverse charge need handling outside the app.</li>
+        <li><strong>No digital signature.</strong> Invoices are signed by hand, which is why the signature block is printed by default. You can switch it off in Invoice Layout if you sign some other way.</li>
+        <li><strong>No advice.</strong> The app applies the settings you give it. Which settings are right for your business is a question for your accountant.</li>
+      </ul>
+    </section>
+
+    <section id="reference">
+      <h2>Settings reference</h2>
+      <p class="deck">Every setting that changes a tax figure or an invoice, and where it lives.</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Setting</th><th>Where</th><th>Default</th><th>What it changes</th></tr></thead>
+          <tbody>
+            <tr><td>Shop state &amp; GSTIN</td><td>Business Details</td><td>&mdash;</td><td>Intra- vs inter-state on every bill</td></tr>
+            <tr><td>GST registration status</td><td>Business Details</td><td>Registered</td><td>Tax Invoice vs Bill of Supply</td></tr>
+            <tr><td>Prices include tax</td><td>Settings</td><td>Inclusive</td><td>Whether tax is extracted or added</td></tr>
+            <tr><td>Tax-inclusive price rounding</td><td>Settings</td><td>Marked price is exact</td><td>The one-paisa case only</td></tr>
+            <tr><td>Walk-in place of supply policy</td><td>Settings</td><td>Default to shop state</td><td>How counter sales get a state</td></tr>
+            <tr><td>Automatic round-off</td><td>Settings</td><td>On</td><td>Rounds the payable to the rupee</td></tr>
+            <tr><td>Show GST breakdown</td><td>Settings</td><td>On</td><td>Tax columns on the printed invoice</td></tr>
+            <tr><td>Show HSN summary</td><td>Settings</td><td>On</td><td>The HSN-wise table on the invoice</td></tr>
+            <tr><td>Show tax on thermal receipt</td><td>Settings</td><td>On</td><td>Tax lines on the till roll</td></tr>
+            <tr><td>Default unit (UQC)</td><td>Settings</td><td>PCS</td><td>Unit shown against each line</td></tr>
+            <tr><td>Show company logo</td><td>Invoice Layout</td><td>On</td><td>Logo on invoice and receipt</td></tr>
+            <tr><td>Show signature block</td><td>Invoice Layout</td><td>On</td><td>Signature space on invoice and receipt</td></tr>
+            <tr><td>Terms &amp; conditions, footer text</td><td>Invoice Layout</td><td>&mdash;</td><td>Printed at the foot of both documents</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>Product-level settings &mdash; tax treatment, GST rate, cess rate, HSN code and unit &mdash; live on each product and override nothing here; they are simply what the calculator is told about that item.</p>
+    </section>
+
+  </main>
+
+  <footer class="colophon">
+    <p>AtomID Store &mdash; GST calculation guide, August 2026. This document describes how the software computes tax from the settings it is given. It is not tax advice, and it does not certify compliance with any statute or notification. Where a figure could be read two ways, the guide says so and leaves the choice to you and your accountant.</p>
+  </footer>
+
+</div>
+</body>
+</html>

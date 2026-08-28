@@ -21,7 +21,7 @@ void main() {
   late MockSessionService session;
 
   setUp(() async {
-    store = await TestStore.open();
+    store = await TestStore.open(configureShop: true);
     session = MockSessionService();
     when(() => session.deviceId).thenReturn('dev_test_abcd');
     service = SaleService(store.repository, session);
@@ -231,11 +231,22 @@ void main() {
 
   group('preview', () {
     test('matches what checkout ultimately charges', () async {
+      // The shop-wide taxRate is deliberately different from the product's
+      // own rate: it must not reach the bill. A product's GST comes from the
+      // product, never from this legacy field.
       await store.repository.saveSettings(
-        SettingsModel(taxRate: 5, taxMode: TaxMode.exclusive),
+        SettingsModel(
+          taxRate: 18,
+          taxMode: TaxMode.exclusive,
+          roundOffEnabled: false,
+        ),
       );
 
-      final product = await store.addProduct(price: 200, quantity: 10);
+      final product = await store.addProduct(
+        price: 200,
+        quantity: 10,
+        gstRate: 5,
+      );
       final request = CheckoutRequest(
         items: [
           CartItem(
@@ -252,7 +263,8 @@ void main() {
       final sale = await service.checkout(request);
 
       expect(preview.grandTotal, sale.grandTotal);
-      // 600 subtotal, 12.5% off = 75, then 5% tax added on 525.
+      // 600 subtotal, 12.5% off = 75, then the product's own 5% on 525.
+      // The shop's 18% would have made this 619.50.
       expect(sale.discountAmount, 75);
       expect(sale.grandTotal, 551.25);
     });

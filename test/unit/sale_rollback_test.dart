@@ -66,7 +66,10 @@ void main() {
   late SaleService service;
 
   setUp(() async {
-    store = await TestStore.open(repository: _LoyaltyFailsRepository());
+    store = await TestStore.open(
+      repository: _LoyaltyFailsRepository(),
+      configureShop: true,
+    );
     final session = MockSessionService();
     when(() => session.deviceId).thenReturn('dev_test_abcd');
     service = SaleService(store.repository, session);
@@ -163,7 +166,10 @@ void main() {
 
     setUp(() async {
       await store.close();
-      legStore = await TestStore.open(repository: _PaymentLegFailsRepository());
+      legStore = await TestStore.open(
+        repository: _PaymentLegFailsRepository(),
+        configureShop: true,
+      );
       final session = MockSessionService();
       when(() => session.deviceId).thenReturn('dev_test_abcd');
       legService = SaleService(legStore.repository, session);
@@ -172,7 +178,7 @@ void main() {
     tearDown(() async {
       await legStore.close();
       // The outer tearDown closes `store`, which this group already closed.
-      store = await TestStore.open();
+      store = await TestStore.open(configureShop: true);
     });
 
     test('the debit leg is reversed when the payment leg fails', () async {

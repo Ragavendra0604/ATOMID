@@ -12,6 +12,9 @@ void main() {
       expect(settings.upiId, '');
       expect(settings.upiQrImagePath, '');
       expect(settings.showCompanyLogo, true);
+      // On by default: a GST tax invoice must carry a signature unless it is
+      // issued with a digital signature or an e-invoice IRN.
+      expect(settings.showSignature, true);
       expect(
         settings.termsAndConditions,
         '1. Goods once sold will not be taken back.\n2. Subject to local jurisdiction.',
@@ -26,6 +29,7 @@ void main() {
         upiQrImagePath: '/path/to/img.png',
         showCompanyLogo: false,
         termsAndConditions: 'No returns',
+        showSignature: false,
       );
 
       expect(settings.footerText, 'Custom Footer');
@@ -34,6 +38,7 @@ void main() {
       expect(settings.upiQrImagePath, '/path/to/img.png');
       expect(settings.showCompanyLogo, false);
       expect(settings.termsAndConditions, 'No returns');
+      expect(settings.showSignature, false);
     });
   });
 

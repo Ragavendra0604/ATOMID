@@ -1,17 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:atomid/data/models/supplier_model.dart';
-import 'package:atomid/data/models/product_model.dart';
-import 'package:atomid/data/models/purchase_model.dart';
-import 'package:atomid/presentation/providers/app_providers.dart';
+
 import 'package:atomid/core/utils/app_error.dart';
 import 'package:atomid/core/utils/formatters.dart';
 import 'package:atomid/core/utils/ids.dart';
 import 'package:atomid/core/utils/responsive.dart';
+import 'package:atomid/data/models/product_model.dart';
+import 'package:atomid/data/models/purchase_model.dart';
+import 'package:atomid/data/models/supplier_model.dart';
+import 'package:atomid/domain/gst/gst_states.dart';
+import 'package:atomid/domain/gst/gst_treatment.dart';
 import 'package:atomid/domain/services/purchase_service.dart';
+import 'package:atomid/presentation/providers/app_providers.dart';
 
 class PurchaseFormScreen extends ConsumerStatefulWidget {
-  /// When supplied, the form edits this order instead of creating a new one.
   final Purchase? existingPurchase;
 
   const PurchaseFormScreen({super.key, this.existingPurchase});
@@ -23,34 +25,43 @@ class PurchaseFormScreen extends ConsumerStatefulWidget {
 class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
   Supplier? _selectedSupplier;
   final _notesCtrl = TextEditingController();
-  final _discountCtrl = TextEditingController(text: '0');
-  final _taxCtrl = TextEditingController(text: '0');
+  final _supplierInvoiceNumberCtrl = TextEditingController();
+  final _supplierGstinCtrl = TextEditingController();
+  // Unset, not Tamil Nadu. A pre-filled state is a stated state as far as the
+  // engine is concerned, so defaulting it here would put back the guess that
+  // was just taken out of the calculation.
+  String _supplierStateCode = '';
+  DateTime? _supplierInvoiceDate = DateTime.now();
+
   bool _isProcessing = false;
   String _status = PurchaseStatus.draft;
   String? _originalStatus;
   DateTime? _expectedDeliveryDate;
 
-  // Line items
   final List<_LineItem> _lineItems = [];
 
   bool get _isEditing => widget.existingPurchase != null;
-
-  /// A received order has already moved stock and money, so its contents are
-  /// frozen; only a draft or issued order can still be amended.
-  bool get _isLocked =>
-      _isEditing && PurchaseStatus.isSettled(widget.existingPurchase!.status);
 
   @override
   void initState() {
     super.initState();
     final existing = widget.existingPurchase;
-    if (existing == null) return;
+    if (existing == null) {
+      final shop = ref.read(companyProvider);
+      // Most purchases are local, so the shop's own state is a sensible
+      // starting point — but only once the shop actually has one.
+      _supplierStateCode = shop.stateCode;
+      return;
+    }
 
     _originalStatus = existing.status;
     _status = existing.status;
     _notesCtrl.text = existing.notes;
-    _discountCtrl.text = Fmt.amount(existing.discount);
-    _taxCtrl.text = Fmt.amount(existing.tax);
+    _supplierInvoiceNumberCtrl.text = existing.supplierInvoiceNumber;
+    _supplierInvoiceDate =
+        existing.supplierInvoiceDate ?? existing.purchaseDate;
+    _supplierGstinCtrl.text = existing.supplierGstin;
+    _supplierStateCode = existing.supplierStateCode;
     _expectedDeliveryDate = existing.expectedDeliveryDate;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -66,9 +77,15 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
               .firstWhere(
                 (v) => v?.barcode == item.variantBarcode,
                 orElse: () => null,
-              );
-        line.qtyCtrl.text = item.quantity.toString();
-        line.costPriceCtrl.text = Fmt.amount(item.costPrice);
+              )
+          ..hsnCtrl.text = item.hsn
+          ..uqc = item.uqc
+          ..gstTreatment = item.gstTreatment
+          ..gstRate = item.gstRate ?? (product?.gstRate ?? 5.0)
+          ..cessCtrl.text = Fmt.amount(item.cessRate)
+          ..discountCtrl.text = Fmt.amount(item.discountAmount)
+          ..qtyCtrl.text = item.quantity.toString()
+          ..costPriceCtrl.text = Fmt.amount(item.costPrice);
         _lineItems.add(line);
       }
       if (mounted) setState(() {});
@@ -78,36 +95,18 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
   @override
   void dispose() {
     _notesCtrl.dispose();
-    _discountCtrl.dispose();
-    _taxCtrl.dispose();
+    _supplierInvoiceNumberCtrl.dispose();
+    _supplierGstinCtrl.dispose();
     for (var item in _lineItems) {
       item.dispose();
     }
     super.dispose();
   }
 
-  double get _subtotal =>
-      _lineItems.fold(0.0, (sum, item) => sum + item.lineTotal);
-
-  double get _discount => double.tryParse(_discountCtrl.text) ?? 0;
-  double get _tax => double.tryParse(_taxCtrl.text) ?? 0;
-
-  double get _grandTotal {
-    final sub = _subtotal;
-    final afterDiscount = sub - _discount;
-    return (afterDiscount + (afterDiscount * (_tax / 100))).clamp(
-      0,
-      double.infinity,
-    );
-  }
-
-  void _calculateTotals() {
-    setState(() {});
-  }
-
   void _addLineItem() {
     setState(() {
-      _lineItems.add(_LineItem());
+      final line = _LineItem();
+      _lineItems.add(line);
     });
   }
 
@@ -118,39 +117,98 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
     });
   }
 
-  Future<void> _savePurchase() async {
-    if (_isLocked) {
-      _showError(
-        'This order has already been received, so its contents are fixed. '
-        'Record a return instead.',
+  /// Why the running preview could not be taxed, if it could not be.
+  String? _gstIssue;
+
+  Purchase _buildTransientPurchase() {
+    final company = ref.read(companyProvider);
+    final isInterState = _supplierStateCode != company.stateCode;
+    final supplierStateName =
+        GstStates.findByCode(_supplierStateCode)?.name ?? company.state;
+
+    final items = <PurchaseItem>[];
+    for (final line in _lineItems) {
+      if (line.selectedProduct == null || line.selectedVariant == null) {
+        continue;
+      }
+      items.add(
+        PurchaseItem(
+          productId: line.selectedProduct!.id,
+          productName: line.selectedProduct!.productName,
+          variantBarcode: line.selectedVariant!.barcode,
+          variantSize: line.selectedVariant!.size,
+          sku: line.selectedVariant!.sku,
+          quantity: line.qty,
+          costPrice: line.costPrice,
+          sellingPrice: line.selectedVariant!.price,
+          lineTotal: 0.0,
+          hsn: line.hsnCtrl.text.trim().isNotEmpty
+              ? line.hsnCtrl.text.trim()
+              : line.selectedProduct!.hsn,
+          uqc: line.uqc,
+          gstRate: line.gstRate,
+          gstTreatment: line.gstTreatment,
+          cessRate: double.tryParse(line.cessCtrl.text) ?? 0.0,
+          discountAmount: line.discount,
+        ),
       );
-      return;
     }
-    // Validations
+
+    final p = Purchase(
+      id: widget.existingPurchase?.id ?? Ids.generate(),
+      purchaseNumber: widget.existingPurchase?.purchaseNumber ?? '',
+      purchaseDate: _supplierInvoiceDate ?? DateTime.now(),
+      supplierId: _selectedSupplier?.id ?? '',
+      supplierName: _selectedSupplier?.supplierName ?? '',
+      supplierInvoiceNumber: _supplierInvoiceNumberCtrl.text.trim(),
+      supplierInvoiceDate: _supplierInvoiceDate,
+      supplierGstin: _supplierGstinCtrl.text.trim().toUpperCase(),
+      supplierState: supplierStateName,
+      supplierStateCode: _supplierStateCode,
+      itcEligibility: 'REQUIRES_DETERMINATION',
+      subtotal: 0.0,
+      discount: 0.0,
+      tax: 0.0,
+      grandTotal: 0.0,
+      status: _status,
+      notes: _notesCtrl.text.trim(),
+      expectedDeliveryDate: _expectedDeliveryDate,
+      createdDate: widget.existingPurchase?.createdDate ?? DateTime.now(),
+      items: items,
+      isInterState: isInterState,
+    );
+
+    // The non-throwing variant: this runs inside `build`, where an exception
+    // is an error screen rather than a message. The save path still refuses.
+    _gstIssue = ref.read(purchaseServiceProvider).tryComputePurchaseGst(p);
+    return p;
+  }
+
+  Future<void> _savePurchase() async {
+    if (_isProcessing) return;
+
     if (_selectedSupplier == null) {
-      _showError('Please select a supplier');
-      return;
-    }
-    if (_lineItems.isEmpty) {
-      _showError('Please add at least one item');
+      _showError('Please select a supplier.');
       return;
     }
 
-    // Validate each line item
+    if (_lineItems.isEmpty) {
+      _showError('Please add at least one line item.');
+      return;
+    }
+
     for (var i = 0; i < _lineItems.length; i++) {
       final item = _lineItems[i];
       if (item.selectedProduct == null || item.selectedVariant == null) {
-        _showError('Line ${i + 1}: Please select a product and variant');
+        _showError('Please complete product selection for line item #${i + 1}');
         return;
       }
-      final qty = int.tryParse(item.qtyCtrl.text) ?? 0;
-      if (qty <= 0) {
-        _showError('Line ${i + 1}: Quantity must be greater than 0');
+      if (item.qty <= 0) {
+        _showError('Quantity must be greater than 0 for line item #${i + 1}');
         return;
       }
-      final costPrice = double.tryParse(item.costPriceCtrl.text) ?? 0;
-      if (costPrice < 0) {
-        _showError('Line ${i + 1}: Cost price cannot be negative');
+      if (item.costPrice < 0) {
+        _showError('Cost price cannot be negative for line item #${i + 1}');
         return;
       }
     }
@@ -158,53 +216,18 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
     setState(() => _isProcessing = true);
 
     try {
-      final repo = ref.read(storageRepositoryProvider);
-      final existing = widget.existingPurchase;
-      final purchaseNumber =
-          existing?.purchaseNumber ?? repo.getNextPurchaseNumber();
-      final now = DateTime.now();
-
-      final purchaseItems = _lineItems.map((item) {
-        final qty = int.tryParse(item.qtyCtrl.text) ?? 0;
-        final costPrice = double.tryParse(item.costPriceCtrl.text) ?? 0;
-        return PurchaseItem(
-          productId: item.selectedProduct!.id,
-          productName: item.selectedProduct!.productName,
-          variantBarcode: item.selectedVariant!.barcode,
-          variantSize: item.selectedVariant!.size,
-          sku: item.selectedVariant!.sku,
-          quantity: qty,
-          costPrice: costPrice,
-          sellingPrice: item.selectedVariant!.price,
-          lineTotal: costPrice * qty,
-        );
-      }).toList();
-
-      final purchase = Purchase(
-        id: existing?.id ?? Ids.generate(),
-        purchaseNumber: purchaseNumber,
-        supplierId: _selectedSupplier!.id,
-        supplierName: _selectedSupplier!.supplierName,
-        purchaseDate: existing?.purchaseDate ?? now,
-        items: purchaseItems,
-        subtotal: Fmt.round2(_subtotal),
-        discount: Fmt.round2(_discount),
-        tax: _tax,
-        grandTotal: Fmt.round2(_grandTotal),
-        notes: _notesCtrl.text.trim(),
-        createdDate: existing?.createdDate ?? now,
-        status: _status,
-        paymentStatus: existing?.paymentStatus ?? 'Unpaid',
-        expectedDeliveryDate: _expectedDeliveryDate,
-        deviceId: existing?.deviceId ?? '',
-        createdBy: existing?.createdBy ?? '',
-      );
+      final purchase = _buildTransientPurchase();
+      if (purchase.purchaseNumber.isEmpty) {
+        purchase.purchaseNumber = ref
+            .read(storageRepositoryProvider)
+            .getNextPurchaseNumber();
+      }
 
       await ref
           .read(purchaseServiceProvider)
           .savePurchase(
             purchase,
-            isNew: existing == null,
+            isNew: widget.existingPurchase == null,
             previousStatus: _originalStatus,
           );
 
@@ -216,8 +239,8 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
           SnackBar(
             content: Text(
               received
-                  ? 'Purchase $purchaseNumber received — stock updated.'
-                  : 'Purchase $purchaseNumber saved as ${_status.toLowerCase()}.',
+                  ? 'Purchase ${purchase.purchaseNumber} received — stock and GST updated.'
+                  : 'Purchase ${purchase.purchaseNumber} saved as ${_status.toLowerCase()}.',
             ),
             backgroundColor: Colors.green.shade700,
           ),
@@ -255,13 +278,18 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
     final activeSuppliers = ref.watch(activeSuppliersProvider);
     final products = ref.watch(productsProvider);
     final settings = ref.watch(settingsProvider);
+    final transientPurchase = _buildTransientPurchase();
+
+    final gstIssue = _gstIssue;
+    final gstin = _supplierGstinCtrl.text.trim();
+    final isGstinValid = gstin.isNotEmpty && GstStates.isValidGstin(gstin);
 
     return Scaffold(
       appBar: AppBar(
         title: Text(
           _isEditing
               ? 'Edit ${widget.existingPurchase!.purchaseNumber}'
-              : 'New purchase',
+              : 'Record Inward Purchase',
         ),
         actions: [
           if (_isProcessing)
@@ -285,23 +313,21 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
       ),
       body: Builder(
         builder: (context) {
-          final supplierSelection = Card(
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-              side: BorderSide(color: Colors.grey.shade300),
-            ),
+          final supplierCard = Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Supplier Details',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  Text(
+                    'Supplier & Invoice Information',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<Supplier>(
+                    isExpanded: true,
                     decoration: const InputDecoration(
                       labelText: 'Select Supplier *',
                       border: OutlineInputBorder(),
@@ -310,20 +336,151 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
                     items: activeSuppliers.map((s) {
                       return DropdownMenuItem(
                         value: s,
-                        child: Text(s.supplierName),
+                        child: Text(
+                          s.supplierName,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       );
                     }).toList(),
                     onChanged: (val) {
-                      setState(() => _selectedSupplier = val);
+                      setState(() {
+                        _selectedSupplier = val;
+                        if (val != null) {
+                          if (val.gstNumber.isNotEmpty) {
+                            _supplierGstinCtrl.text = val.gstNumber;
+                          }
+                          if (val.stateCode.isNotEmpty) {
+                            _supplierStateCode = val.stateCode;
+                          }
+                        }
+                      });
                     },
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: _supplierInvoiceNumberCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Supplier Invoice Number',
+                            border: OutlineInputBorder(),
+                            helperText: 'e.g. INV-84920',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: InkWell(
+                          onTap: () async {
+                            final picked = await showDatePicker(
+                              context: context,
+                              initialDate:
+                                  _supplierInvoiceDate ?? DateTime.now(),
+                              firstDate: DateTime(2017, 7, 1),
+                              lastDate: DateTime.now().add(
+                                const Duration(days: 365),
+                              ),
+                            );
+                            if (picked != null) {
+                              setState(() => _supplierInvoiceDate = picked);
+                            }
+                          },
+                          child: InputDecorator(
+                            decoration: const InputDecoration(
+                              labelText: 'Supplier Invoice Date',
+                              border: OutlineInputBorder(),
+                            ),
+                            child: Text(
+                              _supplierInvoiceDate == null
+                                  ? 'Pick date'
+                                  : Fmt.date(_supplierInvoiceDate!),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: _supplierGstinCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Supplier GSTIN',
+                            border: OutlineInputBorder(),
+                          ),
+                          onChanged: (_) => setState(() {}),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          initialValue: _supplierStateCode,
+                          isExpanded: true,
+                          decoration: const InputDecoration(
+                            labelText: 'Supplier State',
+                            border: OutlineInputBorder(),
+                            helperText: 'A valid supplier GSTIN supplies this',
+                          ),
+                          items: [
+                            const DropdownMenuItem(
+                              value: '',
+                              child: Text('Not set'),
+                            ),
+                            ...GstStates.allStates.map(
+                              (s) => DropdownMenuItem(
+                                value: s.code,
+                                child: Text(
+                                  '${s.name} (${s.code})',
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ),
+                          ],
+                          onChanged: (val) =>
+                              setState(() => _supplierStateCode = val ?? ''),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (gstin.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6, left: 4),
+                      child: Row(
+                        children: [
+                          Icon(
+                            isGstinValid
+                                ? Icons.check_circle
+                                : Icons.error_outline,
+                            size: 16,
+                            color: isGstinValid ? Colors.green : Colors.orange,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            isGstinValid
+                                ? 'Supplier GSTIN format valid'
+                                : 'GSTIN format incomplete',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                              color: isGstinValid
+                                  ? Colors.green
+                                  : Colors.orange,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  const SizedBox(height: 12),
                   Row(
                     children: [
                       Expanded(
                         child: DropdownButtonFormField<String>(
+                          isExpanded: true,
                           decoration: const InputDecoration(
-                            labelText: 'Status',
+                            labelText: 'Order Lifecycle Status',
                             border: OutlineInputBorder(),
                           ),
                           initialValue: _status,
@@ -335,7 +492,10 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
                               ].map((s) {
                                 return DropdownMenuItem(
                                   value: s,
-                                  child: Text(s),
+                                  child: Text(
+                                    s,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
                                 );
                               }).toList(),
                           onChanged: (val) {
@@ -343,43 +503,41 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
                           },
                         ),
                       ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: InkWell(
-                          onTap: () async {
-                            final date = await showDatePicker(
-                              context: context,
-                              initialDate:
-                                  _expectedDeliveryDate ??
-                                  DateTime.now().add(const Duration(days: 7)),
-                              firstDate: DateTime.now().subtract(
-                                const Duration(days: 365),
-                              ),
-                              lastDate: DateTime.now().add(
-                                const Duration(days: 365 * 2),
-                              ),
-                            );
-                            if (date != null) {
-                              setState(() => _expectedDeliveryDate = date);
-                            }
-                          },
-                          child: InputDecorator(
-                            decoration: const InputDecoration(
-                              labelText: 'Expected Delivery',
-                              border: OutlineInputBorder(),
-                            ),
-                            child: Text(
-                              _expectedDeliveryDate == null
-                                  ? 'Not Set'
-                                  : '${_expectedDeliveryDate!.year}-${_expectedDeliveryDate!.month.toString().padLeft(2, '0')}-${_expectedDeliveryDate!.day.toString().padLeft(2, '0')}',
-                            ),
-                          ),
-                        ),
-                      ),
                     ],
                   ),
                 ],
               ),
+            ),
+          );
+
+          final itcBanner = Container(
+            margin: const EdgeInsets.only(bottom: 16),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade50,
+              border: Border.all(color: Colors.blue.shade200),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.shield_outlined,
+                  color: Colors.blue.shade800,
+                  size: 20,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Input Tax Credit (ITC) Determination: REQUIRES_DETERMINATION\n'
+                    'Statutory claim status recorded for purchase tax filing.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.blue.shade900,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
             ),
           );
 
@@ -389,216 +547,216 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
-                    'Items',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  Text(
+                    'Inward Purchase Items',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   ElevatedButton.icon(
                     onPressed: _addLineItem,
                     icon: const Icon(Icons.add, size: 18),
-                    label: const Text('Add Item'),
+                    label: const Text('Add Dress / Item'),
                   ),
                 ],
               ),
               const SizedBox(height: 12),
               if (_lineItems.isEmpty)
                 Card(
-                  child: const Padding(
-                    padding: EdgeInsets.all(24),
+                  child: Padding(
+                    padding: const EdgeInsets.all(32),
                     child: Center(
-                      child: Text('No items added yet. Click Add Item.'),
+                      child: Column(
+                        children: [
+                          Icon(
+                            Icons.inventory_2_outlined,
+                            size: 48,
+                            color: Colors.grey.shade400,
+                          ),
+                          const SizedBox(height: 12),
+                          const Text(
+                            'No items added yet. Click "Add Dress / Item".',
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 )
               else
-                ..._lineItems.asMap().entries.map((e) {
-                  return _PurchaseLineItemCard(
-                    index: e.key,
-                    item: e.value,
-                    products: products,
-                    settings: settings,
-                    onChanged: () => setState(() => _calculateTotals()),
-                    onRemove: () => _removeLineItem(e.key),
+                ..._lineItems.asMap().entries.map((entry) {
+                  return _buildLineItemCard(
+                    entry.key,
+                    entry.value,
+                    products,
+                    settings.currencySymbol,
                   );
                 }),
             ],
           );
 
-          final totalsSection = Card(
+          final summaryCard = Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Summary',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  Text(
+                    'Purchase Tax & Total Summary',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                  const Divider(),
-                  _summaryRow(
-                    'Subtotal',
-                    Fmt.money(_subtotal, settings.currencySymbol),
-                  ),
-                  const SizedBox(height: 10),
-                  _inlineField(
-                    label: 'Discount',
-                    controller: _discountCtrl,
-                    prefix: settings.currencySymbol,
-                  ),
-                  const SizedBox(height: 10),
-                  _inlineField(label: 'Tax', controller: _taxCtrl, suffix: '%'),
-                  if (_discount > _subtotal)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Text(
-                        'Discount is larger than the subtotal.',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Theme.of(context).colorScheme.error,
-                        ),
+                  const SizedBox(height: 12),
+                  // Shown instead of a total that cannot be trusted. Saving is
+                  // refused for the same reason, with the same wording.
+                  if (gstIssue != null) ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.errorContainer.withAlpha(120),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            Icons.error_outline,
+                            size: 18,
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              gstIssue,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Theme.of(context).colorScheme.error,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                  const Divider(height: 24),
+                  ],
+                  _summaryRow(
+                    'Subtotal (Gross)',
+                    Fmt.money(
+                      transientPurchase.subtotal,
+                      settings.currencySymbol,
+                    ),
+                  ),
+                  _summaryRow(
+                    'Taxable Value',
+                    Fmt.money(
+                      transientPurchase.taxableAmount,
+                      settings.currencySymbol,
+                    ),
+                  ),
+                  if (transientPurchase.isInterState) ...[
+                    _summaryRow(
+                      'Integrated GST (IGST)',
+                      Fmt.money(
+                        transientPurchase.igstAmount,
+                        settings.currencySymbol,
+                      ),
+                    ),
+                  ] else ...[
+                    _summaryRow(
+                      'Central GST (CGST)',
+                      Fmt.money(
+                        transientPurchase.cgstAmount,
+                        settings.currencySymbol,
+                      ),
+                    ),
+                    _summaryRow(
+                      'State/UT GST (SGST)',
+                      Fmt.money(
+                        transientPurchase.sgstAmount +
+                            transientPurchase.utgstAmount,
+                        settings.currencySymbol,
+                      ),
+                    ),
+                  ],
+                  if (transientPurchase.cessAmount > 0)
+                    _summaryRow(
+                      'Cess Amount',
+                      Fmt.money(
+                        transientPurchase.cessAmount,
+                        settings.currencySymbol,
+                      ),
+                    ),
+                  const Divider(height: 20),
                   _summaryRow(
                     'Grand Total',
-                    Fmt.money(_grandTotal, settings.currencySymbol),
+                    Fmt.money(
+                      transientPurchase.grandTotal,
+                      settings.currencySymbol,
+                    ),
                     isBold: true,
+                    fontSize: 18,
                   ),
                 ],
               ),
             ),
           );
 
-          final notesSection = TextFormField(
-            controller: _notesCtrl,
-            maxLines: 2,
-            decoration: const InputDecoration(
-              labelText: 'Notes (Optional)',
-              prefixIcon: Icon(Icons.notes),
-              border: OutlineInputBorder(),
-            ),
-          );
-
-          final submitSection = SizedBox(
-            width: double.infinity,
-            height: 56,
-            child: _isProcessing
-                ? const Center(child: CircularProgressIndicator())
-                : ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
+          return SingleChildScrollView(
+            padding: ResponsivePadding.getScreenPadding(context),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 860),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    itcBanner,
+                    supplierCard,
+                    const SizedBox(height: 16),
+                    lineItemsSection,
+                    const SizedBox(height: 16),
+                    summaryCard,
+                    const SizedBox(height: 16),
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Notes',
+                              style: Theme.of(context).textTheme.titleSmall
+                                  ?.copyWith(fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: _notesCtrl,
+                              maxLines: 2,
+                              decoration: const InputDecoration(
+                                hintText: 'Optional purchase order notes…',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                    onPressed: _savePurchase,
-                    icon: const Icon(Icons.check_circle_outline),
-                    label: Text(
-                      _status == PurchaseStatus.received
-                          ? 'Save and receive into stock'
-                          : 'Save purchase',
-                      style: const TextStyle(fontSize: 16),
+                    const SizedBox(height: 24),
+                    FilledButton.icon(
+                      onPressed: _savePurchase,
+                      icon: const Icon(Icons.save_outlined),
+                      label: Text(
+                        'Save Purchase (${Fmt.money(transientPurchase.grandTotal, settings.currencySymbol)})',
+                        style: const TextStyle(fontSize: 16),
+                      ),
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size.fromHeight(50),
+                      ),
                     ),
-                  ),
-          );
-
-          return ResponsiveBuilder(
-            mobileBuilder: (context) => SingleChildScrollView(
-              padding: ResponsivePadding.getScreenPadding(context),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  supplierSelection,
-                  const SizedBox(height: 16),
-                  lineItemsSection,
-                  const SizedBox(height: 16),
-                  totalsSection,
-                  const SizedBox(height: 16),
-                  notesSection,
-                  const SizedBox(height: 24),
-                  submitSection,
-                  const SizedBox(height: 32),
-                ],
-              ),
-            ),
-            tabletBuilder: (context) => SingleChildScrollView(
-              padding: ResponsivePadding.getScreenPadding(context),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(
-                    maxWidth: ResponsiveBreakpoints.maxFormWidth,
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        flex: 6,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            supplierSelection,
-                            const SizedBox(height: 16),
-                            lineItemsSection,
-                            const SizedBox(height: 16),
-                            notesSection,
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 24),
-                      Expanded(
-                        flex: 4,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            totalsSection,
-                            const SizedBox(height: 24),
-                            submitSection,
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            desktopBuilder: (context) => SingleChildScrollView(
-              padding: ResponsivePadding.getScreenPadding(context),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(
-                    maxWidth: ResponsiveBreakpoints.maxFormWidth,
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        flex: 6,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            supplierSelection,
-                            const SizedBox(height: 16),
-                            lineItemsSection,
-                            const SizedBox(height: 16),
-                            notesSection,
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 24),
-                      Expanded(
-                        flex: 4,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            totalsSection,
-                            const SizedBox(height: 24),
-                            submitSection,
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
+                    const SizedBox(height: 40),
+                  ],
                 ),
               ),
             ),
@@ -608,239 +766,251 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
     );
   }
 
-  Widget _inlineField({
-    required String label,
-    required TextEditingController controller,
-    String? prefix,
-    String? suffix,
+  Widget _summaryRow(
+    String label,
+    String value, {
+    bool isBold = false,
+    double fontSize = 14,
   }) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(label, style: const TextStyle(fontSize: 16)),
-        SizedBox(
-          width: 120,
-          child: TextFormField(
-            controller: controller,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            textAlign: TextAlign.right,
-            decoration: InputDecoration(
-              isDense: true,
-              prefixText: prefix,
-              suffixText: suffix,
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 8,
-                vertical: 10,
-              ),
-              border: const OutlineInputBorder(),
-            ),
-            onChanged: (_) => _calculateTotals(),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _summaryRow(String label, String value, {bool isBold = false}) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(
             label,
             style: TextStyle(
-              fontSize: isBold ? 20 : 16,
+              fontSize: fontSize,
               fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
-              color: isBold ? null : Colors.grey,
             ),
           ),
           Text(
             value,
             style: TextStyle(
-              fontSize: isBold ? 20 : 16,
-              fontWeight: FontWeight.bold,
-              color: isBold ? Theme.of(context).colorScheme.primary : null,
+              fontSize: fontSize,
+              fontWeight: isBold ? FontWeight.bold : FontWeight.w600,
             ),
           ),
         ],
       ),
     );
   }
-}
 
-/// Internal line item state helper
-class _LineItem {
-  Product? selectedProduct;
-  ProductVariant? selectedVariant;
-  final TextEditingController qtyCtrl = TextEditingController(text: '1');
-  final TextEditingController costPriceCtrl = TextEditingController(text: '0');
-
-  double get lineTotal {
-    final qty = int.tryParse(qtyCtrl.text) ?? 0;
-    final cost = double.tryParse(costPriceCtrl.text) ?? 0;
-    return qty * cost;
-  }
-
-  void dispose() {
-    qtyCtrl.dispose();
-    costPriceCtrl.dispose();
-  }
-}
-
-class _PurchaseLineItemCard extends StatelessWidget {
-  final int index;
-  final _LineItem item;
-  final List<Product> products;
-  final dynamic settings;
-  final VoidCallback onChanged;
-  final VoidCallback onRemove;
-
-  const _PurchaseLineItemCard({
-    required this.index,
-    required this.item,
-    required this.products,
-    required this.settings,
-    required this.onChanged,
-    required this.onRemove,
-  });
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildLineItemCard(
+    int index,
+    _LineItem item,
+    List<Product> products,
+    String currencySymbol,
+  ) {
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: Theme.of(context).colorScheme.primary.withAlpha(60),
-        ),
-      ),
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  'Item ${index + 1}',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
+                CircleAvatar(
+                  radius: 12,
+                  child: Text(
+                    '${index + 1}',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: DropdownButtonFormField<Product>(
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Select Dress / Product *',
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                    ),
+                    initialValue: item.selectedProduct,
+                    items: products.map((p) {
+                      return DropdownMenuItem(
+                        value: p,
+                        child: Text(
+                          p.productName,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: (p) {
+                      setState(() {
+                        item.selectedProduct = p;
+                        item.selectedVariant = p?.variants.firstOrNull;
+                        if (p != null) {
+                          item.gstRate = p.gstRate ?? 5.0;
+                          item.gstTreatment = p.gstTreatment;
+                          item.hsnCtrl.text = p.hsn;
+                          item.uqc = p.uqc;
+                          if (item.selectedVariant != null) {
+                            item.costPriceCtrl.text =
+                                item.selectedVariant!.costPrice > 0
+                                ? Fmt.amount(item.selectedVariant!.costPrice)
+                                : Fmt.amount(item.selectedVariant!.price);
+                          }
+                        }
+                      });
+                    },
+                  ),
                 ),
                 IconButton(
-                  tooltip: 'Remove item ${index + 1}',
-                  icon: const Icon(Icons.delete, color: Colors.red, size: 20),
-                  onPressed: onRemove,
+                  tooltip: 'Remove line item',
+                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                  onPressed: () => _removeLineItem(index),
                 ),
               ],
             ),
-            // Product dropdown
-            DropdownButtonFormField<Product>(
-              initialValue: item.selectedProduct,
-              isExpanded: true,
-              hint: const Text('Select product'),
-              decoration: const InputDecoration(
-                isDense: true,
-                prefixIcon: Icon(Icons.inventory_2),
-                border: OutlineInputBorder(),
-              ),
-              items: products.map((p) {
-                return DropdownMenuItem(
-                  value: p,
-                  child: Text('${p.productName} (${p.productCode})'),
-                );
-              }).toList(),
-              onChanged: (p) {
-                item.selectedProduct = p;
-                item.selectedVariant = null;
-                onChanged();
-              },
-            ),
-            const SizedBox(height: 8),
-            // Variant dropdown
-            if (item.selectedProduct != null)
-              DropdownButtonFormField<ProductVariant>(
-                initialValue: item.selectedVariant,
-                isExpanded: true,
-                hint: const Text('Select variant'),
-                decoration: const InputDecoration(
-                  isDense: true,
-                  prefixIcon: Icon(Icons.straighten),
-                  border: OutlineInputBorder(),
-                ),
-                items: item.selectedProduct!.variants.map((v) {
-                  return DropdownMenuItem(
-                    value: v,
-                    child: Text(
-                      'Size ${v.size} · ${v.quantity} in stock · ${Fmt.money(v.price, settings.currencySymbol)}',
-                    ),
-                  );
-                }).toList(),
-                onChanged: (v) {
-                  item.selectedVariant = v;
-                  if (v != null) {
-                    item.costPriceCtrl.text = Fmt.amount(v.price);
-                  }
-                  onChanged();
-                },
-              ),
-            const SizedBox(height: 8),
-            // Quantity & Cost Price
-            if (item.selectedVariant != null)
+            if (item.selectedProduct != null) ...[
+              const SizedBox(height: 12),
               Row(
                 children: [
                   Expanded(
-                    child: TextField(
-                      controller: item.qtyCtrl,
-                      keyboardType: TextInputType.number,
+                    flex: 2,
+                    child: DropdownButtonFormField<ProductVariant>(
+                      isExpanded: true,
                       decoration: const InputDecoration(
-                        labelText: 'Qty',
+                        labelText: 'Size Variant *',
                         isDense: true,
                         border: OutlineInputBorder(),
                       ),
-                      onChanged: (_) => onChanged(),
+                      initialValue: item.selectedVariant,
+                      items: item.selectedProduct!.variants.map((v) {
+                        return DropdownMenuItem(
+                          value: v,
+                          child: Text('Size: ${v.size}'),
+                        );
+                      }).toList(),
+                      onChanged: (v) {
+                        setState(() {
+                          item.selectedVariant = v;
+                          if (v != null && v.costPrice > 0) {
+                            item.costPriceCtrl.text = Fmt.amount(v.costPrice);
+                          }
+                        });
+                      },
                     ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: TextField(
+                    flex: 2,
+                    child: TextFormField(
+                      controller: item.qtyCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Qty *',
+                        isDense: true,
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (_) => setState(() {}),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 2,
+                    child: TextFormField(
                       controller: item.costPriceCtrl,
                       keyboardType: const TextInputType.numberWithOptions(
                         decimal: true,
                       ),
-                      decoration: const InputDecoration(
-                        labelText: 'Cost Price',
+                      decoration: InputDecoration(
+                        labelText: 'Cost ($currencySymbol) *',
                         isDense: true,
-                        border: OutlineInputBorder(),
+                        border: const OutlineInputBorder(),
                       ),
-                      onChanged: (_) => onChanged(),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 12,
-                        horizontal: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.primary.withAlpha(20),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        Fmt.money(item.lineTotal, settings.currencySymbol),
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                        textAlign: TextAlign.center,
-                      ),
+                      onChanged: (_) => setState(() {}),
                     ),
                   ),
                 ],
               ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    flex: 2,
+                    child: DropdownButtonFormField<double?>(
+                      initialValue: item.gstRate,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'GST %',
+                        isDense: true,
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 0.0, child: Text('0%')),
+                        DropdownMenuItem(value: 5.0, child: Text('5%')),
+                        DropdownMenuItem(value: 12.0, child: Text('12%')),
+                        DropdownMenuItem(value: 18.0, child: Text('18%')),
+                        DropdownMenuItem(value: 28.0, child: Text('28%')),
+                      ],
+                      onChanged: (r) {
+                        if (r != null) setState(() => item.gstRate = r);
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 2,
+                    child: TextFormField(
+                      controller: item.hsnCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'HSN Code',
+                        isDense: true,
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (_) => setState(() {}),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 2,
+                    child: TextFormField(
+                      controller: item.discountCtrl,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'Discount (₹)',
+                        isDense: true,
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (_) => setState(() {}),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),
     );
+  }
+}
+
+class _LineItem {
+  Product? selectedProduct;
+  ProductVariant? selectedVariant;
+  final qtyCtrl = TextEditingController(text: '1');
+  final costPriceCtrl = TextEditingController(text: '0');
+  final discountCtrl = TextEditingController(text: '0');
+  final hsnCtrl = TextEditingController();
+  final cessCtrl = TextEditingController(text: '0');
+  String gstTreatment = GstTreatment.taxable;
+  double? gstRate = 5.0;
+  String uqc = 'PCS';
+
+  int get qty => int.tryParse(qtyCtrl.text) ?? 1;
+  double get costPrice => double.tryParse(costPriceCtrl.text) ?? 0.0;
+  double get discount => double.tryParse(discountCtrl.text) ?? 0.0;
+  double get lineTotal => (qty * costPrice) - discount;
+
+  void dispose() {
+    qtyCtrl.dispose();
+    costPriceCtrl.dispose();
+    discountCtrl.dispose();
+    hsnCtrl.dispose();
+    cessCtrl.dispose();
   }
 }

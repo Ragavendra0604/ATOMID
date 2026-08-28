@@ -137,66 +137,60 @@ void main() {
     expect(json?['customerId'], primary.id);
   });
 
-  test(
-    'merging moves the secondary\'s loyalty rows, so its points survive the '
-    'next recomputation',
-    () async {
-      final primary = await store.addCustomer(name: 'Primary', mobile: '111');
-      final secondary = await store.addCustomer(
-        name: 'Secondary',
-        mobile: '222',
-      );
+  test('merging moves the secondary\'s loyalty rows, so its points survive the '
+      'next recomputation', () async {
+    final primary = await store.addCustomer(name: 'Primary', mobile: '111');
+    final secondary = await store.addCustomer(name: 'Secondary', mobile: '222');
 
-      await store.repository.addLoyaltyTransaction(
-        customerId: primary.id,
-        transactionType: 'Earn',
-        points: 40,
-        monetaryValue: 0,
-        reference: 'INV-P1',
-        createdBy: 'test',
-      );
-      await store.repository.addLoyaltyTransaction(
-        customerId: secondary.id,
-        transactionType: 'Earn',
-        points: 60,
-        monetaryValue: 0,
-        reference: 'INV-S1',
-        createdBy: 'test',
-      );
+    await store.repository.addLoyaltyTransaction(
+      customerId: primary.id,
+      transactionType: 'Earn',
+      points: 40,
+      monetaryValue: 0,
+      reference: 'INV-P1',
+      createdBy: 'test',
+    );
+    await store.repository.addLoyaltyTransaction(
+      customerId: secondary.id,
+      transactionType: 'Earn',
+      points: 60,
+      monetaryValue: 0,
+      reference: 'INV-S1',
+      createdBy: 'test',
+    );
 
-      await customers.mergeCustomers(primary.id, secondary.id);
+    await customers.mergeCustomers(primary.id, secondary.id);
 
-      expect(
-        store.repository.getCustomerById(primary.id)!.totalRewardPoints,
-        100,
-        reason: 'the merged account keeps both balances',
-      );
-      expect(
-        store.repository.getCustomerById(secondary.id)!.totalRewardPoints,
-        0,
-        reason: 'and the emptied account keeps none of them',
-      );
+    expect(
+      store.repository.getCustomerById(primary.id)!.totalRewardPoints,
+      100,
+      reason: 'the merged account keeps both balances',
+    );
+    expect(
+      store.repository.getCustomerById(secondary.id)!.totalRewardPoints,
+      0,
+      reason: 'and the emptied account keeps none of them',
+    );
 
-      // The real regression. Hand-adding the number looked correct right up
-      // to here, and the merged-in points disappeared on the customer's very
-      // next sale, when the balance was derived again from rows that had
-      // never been moved across.
-      await store.repository.addLoyaltyTransaction(
-        customerId: primary.id,
-        transactionType: 'Earn',
-        points: 5,
-        monetaryValue: 0,
-        reference: 'INV-P2',
-        createdBy: 'test',
-      );
+    // The real regression. Hand-adding the number looked correct right up
+    // to here, and the merged-in points disappeared on the customer's very
+    // next sale, when the balance was derived again from rows that had
+    // never been moved across.
+    await store.repository.addLoyaltyTransaction(
+      customerId: primary.id,
+      transactionType: 'Earn',
+      points: 5,
+      monetaryValue: 0,
+      reference: 'INV-P2',
+      createdBy: 'test',
+    );
 
-      expect(
-        store.repository.getCustomerById(primary.id)!.totalRewardPoints,
-        105,
-        reason: 'merged-in points must survive the next recomputation',
-      );
-    },
-  );
+    expect(
+      store.repository.getCustomerById(primary.id)!.totalRewardPoints,
+      105,
+      reason: 'merged-in points must survive the next recomputation',
+    );
+  });
 
   test('the reassigned loyalty row is re-queued as an update', () async {
     final primary = await store.addCustomer(name: 'Primary', mobile: '111');

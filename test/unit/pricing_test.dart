@@ -5,8 +5,11 @@ import 'package:atomid/data/models/settings_model.dart';
 import 'package:atomid/domain/pricing.dart';
 
 void main() {
-  SettingsModel settings({double rate = 0, String mode = TaxMode.inclusive}) =>
-      SettingsModel(taxRate: rate, taxMode: mode);
+  SettingsModel settings({
+    double rate = 0,
+    String mode = TaxMode.inclusive,
+    bool roundOff = false,
+  }) => SettingsModel(taxRate: rate, taxMode: mode, roundOffEnabled: roundOff);
 
   LoyaltySettingsModel loyalty({
     bool enabled = true,

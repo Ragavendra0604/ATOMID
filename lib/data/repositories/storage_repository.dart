@@ -23,6 +23,8 @@ import 'package:atomid/data/models/sync_queue_model.dart';
 import 'package:atomid/data/models/sync_log_model.dart';
 import 'package:atomid/data/models/diagnostic_log_model.dart';
 import 'package:atomid/data/models/expense_model.dart';
+import 'package:atomid/data/models/gst_rate_config_model.dart';
+import 'package:atomid/domain/gst/gst_rate_resolver.dart';
 import 'package:atomid/hive_registrar.g.dart';
 import 'package:atomid/data/sync/entity_codec.dart';
 import 'package:atomid/core/utils/app_error.dart';
@@ -115,6 +117,7 @@ class StorageRepository {
   static const String syncLogBoxName = 'sync_logs';
   static const String expensesBoxName = 'expenses';
   static const String expenseCategoriesBoxName = 'expense_categories';
+  static const String gstRateConfigsBoxName = 'gst_rate_configs';
   static const String checkoutJournalBoxName = 'checkout_journal';
   static const String diagnosticLogBoxName = 'diagnostic_logs';
   late Box<Product> _productsBox;
@@ -136,6 +139,7 @@ class StorageRepository {
   late Box<DiagnosticLog> _diagnosticLogBox;
   late Box<Expense> _expensesBox;
   late Box<ExpenseCategory> _expenseCategoriesBox;
+  late Box<GstRateConfig> _gstRateConfigsBox;
 
   /// In-flight checkouts. Untyped on purpose: these rows are scratch state
   /// that never syncs and never outlives a successful sale, so giving them a
@@ -286,6 +290,9 @@ class StorageRepository {
     final expenseCategoriesOpen = _safeOpenBox<ExpenseCategory>(
       expenseCategoriesBoxName,
     );
+    final gstRateConfigsOpen = _safeOpenBox<GstRateConfig>(
+      gstRateConfigsBoxName,
+    );
     final checkoutJournalOpen = _safeOpenBox<dynamic>(checkoutJournalBoxName);
 
     _productsBox = await productsOpen;
@@ -307,12 +314,14 @@ class StorageRepository {
     _diagnosticLogBox = await diagnosticLogOpen;
     _expensesBox = await expensesOpen;
     _expenseCategoriesBox = await expenseCategoriesOpen;
+    _gstRateConfigsBox = await gstRateConfigsOpen;
     _checkoutJournalBox = await checkoutJournalOpen;
 
     _rebuildBarcodeIndex();
     _rebuildCustomerIndexes();
     _rebuildLedgerBalances();
     await resetStuckSyncItems();
+    await seedDefaultGstRates();
 
     // Marked ready before recovery runs so the unwind below can use the full
     // public API rather than a half-built repository.
@@ -751,6 +760,7 @@ class StorageRepository {
     'LoyaltyTransaction',
     'CustomerLedger',
     'SupplierLedger',
+    'GstRateConfig',
     'SettingsModel',
     'CompanyModel',
     'InvoiceSettingsModel',
@@ -1336,6 +1346,8 @@ class StorageRepository {
       case 'LoyaltySettingsModel':
         return _loyaltySettingsBox.get('loyalty_settings')?.updatedAt ??
             DateTime.now();
+      case 'GstRateConfig':
+        return _gstRateConfigsBox.get(entityId)?.updatedAt ?? DateTime.now();
       default:
         // ExpenseCategory keeps no timestamp of its own. Stamping the upload
         // moment is honest enough: it is pulled in full every time regardless
@@ -1366,6 +1378,9 @@ class StorageRepository {
         'barcodePrefix': c.barcodePrefix,
         'currency': c.currency,
         'financialYear': c.financialYear,
+        'stateCode': c.stateCode,
+        'gstRegistrationStatus': c.gstRegistrationStatus,
+        'tradeName': c.tradeName,
       };
     }
     if (entityType == 'InvoiceSettingsModel') {
@@ -1378,6 +1393,7 @@ class StorageRepository {
         'showCompanyLogo': s.showCompanyLogo,
         'termsAndConditions': s.termsAndConditions,
         'fontName': s.fontName,
+        'showSignature': s.showSignature,
       };
     }
     if (entityType == 'LoyaltySettingsModel') {
@@ -1422,6 +1438,10 @@ class StorageRepository {
         'tags': c.tags,
         'attachments': c.attachments,
         'isDeleted': c.isDeleted,
+        'state': c.state,
+        'stateCode': c.stateCode,
+        'city': c.city,
+        'pincode': c.pincode,
       };
     }
     if (entityType == 'Sale') {
@@ -1445,6 +1465,29 @@ class StorageRepository {
         'isSynced': true,
         'isDeleted': s.isDeleted,
         'updatedAt': s.updatedAt?.toIso8601String(),
+        'sellerGstin': s.sellerGstin,
+        'sellerState': s.sellerState,
+        'sellerStateCode': s.sellerStateCode,
+        'sellerLegalName': s.sellerLegalName,
+        'sellerAddress': s.sellerAddress,
+        'customerGstin': s.customerGstin,
+        'customerState': s.customerState,
+        'customerStateCode': s.customerStateCode,
+        'customerAddress': s.customerAddress,
+        'customerPhone': s.customerPhone,
+        'placeOfSupply': s.placeOfSupply,
+        'placeOfSupplyBasis': s.placeOfSupplyBasis,
+        'pricingMode': s.pricingMode,
+        'taxableAmount': s.taxableAmount,
+        'cgstAmount': s.cgstAmount,
+        'sgstAmount': s.sgstAmount,
+        'utgstAmount': s.utgstAmount,
+        'igstAmount': s.igstAmount,
+        'cessAmount': s.cessAmount,
+        'preRoundTotal': s.preRoundTotal,
+        'roundOff': s.roundOff,
+        'documentType': s.documentType,
+        'isInterState': s.isInterState,
         'items': s.items
             .map(
               (i) => {
@@ -1456,6 +1499,19 @@ class StorageRepository {
                 'price': i.price,
                 'quantity': i.quantity,
                 'total': i.total,
+                'hsn': i.hsn,
+                'uqc': i.uqc,
+                'gstRate': i.gstRate,
+                'gstTreatment': i.gstTreatment,
+                'cessRate': i.cessRate,
+                'taxableValue': i.taxableValue,
+                'discountAmount': i.discountAmount,
+                'cgstAmount': i.cgstAmount,
+                'sgstAmount': i.sgstAmount,
+                'utgstAmount': i.utgstAmount,
+                'igstAmount': i.igstAmount,
+                'cessAmount': i.cessAmount,
+                'gstRateConfigId': i.gstRateConfigId,
               },
             )
             .toList(),
@@ -1484,6 +1540,10 @@ class StorageRepository {
         'supplierCategory': s.supplierCategory,
         'attachments': s.attachments,
         'isDeleted': s.isDeleted,
+        'state': s.state,
+        'stateCode': s.stateCode,
+        'city': s.city,
+        'pincode': s.pincode,
       };
     }
     if (entityType == 'LoyaltyTransaction') {
@@ -1517,6 +1577,12 @@ class StorageRepository {
         'createdDate': p.createdDate.toIso8601String(),
         'updatedDate': p.updatedDate.toIso8601String(),
         'isSynced': true,
+        'hsn': p.hsn,
+        'uqc': p.uqc,
+        'gstTreatment': p.gstTreatment,
+        'gstRate': p.gstRate,
+        'cessRate': p.cessRate,
+        'gstRateConfigId': p.gstRateConfigId,
         'variants': p.variants
             .map(
               (v) => {
@@ -1529,6 +1595,7 @@ class StorageRepository {
                 'stockIn': v.stockIn,
                 'stockOut': v.stockOut,
                 'lastStockUpdated': v.lastStockUpdated?.toIso8601String(),
+                'costPrice': v.costPrice,
               },
             )
             .toList(),
@@ -1558,6 +1625,27 @@ class StorageRepository {
         'notes': p.notes,
         'isSynced': true,
         'updatedAt': p.updatedAt?.toIso8601String(),
+        'supplierInvoiceNumber': p.supplierInvoiceNumber,
+        'supplierInvoiceDate': p.supplierInvoiceDate?.toIso8601String(),
+        'supplierGstin': p.supplierGstin,
+        'supplierState': p.supplierState,
+        'supplierStateCode': p.supplierStateCode,
+        'supplierAddress': p.supplierAddress,
+        'itcEligibility': p.itcEligibility,
+        'taxableAmount': p.taxableAmount,
+        'cgstAmount': p.cgstAmount,
+        'sgstAmount': p.sgstAmount,
+        'utgstAmount': p.utgstAmount,
+        'igstAmount': p.igstAmount,
+        'cessAmount': p.cessAmount,
+        'roundOff': p.roundOff,
+        'preRoundTotal': p.preRoundTotal,
+        'pricingMode': p.pricingMode,
+        'recipientName': p.recipientName,
+        'recipientGstin': p.recipientGstin,
+        'recipientState': p.recipientState,
+        'recipientStateCode': p.recipientStateCode,
+        'isInterState': p.isInterState,
         'items': p.items
             .map(
               (i) => {
@@ -1571,6 +1659,19 @@ class StorageRepository {
                 'costPrice': i.costPrice,
                 'quantity': i.quantity,
                 'lineTotal': i.lineTotal,
+                'hsn': i.hsn,
+                'uqc': i.uqc,
+                'gstRate': i.gstRate,
+                'gstTreatment': i.gstTreatment,
+                'cessRate': i.cessRate,
+                'taxableValue': i.taxableValue,
+                'discountAmount': i.discountAmount,
+                'cgstAmount': i.cgstAmount,
+                'sgstAmount': i.sgstAmount,
+                'utgstAmount': i.utgstAmount,
+                'igstAmount': i.igstAmount,
+                'cessAmount': i.cessAmount,
+                'gstRateConfigId': i.gstRateConfigId,
               },
             )
             .toList(),
@@ -1640,6 +1741,22 @@ class StorageRepository {
         'notes': l.notes,
       };
     }
+    if (entityType == 'GstRateConfig') {
+      final r = getGstRateConfigById(entityId);
+      if (r == null) return null;
+      return {
+        'id': r.id,
+        'rateName': r.rateName,
+        'rate': r.rate,
+        'cessRate': r.cessRate,
+        'effectiveFrom': r.effectiveFrom.toIso8601String(),
+        'effectiveTo': r.effectiveTo?.toIso8601String(),
+        'description': r.description,
+        'isDeleted': r.isDeleted,
+        'updatedAt': r.updatedAt?.toIso8601String(),
+        'isSynced': true,
+      };
+    }
     if (entityType == 'SettingsModel') {
       final s = _settingsBox.get('app_settings');
       if (s == null) return null;
@@ -1650,6 +1767,15 @@ class StorageRepository {
         'pdfPageSize': s.pdfPageSize,
         'taxMode': s.taxMode,
         'taxRate': s.taxRate,
+        'roundOffEnabled': s.roundOffEnabled,
+        'hsnRequired': s.hsnRequired,
+        'walkInPosPolicy': s.walkInPosPolicy,
+        'showGstBreakdown': s.showGstBreakdown,
+        'showHsnSummary': s.showHsnSummary,
+        'defaultUqc': s.defaultUqc,
+        'thermalReceiptSize': s.thermalReceiptSize,
+        'showTaxOnThermalReceipt': s.showTaxOnThermalReceipt,
+        'inclusiveTaxRounding': s.inclusiveTaxRounding,
       };
     }
     return null;
@@ -1678,6 +1804,8 @@ class StorageRepository {
       // arrival order rather than on which change was actually more recent.
       case 'SettingsModel':
         return _settingsBox.get('app_settings')?.updatedAt;
+      case 'GstRateConfig':
+        return _gstRateConfigsBox.get(entityId)?.updatedAt;
       case 'CompanyModel':
         return _companyBox.get('profile')?.updatedAt;
       case 'InvoiceSettingsModel':
@@ -1772,6 +1900,9 @@ class StorageRepository {
           EntityCodec.loyaltyTransaction(json),
         );
         _notify(DataTopic.loyalty);
+      case 'GstRateConfig':
+        await _gstRateConfigsBox.put(entityId, EntityCodec.gstRateConfig(json));
+        _notify(DataTopic.settings);
       case 'CustomerLedger':
         await _customerLedgersBox.put(
           entityId,
@@ -2195,6 +2326,10 @@ class StorageRepository {
     // last. Config records carried no timestamp at all before this.
     settings.updatedAt = DateTime.now();
     await _settingsBox.put('app_settings', settings);
+    // Local edits announce themselves the same way a pulled change does.
+    // Only the sync path used to, so a setting changed on this device did
+    // not reach anything already on screen until the app was restarted.
+    _notify(DataTopic.settings);
     await enqueueSync(
       entityType: 'SettingsModel',
       entityId: 'app_settings',
@@ -2211,6 +2346,7 @@ class StorageRepository {
   Future<void> saveInvoiceSettings(InvoiceSettingsModel settings) async {
     settings.updatedAt = DateTime.now();
     await _invoiceSettingsBox.put('invoice_settings', settings);
+    _notify(DataTopic.settings);
     await enqueueSync(
       entityType: 'InvoiceSettingsModel',
       entityId: 'invoice_settings',
@@ -2774,6 +2910,7 @@ class StorageRepository {
   Future<void> saveCompany(CompanyModel company) async {
     company.updatedAt = DateTime.now();
     await _companyBox.put('profile', company);
+    _notify(DataTopic.settings);
     await enqueueSync(
       entityType: 'CompanyModel',
       entityId: 'profile',
@@ -3278,5 +3415,61 @@ class StorageRepository {
       entityId: categoryId,
       action: 'DELETE',
     );
+  }
+
+  // --- GST RATE CONFIGS ---
+
+  Future<void> seedDefaultGstRates() async {
+    if (_gstRateConfigsBox.isEmpty) {
+      for (final entry in GstRateResolver.defaultRates) {
+        final config = GstRateConfig(
+          id: entry.id,
+          rateName: entry.rateName,
+          rate: entry.rate,
+          cessRate: entry.cessRate,
+          effectiveFrom: entry.effectiveFrom,
+          effectiveTo: entry.effectiveTo,
+          description: entry.description,
+          updatedAt: DateTime.now(),
+          isSynced: true,
+        );
+        await _gstRateConfigsBox.put(config.id, config);
+      }
+    }
+  }
+
+  List<GstRateConfig> getGstRateConfigs({bool includeDeleted = false}) {
+    final list = _gstRateConfigsBox.values.where((c) {
+      if (!includeDeleted && c.isDeleted) return false;
+      return true;
+    }).toList();
+    list.sort((a, b) => a.rate.compareTo(b.rate));
+    return list;
+  }
+
+  GstRateConfig? getGstRateConfigById(String id) => _gstRateConfigsBox.get(id);
+
+  Future<void> saveGstRateConfig(GstRateConfig config) async {
+    config.updatedAt = DateTime.now();
+    await _gstRateConfigsBox.put(config.id, config);
+    await enqueueSync(
+      entityType: 'GstRateConfig',
+      entityId: config.id,
+      action: 'UPDATE',
+    );
+  }
+
+  Future<void> deleteGstRateConfig(String id) async {
+    final config = _gstRateConfigsBox.get(id);
+    if (config != null) {
+      config.isDeleted = true;
+      config.updatedAt = DateTime.now();
+      await _gstRateConfigsBox.put(config.id, config);
+      await enqueueSync(
+        entityType: 'GstRateConfig',
+        entityId: id,
+        action: 'DELETE',
+      );
+    }
   }
 }

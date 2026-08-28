@@ -49,6 +49,24 @@ class Product extends HiveObject {
   @HiveField(14)
   bool isSynced;
 
+  @HiveField(15)
+  String hsn;
+
+  @HiveField(16)
+  String uqc;
+
+  @HiveField(17)
+  String gstTreatment; // 'TAXABLE', 'NIL_RATED', 'EXEMPT', 'NON_GST', 'UNCONFIGURED'
+
+  @HiveField(18)
+  double? gstRate; // e.g. 5.0, 12.0, 18.0; null represents unconfigured
+
+  @HiveField(19)
+  double cessRate;
+
+  @HiveField(20)
+  String? gstRateConfigId;
+
   Product({
     required this.id,
     required this.productName,
@@ -65,7 +83,17 @@ class Product extends HiveObject {
     this.isDeleted = false,
     this.lastSyncedAt,
     this.isSynced = false,
+    this.hsn = '',
+    this.uqc = 'PCS',
+    this.gstTreatment = 'TAXABLE',
+    this.gstRate = 0.0,
+    this.cessRate = 0.0,
+    this.gstRateConfigId,
   });
+
+  bool get isGstConfigured =>
+      gstTreatment != 'UNCONFIGURED' &&
+      (gstTreatment != 'TAXABLE' || gstRate != null);
 }
 
 @HiveType(typeId: 1)
@@ -97,6 +125,9 @@ class ProductVariant {
   @HiveField(8)
   String sku;
 
+  @HiveField(9)
+  double costPrice;
+
   ProductVariant({
     required this.size,
     required this.price,
@@ -107,5 +138,6 @@ class ProductVariant {
     this.stockOut = 0,
     this.reorderLevel = 5,
     this.sku = '',
+    this.costPrice = 0.0,
   });
 }

@@ -7,6 +7,9 @@ import 'package:atomid/data/models/action_history_model.dart';
 import 'package:atomid/data/models/diagnostic_log_model.dart';
 import 'package:atomid/data/models/purchase_model.dart';
 import 'package:atomid/data/repositories/storage_repository.dart';
+import 'package:atomid/domain/gst/gst_engine.dart';
+import 'package:atomid/domain/gst/gst_models.dart';
+import 'package:atomid/domain/gst/gst_states.dart';
 
 /// Statuses a purchase order can hold, in lifecycle order.
 class PurchaseStatus {
@@ -26,25 +29,164 @@ class PurchaseService {
 
   PurchaseService(this._repository);
 
+  /// Computes and freezes the GST breakdown for a purchase.
+  ///
+  /// Delegates every figure to [Gst.compute]. This method used to carry its
+  /// own copy of the arithmetic, which had drifted from the engine in ways
+  /// that all understated tax: a null rate became 0%, an unknown supplier
+  /// state became the shop's own (so an inter-state purchase was booked as
+  /// CGST + SGST), and an unconfigured shop fell back to a hardcoded Tamil
+  /// Nadu. One authority now answers for both what the shop sells and what it
+  /// buys.
+  ///
+  /// Throws [AppException] when the inputs cannot support a safe calculation.
+  /// Blocking is the point: a purchase that cannot be taxed correctly must not
+  /// be recorded with a plausible-looking wrong number.
+  void computePurchaseGst(Purchase purchase) {
+    final problem = tryComputePurchaseGst(purchase);
+    if (problem != null) throw AppException(problem);
+  }
+
+  /// [computePurchaseGst] without the throw: returns the reason it could not
+  /// compute, or null when it did.
+  ///
+  /// The purchase form builds a running preview on every keystroke, inside
+  /// `build`. An exception there is an error screen rather than a message, so
+  /// the live path asks for the reason and shows it while the save path
+  /// throws and refuses.
+  String? tryComputePurchaseGst(Purchase purchase) {
+    final company = _repository.getCompany();
+    final settings = _repository.getSettings();
+    final supplier = _repository.getSupplierById(purchase.supplierId);
+
+    // --- the shop, as recipient ------------------------------------------
+    //
+    // No hardcoded state. If the business has not been configured, that is a
+    // setup error the shopkeeper can fix, not something to paper over.
+    final shop = GstStates.resolvePartyState(
+      label: 'Shop',
+      stateCode: company.stateCode,
+      stateName: company.state,
+      gstin: company.gstNumber,
+    );
+    if (!shop.isResolved) {
+      return '${shop.error} Set it in Settings > Business Details.';
+    }
+
+    // --- the supplier, as the party supplying ------------------------------
+    //
+    // The order's own copy wins over the supplier master, so a correction made
+    // on one order never rewrites another. A GSTIN is read for its state
+    // prefix only when no state was recorded, and a GSTIN that disagrees with
+    // a recorded state blocks rather than picking a side.
+    final supplierState = GstStates.resolvePartyState(
+      label: 'Supplier',
+      stateCode: purchase.supplierStateCode.isNotEmpty
+          ? purchase.supplierStateCode
+          : supplier?.stateCode,
+      stateName: purchase.supplierState.isNotEmpty
+          ? purchase.supplierState
+          : supplier?.state,
+      gstin: purchase.supplierGstin.isNotEmpty
+          ? purchase.supplierGstin
+          : supplier?.gstNumber,
+    );
+    if (!supplierState.isResolved) {
+      return supplierState.error;
+    }
+
+    final lines = [
+      for (final item in purchase.items)
+        GstLineInput(
+          productId: item.productId,
+          productName: item.productName,
+          variantBarcode: item.variantBarcode,
+          variantSize: item.variantSize,
+          unitPrice: item.costPrice,
+          quantity: item.quantity,
+          hsn: item.hsn,
+          uqc: item.uqc.isNotEmpty ? item.uqc : settings.defaultUqc,
+          gstTreatment: item.gstTreatment,
+          gstRate: item.gstRate,
+          cessRate: item.cessRate,
+          gstRateConfigId: item.gstRateConfigId,
+          lineDiscount: item.discountAmount,
+        ),
+    ];
+
+    final result = Gst.compute(
+      GstCalculationInput(
+        transactionDate: purchase.purchaseDate,
+        // The supplier is the one making the supply, so it is the seller here;
+        // the place of supply is this shop.
+        sellerState: supplierState.state!.name,
+        sellerStateCode: supplierState.state!.code,
+        sellerGstin: purchase.supplierGstin.isNotEmpty
+            ? purchase.supplierGstin
+            : (supplier?.gstNumber ?? ''),
+        customerState: shop.state!.name,
+        customerStateCode: shop.state!.code,
+        customerGstin: company.gstNumber,
+        destinationStateCode: shop.state!.code,
+        pricingMode: purchase.pricingMode,
+        isWalkIn: false,
+        roundOffEnabled: settings.roundOffEnabled,
+        lines: lines,
+      ),
+    );
+
+    if (!result.isValid) {
+      return 'Cannot calculate GST on this purchase:\n'
+          '• ${result.errors.join('\n• ')}';
+    }
+
+    for (var i = 0; i < purchase.items.length; i++) {
+      final item = purchase.items[i];
+      final line = result.lines[i];
+      item.gstTreatment = line.gstTreatment;
+      item.gstRate = line.gstRate;
+      item.cessRate = line.cessRate;
+      item.gstRateConfigId = line.gstRateConfigId;
+      item.discountAmount = line.discountAllocated;
+      item.taxableValue = line.taxableValue;
+      item.cgstAmount = line.cgstAmount;
+      item.sgstAmount = line.sgstAmount;
+      item.utgstAmount = line.utgstAmount;
+      item.igstAmount = line.igstAmount;
+      item.cessAmount = line.cessAmount;
+      item.lineTotal = line.lineTotal;
+    }
+
+    purchase.isInterState = result.isInterState;
+    purchase.supplierState = supplierState.state!.name;
+    purchase.supplierStateCode = supplierState.state!.code;
+    if (purchase.supplierGstin.isEmpty && supplier != null) {
+      purchase.supplierGstin = supplier.gstNumber;
+    }
+
+    // Recipient snapshot, frozen with the figures it produced.
+    purchase.recipientName = company.name;
+    purchase.recipientGstin = company.gstNumber;
+    purchase.recipientState = shop.state!.name;
+    purchase.recipientStateCode = shop.state!.code;
+
+    purchase.subtotal = result.subtotal;
+    purchase.discount = result.discountAmount;
+    purchase.taxableAmount = result.taxableAmount;
+    purchase.cgstAmount = result.cgstAmount;
+    purchase.sgstAmount = result.sgstAmount;
+    purchase.utgstAmount = result.utgstAmount;
+    purchase.igstAmount = result.igstAmount;
+    purchase.cessAmount = result.cessAmount;
+    purchase.tax = result.totalTax;
+    purchase.preRoundTotal = result.preRoundTotal;
+    purchase.roundOff = result.roundOff;
+    purchase.grandTotal = result.payableAmount;
+    return null;
+  }
+
   /// Persists a purchase and, when it crosses into [PurchaseStatus.received]
   /// for the first time, moves stock and credits the supplier ledger.
-  ///
-  /// [previousStatus] must be the status the record held *before* the caller
-  /// mutated it. Re-reading it here does not work: Hive returns the same
-  /// instance the caller just modified, so the transition is invisible and the
-  /// stock-in silently never happens.
-  ///
-  /// A multi-item order used to be saved as `Received` first and only then
-  /// stocked in one item at a time; if a later line failed (its product or
-  /// variant had since been deleted — routine, for an order sitting in
-  /// `Issued` for a while) the order was left `Received` with only some of
-  /// its stock actually moved and the supplier never credited. Because a
-  /// `Received` order is settled — [PurchaseStatus.isSettled] blocks both
-  /// retrying and cancelling it — that order had no way back except editing
-  /// Hive by hand. Every line is now validated up front, and the status is
-  /// only written as `Received` once receiving has fully succeeded; if a
-  /// later step still fails, the stock already moved for this attempt is
-  /// unwound and the order is left exactly as it was before the attempt.
   Future<void> savePurchase(
     Purchase purchase, {
     bool isNew = false,
@@ -54,16 +196,15 @@ class PurchaseService {
       throw const AppException('A purchase needs at least one item.');
     }
 
+    // Always ensure statutory GST calculation is computed on the purchase
+    computePurchaseGst(purchase);
+
     final priorStatus = isNew ? null : previousStatus;
     final becomesReceived =
         purchase.status == PurchaseStatus.received &&
         priorStatus != PurchaseStatus.received;
 
     if (becomesReceived) {
-      // Hold the status back until receiving actually succeeds, before
-      // validating — so a rejected receive leaves the object's in-memory
-      // status matching what is (and stays) on disk, not stuck showing
-      // "Received" for a save that never happened.
       purchase.status = priorStatus ?? PurchaseStatus.issued;
       _assertReceivable(purchase);
     }
@@ -120,8 +261,6 @@ class PurchaseService {
     await savePurchase(purchase, previousStatus: previous);
   }
 
-  /// Rejects a receive attempt before anything is written, if any line can't
-  /// actually be stocked in.
   void _assertReceivable(Purchase purchase) {
     for (final item in purchase.items) {
       final product = _repository.getProductById(item.productId);
@@ -143,8 +282,6 @@ class PurchaseService {
     }
   }
 
-  /// Moves stock, credits the supplier, and only then marks the order
-  /// received. Unwinds everything it already did if a later step fails.
   Future<void> _receive(Purchase purchase, String? priorStatus) async {
     final undo = <Future<void> Function()>[];
 
@@ -181,15 +318,9 @@ class PurchaseService {
           notes: 'PO #${purchase.purchaseNumber} received',
         );
 
-        // Registered like every other step. Without it, a failure in the
-        // savePurchase below unwound the stock but left the supplier credited
-        // for goods the order still says were never received — the shop owing
-        // money its own records do not account for.
         undo.add(() => _repository.deleteSupplierLedgerEntry(ledgerId));
       }
 
-      // Every line moved and the supplier is credited — now it is safe to
-      // call this order Received.
       purchase.status = PurchaseStatus.received;
       await _repository.savePurchase(purchase);
     } catch (error, stack) {
@@ -209,9 +340,6 @@ class PurchaseService {
           debugPrint(
             'Reversal step failed for PO ${purchase.purchaseNumber}: $undoError',
           );
-          // As in checkout: the contained failure is a warning, but a failed
-          // reversal means received stock or the supplier ledger no longer
-          // matches this order.
           await _repository.recordDiagnostic(
             severity: DiagnosticSeverity.error,
             area: DiagnosticArea.receiving,

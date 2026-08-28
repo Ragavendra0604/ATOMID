@@ -75,13 +75,17 @@ void main() {
 
   test('a Monday reports a week that starts that same day', () {
     final monday = DateTime(2026, 8, 24, 9, 0);
-    expect(DateWindow.forTimeframe('This Week', monday)!.from,
-        DateTime(2026, 8, 24));
+    expect(
+      DateWindow.forTimeframe('This Week', monday)!.from,
+      DateTime(2026, 8, 24),
+    );
   });
 
   test('a Sunday reports a week that started six days earlier', () {
     final sunday = DateTime(2026, 8, 30, 20, 0);
-    expect(DateWindow.forTimeframe('This Week', sunday)!.from,
-        DateTime(2026, 8, 24));
+    expect(
+      DateWindow.forTimeframe('This Week', sunday)!.from,
+      DateTime(2026, 8, 24),
+    );
   });
 }

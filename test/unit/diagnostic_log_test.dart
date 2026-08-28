@@ -64,7 +64,7 @@ void main() {
   late SaleService service;
 
   Future<void> openWith(StorageRepository repo) async {
-    store = await TestStore.open(repository: repo);
+    store = await TestStore.open(repository: repo, configureShop: true);
     final session = MockSessionService();
     when(() => session.deviceId).thenReturn('dev_test_abcd');
     service = SaleService(store.repository, session);

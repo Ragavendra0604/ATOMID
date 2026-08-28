@@ -1,7 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:atomid/core/utils/app_error.dart';
+import 'package:atomid/data/models/invoice_settings_model.dart';
 import 'package:atomid/data/repositories/storage_repository.dart';
+import 'package:atomid/data/sync/entity_codec.dart';
 
 import '../support/test_store.dart';
 
@@ -256,6 +258,101 @@ void main() {
       expect(repo.getLowStockItems(), hasLength(1));
       expect(repo.getOutOfStockItems(), hasLength(1));
     });
+  });
+
+  group('settings changes are announced', () {
+    // Regression: only the sync path announced a settings change, so editing
+    // business details or the invoice layout on this device left the invoice
+    // preview rendering the old company until the app was restarted.
+    Future<List<String>> topicsWhile(Future<void> Function() action) async {
+      final seen = <String>[];
+      final sub = repo.changes.listen(seen.add);
+      await action();
+      await Future<void>.delayed(Duration.zero);
+      await sub.cancel();
+      return seen;
+    }
+
+    test('saving business details notifies', () async {
+      final topics = await topicsWhile(
+        () => repo.saveCompany(repo.getCompany()..name = 'New Name'),
+      );
+      expect(topics, contains(DataTopic.settings));
+    });
+
+    test('saving invoice settings notifies', () async {
+      final topics = await topicsWhile(
+        () => repo.saveInvoiceSettings(
+          repo.getInvoiceSettings()..footerText = 'Thanks',
+        ),
+      );
+      expect(topics, contains(DataTopic.settings));
+    });
+
+    test('saving app settings notifies', () async {
+      final topics = await topicsWhile(
+        () => repo.saveSettings(repo.getSettings()..taxRate = 5),
+      );
+      expect(topics, contains(DataTopic.settings));
+    });
+  });
+
+  test('every invoice setting survives the sync round trip', () async {
+    // The push payload (`_encodeEntity`) and the pull decoder
+    // (`EntityCodec.invoiceSettings`) are written by hand and hold no
+    // reference to the model's field list, so a field added to the model and
+    // forgotten in either one is silently dropped between two devices — and
+    // every default here is deliberately the opposite of the model's, so a
+    // dropped field reads back as its default and fails.
+    await repo.saveInvoiceSettings(
+      InvoiceSettingsModel(
+        footerText: 'Come again',
+        showUpiQr: true,
+        upiId: 'shop@upi',
+        upiQrImagePath: '/tmp/qr.png',
+        showCompanyLogo: false,
+        termsAndConditions: 'No returns',
+        fontName: 'NotoSans',
+        showSignature: false,
+      ),
+    );
+
+    final json = repo.getEntityJson('InvoiceSettingsModel', 'invoice_settings');
+    expect(json, isNotNull);
+    final restored = EntityCodec.invoiceSettings(json!);
+
+    expect(restored.footerText, 'Come again');
+    expect(restored.showUpiQr, true);
+    expect(restored.upiId, 'shop@upi');
+    expect(restored.upiQrImagePath, '/tmp/qr.png');
+    expect(restored.showCompanyLogo, false);
+    expect(restored.termsAndConditions, 'No returns');
+    expect(restored.fontName, 'NotoSans');
+    expect(restored.showSignature, false);
+  });
+
+  test('an older payload without the signature flag keeps the block on', () {
+    // A device on the previous build pushes no `showSignature` at all. A GST
+    // tax invoice must carry a signature, so absence has to read as true.
+    final restored = EntityCodec.invoiceSettings({'footerText': 'Hi'});
+    expect(restored.showSignature, true);
+  });
+
+  test('the inclusive-rounding choice survives the sync round trip', () async {
+    // Same hand-written push/pull pair as the invoice settings, same risk of
+    // a field being dropped between two devices — and this one decides what
+    // the customer is charged.
+    await repo.saveSettings(
+      repo.getSettings().copyWith(inclusiveTaxRounding: 'TAX_RATE'),
+    );
+
+    final json = repo.getEntityJson('SettingsModel', 'app_settings');
+    expect(json, isNotNull);
+    expect(EntityCodec.settings(json!).inclusiveTaxRounding, 'TAX_RATE');
+
+    // A device on the previous build sends no key at all; it must read as the
+    // behaviour that shop was already billing with.
+    expect(EntityCodec.settings({}).inclusiveTaxRounding, 'SHELF_PRICE');
   });
 
   test('settings survive a save that only changes one field', () async {

@@ -27,7 +27,7 @@ void main() {
   late CustomerService customers;
 
   setUp(() async {
-    store = await TestStore.open();
+    store = await TestStore.open(configureShop: true);
     final session = MockSessionService();
     when(() => session.deviceId).thenReturn('dev_test_abcd');
     sales = SaleService(store.repository, session);

@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf/pdf.dart';
 
 import 'package:atomid/core/services/export_service.dart';
 import 'package:atomid/data/models/company_model.dart';
@@ -8,6 +11,7 @@ import 'package:atomid/data/models/purchase_model.dart';
 import 'package:atomid/data/models/sale_model.dart';
 import 'package:atomid/data/models/settings_model.dart';
 import 'package:atomid/data/models/supplier_model.dart';
+import 'package:atomid/domain/price_tag_job.dart';
 
 /// Cover for the documents customers physically receive.
 ///
@@ -102,6 +106,100 @@ void main() {
     expect(String.fromCharCodes(bytes.take(4)), '%PDF');
   }
 
+  /// Regression: the invoice was always laid out at the size stored in
+  /// settings, even when it was being handed to a print job on other paper.
+  /// The platform then scaled or cropped the A4 page onto whatever the printer
+  /// was loaded with, so the printout did not match the preview.
+  group('invoice page format', () {
+    Future<List<double>> mediaBoxOf(Future<dynamic> future) async {
+      final doc = await future;
+      final bytes = await doc.save();
+      final match = RegExp(
+        r'/MediaBox\s*\[\s*0\s+0\s+([\d.]+)\s+([\d.]+)',
+      ).firstMatch(String.fromCharCodes(bytes));
+      expect(
+        match,
+        isNotNull,
+        reason: 'no /MediaBox found — cannot read the page size',
+      );
+      return [double.parse(match!.group(1)!), double.parse(match.group(2)!)];
+    }
+
+    test('defaults to the size stored in settings', () async {
+      final box = await mediaBoxOf(
+        ExportService.generateInvoicePdf(
+          sale(),
+          settings,
+          company,
+          invoiceSettings,
+        ),
+      );
+      expect(box[0], closeTo(PdfPageFormat.a4.width, 1));
+      expect(box[1], closeTo(PdfPageFormat.a4.height, 1));
+    });
+
+    test('an explicit page format wins over settings', () async {
+      final box = await mediaBoxOf(
+        ExportService.generateInvoicePdf(
+          sale(),
+          settings,
+          company,
+          invoiceSettings,
+          pageFormat: PdfPageFormat.letter,
+        ),
+      );
+      expect(box[0], closeTo(PdfPageFormat.letter.width, 1));
+      expect(box[1], closeTo(PdfPageFormat.letter.height, 1));
+    });
+
+    test('the same invoice on two papers is not the same document', () async {
+      final a4 = await (await ExportService.generateInvoicePdf(
+        sale(),
+        settings,
+        company,
+        invoiceSettings,
+        pageFormat: PdfPageFormat.a4,
+      )).save();
+      final letter = await (await ExportService.generateInvoicePdf(
+        sale(),
+        settings,
+        company,
+        invoiceSettings,
+        pageFormat: PdfPageFormat.letter,
+      )).save();
+      expect(a4, isNot(equals(letter)));
+    });
+
+    // A print dialog can report a continuous roll, whose height is infinite.
+    // MultiPage asserts a finite height, so an invoice sent to a receipt
+    // printer must fall back to its configured sheet rather than throw.
+    test('a continuous roll falls back to the configured sheet', () async {
+      final box = await mediaBoxOf(
+        ExportService.generateInvoicePdf(
+          sale(),
+          settings,
+          company,
+          invoiceSettings,
+          pageFormat: PdfPageFormat.roll80,
+        ),
+      );
+      expect(box[0], closeTo(PdfPageFormat.a4.width, 1));
+      expect(box[1], closeTo(PdfPageFormat.a4.height, 1));
+    });
+
+    test('a bulk tag sheet also falls back on a continuous roll', () async {
+      final p = product();
+      await expectRenders(
+        ExportService.generateBulkSheetPdf(
+          [PriceTagLine(product: p, variant: p.variants.first, quantity: 2)],
+          settings,
+          company,
+          pageFormat: PdfPageFormat.roll80,
+        ),
+      );
+    });
+  });
+
   group('invoice', () {
     test('renders an ordinary sale', () async {
       await expectRenders(
@@ -185,6 +283,19 @@ void main() {
       );
     });
 
+    test('renders with the signature block turned off', () async {
+      // The footer Row keeps a placeholder in the signature's place, so the
+      // UPI block on the other side must not stretch or collapse the row.
+      await expectRenders(
+        ExportService.generateInvoicePdf(
+          sale(payment: 'UPI'),
+          settings,
+          company,
+          InvoiceSettingsModel(showSignature: false, showUpiQr: true),
+        ),
+      );
+    });
+
     test('renders a zero-total sale', () async {
       // A fully discounted or fully redeemed basket. Division by the total is
       // the obvious way for this to break.
@@ -254,14 +365,9 @@ void main() {
     });
 
     test('an Indic footer does not crash the receipt', () async {
-      // Honest about the limitation rather than asserting support that does
-      // not exist: bundled Roboto has no Devanagari, so these glyphs are
-      // dropped from the output. What must hold is that a shopkeeper typing
-      // their own language into the footer still gets a printable receipt —
-      // missing characters, not an exception at the till.
-      //
-      // Rendering them properly needs a Devanagari/Tamil face in the bundle,
-      // which is a product decision about app size, not a bug fix.
+      // A shopkeeper typing their own language into the footer must still get
+      // a printable receipt. Whether the glyphs actually appear is asserted
+      // separately, in the "Indic script rendering" group below.
       await expectRenders(
         ExportService.generateThermalReceiptPdf(
           sale(),
@@ -273,6 +379,100 @@ void main() {
     });
   });
 
+  /// Regression: Roboto carries no Tamil or Devanagari glyphs, so every such
+  /// character was dropped from the output and the pdf package logged
+  /// "Unable to find a font to draw ... try to provide a TextStyle.fontFallback".
+  /// A shop billing in Tamil printed an invoice with its own name missing.
+  ///
+  /// The warning is emitted through `print` inside an `assert`, so a zone can
+  /// capture it and the absence of it can be asserted directly.
+  group('Indic script rendering', () {
+    const tamil = 'ஆடை அங்காடி — நன்றி';
+    const hindi = 'धन्यवाद, फिर मिलेंगे';
+
+    /// Lines the pdf package printed while [future]'s document was laid out.
+    ///
+    /// `save()` is where layout happens, so the document has to be saved
+    /// inside the zone for anything to be captured.
+    Future<List<String>> warningsWhileRendering(Future<dynamic> future) async {
+      final lines = <String>[];
+      await runZoned(
+        () async {
+          final doc = await future;
+          final bytes = await doc.save();
+          expect(bytes, isNotEmpty);
+        },
+        zoneSpecification: ZoneSpecification(
+          print: (self, parent, zone, line) => lines.add(line),
+        ),
+      );
+      return lines;
+    }
+
+    /// Only the missing-glyph lines; the pdf package prints nothing else here.
+    List<String> missingGlyphs(List<String> lines) =>
+        lines.where((l) => l.contains('Unable to find a font')).toList();
+
+    test('a Tamil company name draws every glyph', () async {
+      final warnings = await warningsWhileRendering(
+        ExportService.generateInvoicePdf(
+          sale(
+            items: [line(name: tamil)],
+            customer: tamil,
+          ),
+          settings,
+          CompanyModel(name: tamil, address: tamil),
+          invoiceSettings,
+        ),
+      );
+      expect(
+        missingGlyphs(warnings),
+        isEmpty,
+        reason: 'Tamil glyphs were dropped',
+      );
+    });
+
+    test('a Hindi footer draws every glyph', () async {
+      final warnings = await warningsWhileRendering(
+        ExportService.generateInvoicePdf(
+          sale(),
+          settings,
+          company,
+          InvoiceSettingsModel(footerText: hindi, termsAndConditions: hindi),
+        ),
+      );
+      expect(
+        missingGlyphs(warnings),
+        isEmpty,
+        reason: 'Devanagari glyphs were dropped',
+      );
+    });
+
+    test('a thermal receipt in both scripts draws every glyph', () async {
+      final warnings = await warningsWhileRendering(
+        ExportService.generateThermalReceiptPdf(
+          sale(),
+          settings,
+          CompanyModel(name: tamil, address: hindi),
+          InvoiceSettingsModel(footerText: '$tamil $hindi ₹500'),
+        ),
+      );
+      expect(missingGlyphs(warnings), isEmpty, reason: 'glyphs were dropped');
+    });
+
+    test('Latin text still renders and is unaffected', () async {
+      final warnings = await warningsWhileRendering(
+        ExportService.generateInvoicePdf(
+          sale(),
+          settings,
+          company,
+          invoiceSettings,
+        ),
+      );
+      expect(missingGlyphs(warnings), isEmpty);
+    });
+  });
+
   group('thermal receipt', () {
     test('renders on an 80mm roll', () async {
       await expectRenders(
@@ -281,6 +481,47 @@ void main() {
           settings,
           company,
           invoiceSettings,
+        ),
+      );
+    });
+
+    test('renders with a logo enabled but absent', () async {
+      // The roll reads `showCompanyLogo` too now. A path pointing at nothing
+      // must still print a receipt rather than take the till down.
+      await expectRenders(
+        ExportService.generateThermalReceiptPdf(
+          sale(),
+          settings,
+          CompanyModel(name: 'Shop', logoPath: '/no/such/logo.png'),
+          InvoiceSettingsModel(),
+        ),
+      );
+    });
+
+    test('renders terms and the signature line on a narrow roll', () async {
+      // 58mm is the tightest layout; long terms plus the signature block is
+      // the most content the foot of a receipt ever carries.
+      await expectRenders(
+        ExportService.generateThermalReceiptPdf(
+          sale(),
+          SettingsModel(thermalReceiptSize: '58mm'),
+          company,
+          InvoiceSettingsModel(
+            termsAndConditions:
+                '1. Goods once sold will not be taken back.\n'
+                '2. Subject to local jurisdiction.',
+          ),
+        ),
+      );
+    });
+
+    test('renders with the signature line turned off', () async {
+      await expectRenders(
+        ExportService.generateThermalReceiptPdf(
+          sale(),
+          settings,
+          company,
+          InvoiceSettingsModel(showSignature: false),
         ),
       );
     });
@@ -465,8 +706,10 @@ void main() {
     // Product codes and variant sizes are typed by the shopkeeper and land in
     // the export name verbatim. These are all names a real shop produces.
     test('a slash in a size does not become a directory', () {
-      expect(ExportService.safeFileName('ATOMID_TEA_1/2 KG_20260822'),
-          'ATOMID_TEA_1-2 KG_20260822');
+      expect(
+        ExportService.safeFileName('ATOMID_TEA_1/2 KG_20260822'),
+        'ATOMID_TEA_1-2 KG_20260822',
+      );
       expect(ExportService.safeFileName('SHIRT_L/XL'), 'SHIRT_L-XL');
     });
 
@@ -500,5 +743,4 @@ void main() {
       expect(ExportService.safeFileName('X' * 400).length, 120);
     });
   });
-
 }
