@@ -922,7 +922,9 @@ class ExportService {
                       'Date: ${sale.date.year}-${sale.date.month.toString().padLeft(2, '0')}-${sale.date.day.toString().padLeft(2, '0')}',
                       style: const pw.TextStyle(fontSize: 9),
                     ),
-                    if (sale.placeOfSupply.isNotEmpty)
+                    if (sale.isInterState &&
+                        sale.placeOfSupply.isNotEmpty &&
+                        sale.placeOfSupply != sellerState)
                       pw.Text(
                         'Place of Supply: ${sale.placeOfSupply}',
                         style: const pw.TextStyle(fontSize: 9),

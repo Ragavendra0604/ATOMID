@@ -48,14 +48,17 @@ class AmountInWords {
   /// places first so the words match the printed figure exactly.
   static String rupees(double amount) {
     final negative = amount < 0;
-    final totalPaise = (amount.abs() * 100).roundToDouble().toInt();
-    final whole = totalPaise ~/ 100;
-    final paise = totalPaise % 100;
+    // Add epsilon to ensure exact halves (.005) round up instead of truncating
+    // due to IEEE 754 precision representation.
+    final fixedStr = (amount.abs() + 1e-9).toStringAsFixed(2);
+    final parts = fixedStr.split('.');
+    final whole = int.parse(parts[0]);
+    final paise = int.parse(parts[1]);
 
     final buffer = StringBuffer();
     if (negative) buffer.write('Minus ');
     buffer.write(whole == 0 ? 'Zero' : _words(whole));
-    buffer.write(' Rupees');
+    buffer.write(whole == 1 ? ' Rupee' : ' Rupees');
     if (paise > 0) {
       buffer.write(' and ');
       buffer.write(_words(paise));

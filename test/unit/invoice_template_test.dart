@@ -62,31 +62,32 @@ Sale _threeRateSale() {
 
 void main() {
   group('AmountInWords', () {
-    test('renders the invoice footer figure', () {
+    test('renders correct singular and plural wording for rupees and paise', () {
+      expect(AmountInWords.rupees(1.00), 'One Rupee Only');
+      expect(AmountInWords.rupees(2.00), 'Two Rupees Only');
+      expect(AmountInWords.rupees(1.01), 'One Rupee and One Paise Only');
+      expect(AmountInWords.rupees(1.05), 'One Rupee and Five Paise Only');
+      expect(AmountInWords.rupees(1.50), 'One Rupee and Fifty Paise Only');
+      expect(AmountInWords.rupees(10.99), 'Ten Rupees and Ninety-Nine Paise Only');
+      expect(AmountInWords.rupees(100.00), 'One Hundred Rupees Only');
+    });
+
+    test('renders the invoice footer figure accurately for large amounts', () {
       expect(
         AmountInWords.rupees(4838),
         'Four Thousand Eight Hundred Thirty-Eight Rupees Only',
       );
       expect(AmountInWords.rupees(0), 'Zero Rupees Only');
-      expect(AmountInWords.rupees(100), 'One Hundred Rupees Only');
       expect(
         AmountInWords.rupees(1234567),
-        'Twelve Lakh Thirty-Four Thousand Five Hundred Sixty-Seven '
-        'Rupees Only',
+        'Twelve Lakh Thirty-Four Thousand Five Hundred Sixty-Seven Rupees Only',
       );
-    });
-
-    test('includes paise only when there are any', () {
-      expect(
-        AmountInWords.rupees(4470.50),
-        'Four Thousand Four Hundred Seventy Rupees and Fifty Paise Only',
-      );
-      expect(AmountInWords.rupees(4470.00), contains('Seventy Rupees Only'));
     });
 
     test('rounds to the figure printed beside it', () {
-      // 0.005 rounds away from zero, as the GST engine does.
-      expect(AmountInWords.rupees(1.005), contains('One Paise'));
+      // 0.005 rounds away from zero natively via fixed-point rendering 
+      // preventing IEEE 754 precision truncations from producing 0 Paise
+      expect(AmountInWords.rupees(1.005), 'One Rupee and One Paise Only');
     });
   });
 

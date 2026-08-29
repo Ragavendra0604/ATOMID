@@ -108,12 +108,6 @@ void main() {
       final error = await openTab(tester, 'HSN Summary');
       expect(error, isNull, reason: 'HSN summary overflows:\n$error');
     });
-
-    testWidgets('the Purchase GST (GSTR-3B/2B) card lays out', (tester) async {
-      await renderAt(tester, harness, const ReportsDashboardScreen(), phone);
-      final error = await openTab(tester, 'Purchase GST (GSTR-3B/2B)');
-      expect(error, isNull, reason: 'Purchase GST card overflows:\n$error');
-    });
   });
 
   /// Regression: the product group in All-products mode carried a

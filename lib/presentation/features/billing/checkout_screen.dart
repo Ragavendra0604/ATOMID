@@ -24,7 +24,7 @@ class CheckoutScreen extends ConsumerStatefulWidget {
 }
 
 class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
-  static const _paymentMethods = ['Cash', 'UPI', 'Card', 'Credit'];
+  static const _paymentMethods = ['Cash', 'UPI', 'Card'];
   static const _discountPresets = [0.0, 5.0, 10.0, 15.0, 20.0];
 
   final _notesController = TextEditingController();
@@ -103,18 +103,8 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     final settings = ref.watch(settingsProvider);
     final loyalty = ref.watch(loyaltySettingsProvider);
     final totals = ref.read(saleServiceProvider).preview(_buildRequest());
-    // A counter sale in the shop's own state has nothing to choose: the
-    // place of supply is the shop. The selector is kept for the case that
-    // actually needs it — a customer recorded in another state, or a shop
-    // whose policy is to ask — so ordinary billing stays a two-tap job
-    // while the engine keeps pricing interstate bills correctly.
     final shopStateCode = ref.watch(companyProvider).stateCode;
     final customerStateCode = _customer?.stateCode ?? '';
-    final needsPlaceOfSupply =
-        settings.walkInPosPolicy == 'ASK_AT_CHECKOUT' ||
-        (customerStateCode.isNotEmpty &&
-            shopStateCode.isNotEmpty &&
-            customerStateCode != shopStateCode);
 
     if (_isProcessing) {
       return Scaffold(
@@ -181,6 +171,8 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                     _redeemPoints = false;
                     if (c != null && c.stateCode.isNotEmpty) {
                       _destinationStateCode = c.stateCode;
+                    } else {
+                      _destinationStateCode = null;
                     }
                   }),
                 ),
@@ -232,38 +224,6 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                       ),
                     ),
                 ],
-
-                if (needsPlaceOfSupply) ...[
-                  const SizedBox(height: 20),
-                  _sectionTitle('Place of Supply (Destination)'),
-                  DropdownButtonFormField<String>(
-                    initialValue:
-                        _destinationStateCode ??
-                        (_customer?.stateCode.isNotEmpty == true
-                            ? _customer!.stateCode
-                            : null),
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Place of Supply (Delivery State)',
-                      border: OutlineInputBorder(),
-                      helperText:
-                          'Where the goods are delivered. Sets the tax that '
-                          'applies to this bill.',
-                    ),
-                    items: GstStates.allStates.map((s) {
-                      return DropdownMenuItem(
-                        value: s.code,
-                        child: Text(
-                          '${s.name} (${s.code})',
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      );
-                    }).toList(),
-                    onChanged: (val) =>
-                        setState(() => _destinationStateCode = val),
-                  ),
-                ],
-
                 const SizedBox(height: 28),
                 _sectionTitle('Discount'),
                 Wrap(
@@ -314,16 +274,6 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                   selected: _paymentMethod,
                   onChanged: (m) => setState(() => _paymentMethod = m),
                 ),
-                if (_paymentMethod == 'Credit')
-                  Padding(
-                    padding: const EdgeInsets.only(top: 10),
-                    child: _CreditNotice(
-                      customer: _customer,
-                      projected:
-                          (_customer?.currentBalance ?? 0) + totals.grandTotal,
-                      currencySymbol: settings.currencySymbol,
-                    ),
-                  ),
 
                 const SizedBox(height: 28),
                 _SummaryCard(totals: totals, settings: settings),
@@ -410,78 +360,6 @@ class _PaymentMethodSelector extends StatelessWidget {
   }
 }
 
-class _CreditNotice extends StatelessWidget {
-  final Customer? customer;
-  final double projected;
-  final String currencySymbol;
-
-  const _CreditNotice({
-    required this.customer,
-    required this.projected,
-    required this.currencySymbol,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-
-    if (customer == null) {
-      return _notice(
-        context,
-        scheme.error,
-        Icons.error_outline,
-        'Select a customer to sell on credit.',
-      );
-    }
-
-    final limit = customer!.creditLimit;
-    if (limit <= 0) {
-      return _notice(
-        context,
-        scheme.outline,
-        Icons.info_outline,
-        'No credit limit set for ${customer!.name}.',
-      );
-    }
-
-    final overLimit = projected > limit;
-    return _notice(
-      context,
-      overLimit ? scheme.error : scheme.primary,
-      overLimit ? Icons.block : Icons.credit_score,
-      overLimit
-          ? 'Over limit: ${Fmt.money(projected, currencySymbol)} of '
-                '${Fmt.money(limit, currencySymbol)} allowed.'
-          : 'Balance after this sale: ${Fmt.money(projected, currencySymbol)} '
-                'of ${Fmt.money(limit, currencySymbol)}.',
-    );
-  }
-
-  Widget _notice(
-    BuildContext context,
-    Color color,
-    IconData icon,
-    String message,
-  ) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        border: Border.all(color: color.withValues(alpha: 0.4)),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, size: 18, color: color),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(message, style: TextStyle(fontSize: 13, color: color)),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 class _SummaryCard extends StatelessWidget {
   final SaleTotals totals;

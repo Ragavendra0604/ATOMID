@@ -33,7 +33,7 @@ class _ReportsDashboardScreenState extends ConsumerState<ReportsDashboardScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
   }
 
   @override
@@ -48,18 +48,11 @@ class _ReportsDashboardScreenState extends ConsumerState<ReportsDashboardScreen>
     return allSales.where((s) => window.contains(s.date)).toList();
   }
 
-  List<Purchase> _getFilteredPurchases(List<Purchase> allPurchases) {
-    final window = DateWindow.forTimeframe(_selectedTimeframe, DateTime.now());
-    if (window == null) return allPurchases;
-    return allPurchases.where((p) => window.contains(p.purchaseDate)).toList();
-  }
 
   @override
   Widget build(BuildContext context) {
     final allSales = ref.watch(salesProvider);
-    final allPurchases = ref.watch(purchasesProvider);
     final filteredSales = _getFilteredSales(allSales);
-    final filteredPurchases = _getFilteredPurchases(allPurchases);
     final symbol = ref.watch(currencySymbolProvider);
 
     return Scaffold(
@@ -92,7 +85,6 @@ class _ReportsDashboardScreenState extends ConsumerState<ReportsDashboardScreen>
             Tab(text: 'Overview'),
             Tab(text: 'Sales GST (GSTR-1)'),
             Tab(text: 'HSN Summary'),
-            Tab(text: 'Purchase GST (GSTR-3B/2B)'),
           ],
         ),
       ),
@@ -125,7 +117,6 @@ class _ReportsDashboardScreenState extends ConsumerState<ReportsDashboardScreen>
                 _buildOverviewTab(filteredSales, symbol),
                 _buildSalesGstTab(filteredSales, symbol),
                 _buildHsnSummaryTab(filteredSales, symbol),
-                _buildPurchaseGstTab(filteredPurchases, symbol),
               ],
             ),
           ),
@@ -458,162 +449,6 @@ class _ReportsDashboardScreenState extends ConsumerState<ReportsDashboardScreen>
         ],
       ),
     );
-  }
-
-  Widget _buildPurchaseGstTab(List<Purchase> purchases, String symbol) {
-    final taxable = DocumentTotals.purchaseTaxable(purchases);
-    final totalTax = DocumentTotals.purchaseTotalGst(purchases);
-    final totalCost = DocumentTotals.purchaseCost(purchases);
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Card(
-            color: Colors.teal.shade50,
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // The title is long enough to fill a phone on its own, so
-                  // it wraps inside the space the invoice count leaves rather
-                  // than pushing the row past the card edge.
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Expanded(
-                        child: Text(
-                          'Inward Purchase GST & Input Tax Credit (ITC)',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.teal,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Flexible(
-                        child: Text(
-                          '${purchases.length} Purchase Invoices',
-                          textAlign: TextAlign.end,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: Colors.teal.shade900,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const Divider(height: 20),
-                  _tableRow(
-                    'Total Purchase Value',
-                    Fmt.money(totalCost, symbol),
-                    isBold: true,
-                  ),
-                  _tableRow(
-                    'Total Purchase Taxable Value',
-                    Fmt.money(taxable, symbol),
-                    isBold: true,
-                  ),
-                  _tableRow(
-                    'Total Inward GST Paid',
-                    Fmt.money(totalTax, symbol),
-                    isBold: true,
-                    color: Colors.teal.shade900,
-                  ),
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.white70,
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    // Read from the orders, not printed as a constant. The
-                    // status was hardcoded here, so the panel said
-                    // "REQUIRES_DETERMINATION" whatever the records held.
-                    child: Text(
-                      _itcSummary(purchases),
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 24),
-          const Text(
-            'Supplier Purchase Invoices',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 12),
-          if (purchases.isEmpty)
-            const Center(
-              child: Text('No purchases recorded in this timeframe.'),
-            )
-          else
-            ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: purchases.length,
-              itemBuilder: (ctx, idx) {
-                final p = purchases[idx];
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  child: ListTile(
-                    title: Text(
-                      '${p.supplierName} • ${p.supplierInvoiceNumber.isNotEmpty ? p.supplierInvoiceNumber : p.purchaseNumber}',
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    subtitle: Text(
-                      'Date: ${Fmt.date(p.purchaseDate)}'
-                      '${p.supplierGstin.isNotEmpty ? " • GSTIN: ${p.supplierGstin}" : ""}\n'
-                      'Taxable: ${Fmt.money(p.taxableAmount, symbol)} • Tax: ${Fmt.money(p.tax, symbol)}',
-                    ),
-                    trailing: Text(
-                      Fmt.money(p.grandTotal, symbol),
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 15,
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-        ],
-      ),
-    );
-  }
-
-  /// What the stored orders actually say about input tax credit.
-  ///
-  /// Nothing here decides eligibility: the app records inward tax and reports
-  /// the status held against each order. An order whose status has never been
-  /// set stays REQUIRES_DETERMINATION, which is the safe reading — claiming
-  /// ITC is an accounting decision, not something software should infer.
-  String _itcSummary(List<Purchase> purchases) {
-    const footer =
-        'Inward tax amounts recorded for GSTR-2B / GSTR-3B reconciliation.';
-    if (purchases.isEmpty) {
-      return 'No inward supplies in this timeframe.\n$footer';
-    }
-
-    final counts = <String, int>{};
-    for (final p in purchases) {
-      final status = p.itcEligibility.isEmpty
-          ? 'REQUIRES_DETERMINATION'
-          : p.itcEligibility;
-      counts[status] = (counts[status] ?? 0) + 1;
-    }
-
-    final parts = counts.entries.map((e) => '${e.value} ${e.key}').join(' · ');
-    return 'ITC Determination Status: $parts\n$footer';
   }
 
   Widget _tableRow(

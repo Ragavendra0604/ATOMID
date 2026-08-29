@@ -8,6 +8,7 @@ import 'package:atomid/data/models/gst_rate_config_model.dart';
 import 'package:atomid/data/models/settings_model.dart';
 import 'package:atomid/domain/pricing.dart';
 import 'package:atomid/presentation/features/auth/auth_screen.dart';
+import 'package:atomid/presentation/features/settings/advanced_settings_screen.dart';
 import 'package:atomid/presentation/features/settings/backup_screen.dart';
 import 'package:atomid/presentation/features/settings/company_profile_screen.dart';
 import 'package:atomid/domain/invoice_template.dart';
@@ -28,14 +29,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   late final TextEditingController _storeName;
   late final TextEditingController _currency;
   late String _pdfPageSize;
-  late String _taxMode;
   late bool _roundOffEnabled;
   late bool _hsnRequired;
-  late String _walkInPosPolicy;
-  late String _inclusiveTaxRounding;
   late bool _showGstBreakdown;
   late bool _showHsnSummary;
-  late String _defaultUqc;
   late String _thermalReceiptSize;
   late bool _showTaxOnThermalReceipt;
 
@@ -46,14 +43,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _storeName = TextEditingController(text: settings.companyName);
     _currency = TextEditingController(text: settings.currencySymbol);
     _pdfPageSize = settings.pdfPageSize;
-    _taxMode = settings.taxMode;
     _roundOffEnabled = settings.roundOffEnabled;
     _hsnRequired = settings.hsnRequired;
-    _walkInPosPolicy = settings.walkInPosPolicy;
-    _inclusiveTaxRounding = settings.inclusiveTaxRounding;
     _showGstBreakdown = settings.showGstBreakdown;
     _showHsnSummary = settings.showHsnSummary;
-    _defaultUqc = settings.defaultUqc;
     _thermalReceiptSize = settings.thermalReceiptSize;
     _showTaxOnThermalReceipt = settings.showTaxOnThermalReceipt;
   }
@@ -73,14 +66,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           companyName: _storeName.text.trim(),
           currencySymbol: _currency.text.trim(),
           pdfPageSize: _pdfPageSize,
-          taxMode: _taxMode,
           roundOffEnabled: _roundOffEnabled,
           hsnRequired: _hsnRequired,
-          walkInPosPolicy: _walkInPosPolicy,
-          inclusiveTaxRounding: _inclusiveTaxRounding,
           showGstBreakdown: _showGstBreakdown,
           showHsnSummary: _showHsnSummary,
-          defaultUqc: _defaultUqc,
           thermalReceiptSize: _thermalReceiptSize,
           showTaxOnThermalReceipt: _showTaxOnThermalReceipt,
         );
@@ -171,19 +160,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _TaxModeSelector(
-                              mode: _taxMode,
-                              onChanged: (mode) =>
-                                  setState(() => _taxMode = mode),
-                            ),
-                            const Divider(height: 24),
-                            // The shop-wide "default tax rate" box used to sit
-                            // here. It no longer reaches a bill — a product's
-                            // GST comes from the product — so leaving an
-                            // editable percentage on this screen only invited
-                            // someone to set it and expect it to apply. The
-                            // stored value is left untouched for older records
-                            // and for sync.
                             SwitchListTile(
                               contentPadding: EdgeInsets.zero,
                               value: _roundOffEnabled,
@@ -191,138 +167,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                   setState(() => _roundOffEnabled = val),
                               title: const Text('Automatic Invoice Round-Off'),
                               subtitle: const Text(
-                                'Rounds final payable bill amount to nearest integer (e.g. ₹599.40 → ₹599.00, ₹599.60 → ₹600.00).',
+                                'Rounds final payable bill amount to nearest integer (e.g. ₹599.40 → ₹599.00).',
                               ),
-                            ),
-                            const Divider(height: 24),
-                            DropdownButtonFormField<String>(
-                              initialValue: _walkInPosPolicy,
-                              isExpanded: true,
-                              decoration: const InputDecoration(
-                                labelText:
-                                    'Walk-In Customer Place of Supply Policy',
-                                border: OutlineInputBorder(),
-                                helperText:
-                                    'Determines how POS assigns place of supply for over-the-counter sales',
-                              ),
-                              items: const [
-                                DropdownMenuItem(
-                                  value: 'USE_SHOP_STATE',
-                                  child: Text(
-                                    'Default to Shop State (Intra-State POS)',
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'REQUIRE_STATE',
-                                  child: Text(
-                                    'Mandatory State Selection for all customers',
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'ASK_AT_CHECKOUT',
-                                  child: Text(
-                                    'Prompt State Selection at Checkout',
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ],
-                              onChanged: (v) {
-                                if (v != null) {
-                                  setState(() => _walkInPosPolicy = v);
-                                }
-                              },
-                            ),
-                            const SizedBox(height: 16),
-                            DropdownButtonFormField<String>(
-                              initialValue: _inclusiveTaxRounding,
-                              isExpanded: true,
-                              decoration: const InputDecoration(
-                                labelText: 'Tax-Inclusive Price Rounding',
-                                border: OutlineInputBorder(),
-                                helperText:
-                                    'Which figure wins when a tax-inclusive price cannot give both an exact total and an exact tax. Ask your accountant.',
-                              ),
-                              items: const [
-                                DropdownMenuItem(
-                                  value: 'SHELF_PRICE',
-                                  child: Text(
-                                    'Marked price is exact (tax is the remainder)',
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'TAX_RATE',
-                                  child: Text(
-                                    'Tax matches the rate (total may differ by a paisa)',
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ],
-                              onChanged: (v) {
-                                if (v != null) {
-                                  setState(() => _inclusiveTaxRounding = v);
-                                }
-                              },
-                            ),
-                            const SizedBox(height: 16),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: DropdownButtonFormField<String>(
-                                    initialValue: _defaultUqc,
-                                    isExpanded: true,
-                                    decoration: const InputDecoration(
-                                      labelText:
-                                          'Default UQC (Unit of Measure)',
-                                      border: OutlineInputBorder(),
-                                    ),
-                                    items: const [
-                                      DropdownMenuItem(
-                                        value: 'PCS',
-                                        child: Text(
-                                          'PCS (Pieces)',
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                      DropdownMenuItem(
-                                        value: 'NOS',
-                                        child: Text(
-                                          'NOS (Numbers)',
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                      DropdownMenuItem(
-                                        value: 'SET',
-                                        child: Text(
-                                          'SET (Sets)',
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                      DropdownMenuItem(
-                                        value: 'MTR',
-                                        child: Text(
-                                          'MTR (Meters)',
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                      DropdownMenuItem(
-                                        value: 'KGS',
-                                        child: Text(
-                                          'KGS (Kilograms)',
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                    ],
-                                    onChanged: (v) {
-                                      if (v != null) {
-                                        setState(() => _defaultUqc = v);
-                                      }
-                                    },
-                                  ),
-                                ),
-                              ],
                             ),
                             const SizedBox(height: 16),
                             SwitchListTile(
@@ -330,12 +176,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               value: _hsnRequired,
                               onChanged: (val) =>
                                   setState(() => _hsnRequired = val),
-                              title: const Text(
-                                'Mandatory HSN on Product Entry',
-                              ),
+                              title: const Text('Mandatory HSN on Product Entry'),
                               subtitle: const Text(
-                                'Blocks saving a product without a valid HSN '
-                                'code. The invoice prints the HSN either way.',
+                                'Blocks saving a product without a valid HSN code.',
                               ),
                             ),
                           ],
@@ -345,11 +188,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
                     const SizedBox(height: 8),
                     _link(
-                      icon: Icons.tune_outlined,
-                      title: 'Statutory GST Rate Presets',
+                      icon: Icons.admin_panel_settings_outlined,
+                      title: 'Advanced System Setup (Admin Only)',
                       subtitle:
-                          'Configure 0%, 5%, 12%, 18%, 28% and custom date-effective rates',
-                      onTap: _openGstRateManager,
+                          'Tax mode, GST presets, Point of Supply policy, and rounding',
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const AdvancedSettingsScreen(),
+                          ),
+                        ).then((_) {
+                          // refresh values if changed
+                          final settings = ref.read(settingsProvider);
+                          setState(() {
+                            _roundOffEnabled = settings.roundOffEnabled;
+                            _hsnRequired = settings.hsnRequired;
+                          });
+                        });
+                      },
                     ),
 
                     _heading('Receipt & Invoice Display'),
@@ -616,329 +473,47 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 }
 
-class _TaxModeSelector extends StatelessWidget {
-  final String mode;
-  final ValueChanged<String> onChanged;
-
-  const _TaxModeSelector({required this.mode, required this.onChanged});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isInclusive = mode == TaxMode.inclusive;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Tax Handling on Listed Selling Prices',
-          style: theme.textTheme.titleSmall?.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 10),
-        InkWell(
-          borderRadius: BorderRadius.circular(8),
-          onTap: () => onChanged(TaxMode.inclusive),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: isInclusive
-                    ? theme.colorScheme.primary
-                    : theme.colorScheme.outlineVariant,
-                width: isInclusive ? 2 : 1,
-              ),
-              color: isInclusive
-                  ? theme.colorScheme.primaryContainer.withValues(alpha: 0.25)
-                  : null,
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  isInclusive
-                      ? Icons.radio_button_checked
-                      : Icons.radio_button_off,
-                  color: isInclusive
-                      ? theme.colorScheme.primary
-                      : theme.colorScheme.outline,
-                  size: 20,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Inclusive (MRP Contains GST)',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          color: isInclusive ? theme.colorScheme.primary : null,
-                        ),
-                      ),
-                      Text(
-                        'Tag price is final MRP. Tax is back-calculated.',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        InkWell(
-          borderRadius: BorderRadius.circular(8),
-          onTap: () => onChanged(TaxMode.exclusive),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: !isInclusive
-                    ? theme.colorScheme.primary
-                    : theme.colorScheme.outlineVariant,
-                width: !isInclusive ? 2 : 1,
-              ),
-              color: !isInclusive
-                  ? theme.colorScheme.primaryContainer.withValues(alpha: 0.25)
-                  : null,
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  !isInclusive
-                      ? Icons.radio_button_checked
-                      : Icons.radio_button_off,
-                  color: !isInclusive
-                      ? theme.colorScheme.primary
-                      : theme.colorScheme.outline,
-                  size: 20,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Exclusive (GST Added on Top)',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          color: !isInclusive
-                              ? theme.colorScheme.primary
-                              : null,
-                        ),
-                      ),
-                      Text(
-                        'Tag price is net taxable. Tax is added at checkout.',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _GstRateManagerSheet extends ConsumerStatefulWidget {
+class _GstRateManagerSheet extends StatelessWidget {
   const _GstRateManagerSheet();
 
   @override
-  ConsumerState<_GstRateManagerSheet> createState() =>
-      _GstRateManagerSheetState();
-}
-
-class _GstRateManagerSheetState extends ConsumerState<_GstRateManagerSheet> {
-  void _editRate([GstRateConfig? existing]) {
-    final nameCtrl = TextEditingController(text: existing?.rateName ?? 'GST ');
-    final rateCtrl = TextEditingController(
-      text: existing != null ? Fmt.amount(existing.rate) : '5',
-    );
-    final cessCtrl = TextEditingController(
-      text: existing != null ? Fmt.amount(existing.cessRate) : '0',
-    );
-    final descCtrl = TextEditingController(text: existing?.description ?? '');
-
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(existing == null ? 'Add GST Rate Preset' : 'Edit GST Rate'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Rate Name (e.g. GST 5%)',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: rateCtrl,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: const InputDecoration(
-                  labelText: 'GST Rate %',
-                  suffixText: '%',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: cessCtrl,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: const InputDecoration(
-                  labelText: 'Cess Rate % (Optional)',
-                  suffixText: '%',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: descCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Description / Notes',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              final rateVal = double.tryParse(rateCtrl.text.trim()) ?? 0.0;
-              final cessVal = double.tryParse(cessCtrl.text.trim()) ?? 0.0;
-              final nameVal = nameCtrl.text.trim().isNotEmpty
-                  ? nameCtrl.text.trim()
-                  : 'GST ${Fmt.amount(rateVal)}%';
-
-              final config = GstRateConfig(
-                id: existing?.id ?? Ids.generate(),
-                rateName: nameVal,
-                rate: rateVal,
-                cessRate: cessVal,
-                effectiveFrom: existing?.effectiveFrom ?? DateTime(2017, 7, 1),
-                description: descCtrl.text.trim(),
-                updatedAt: DateTime.now(),
-              );
-
-              await ref
-                  .read(storageRepositoryProvider)
-                  .saveGstRateConfig(config);
-              if (mounted) setState(() {});
-              if (ctx.mounted) Navigator.pop(ctx);
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final repo = ref.watch(storageRepositoryProvider);
-    final rates = repo.getGstRateConfigs();
-
-    return Padding(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(
-                child: Text(
-                  'GST Rate Configurations',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-                  overflow: TextOverflow.ellipsis,
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'GST Rate Manager',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
                 ),
-              ),
-              IconButton(
-                tooltip: 'Close',
+                IconButton(
+                  tooltip: 'Close',
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Manage GST rates for your business setup.',
+            ),
+            const SizedBox(height: 16),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
                 onPressed: () => Navigator.pop(context),
-                icon: const Icon(Icons.close),
+                child: const Text('Close'),
               ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'Statutory rates applicable on dresses and apparel under Indian GST.',
-            style: TextStyle(color: Colors.grey),
-          ),
-          const SizedBox(height: 16),
-          Expanded(
-            child: ListView.separated(
-              itemCount: rates.length,
-              separatorBuilder: (context, index) => const Divider(height: 1),
-              itemBuilder: (ctx, idx) {
-                final r = rates[idx];
-                return ListTile(
-                  title: Text(
-                    r.rateName,
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                  subtitle: Text(
-                    'GST: ${Fmt.amount(r.rate)}%${r.cessRate > 0 ? " + Cess: ${Fmt.amount(r.cessRate)}%" : ""}'
-                    '${r.description.isNotEmpty ? " • ${r.description}" : ""}',
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        tooltip: 'Edit GST rate',
-                        icon: const Icon(Icons.edit_outlined, size: 20),
-                        onPressed: () => _editRate(r),
-                      ),
-                      IconButton(
-                        tooltip: 'Delete GST rate',
-                        icon: const Icon(Icons.delete_outline, size: 20),
-                        onPressed: () async {
-                          await repo.deleteGstRateConfig(r.id);
-                          setState(() {});
-                        },
-                      ),
-                    ],
-                  ),
-                );
-              },
             ),
-          ),
-          const SizedBox(height: 16),
-          FilledButton.icon(
-            onPressed: () => _editRate(),
-            icon: const Icon(Icons.add),
-            label: const Text('Add Custom GST Rate Preset'),
-            style: FilledButton.styleFrom(
-              minimumSize: const Size.fromHeight(48),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
