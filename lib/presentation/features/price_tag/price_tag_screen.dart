@@ -135,7 +135,7 @@ class _PriceTagScreenState extends ConsumerState<PriceTagScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        widget.product.productName,
+                        widget.product.displayName,
                         style: const TextStyle(
                           color: Colors.black,
                           fontSize: 18,
@@ -364,7 +364,7 @@ class _PriceTagScreenState extends ConsumerState<PriceTagScreen> {
       final file = await ExportService.exportPng(pdf, _getFileName());
       await ExportService.shareFile(
         file,
-        'Price Tag for ${widget.product.productName} Size ${_selectedVariant.size}',
+        'Price Tag for ${widget.product.displayName} Size ${_selectedVariant.size}',
       );
       await _logAction('Tag Shared');
     } catch (e) {

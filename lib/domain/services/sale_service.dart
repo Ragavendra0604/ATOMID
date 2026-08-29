@@ -104,7 +104,12 @@ class SaleService {
       saleItems.add(
         SaleItem(
           productId: item.product.id,
-          productName: item.product.productName,
+          // The colour is part of what was sold, not decoration: one product
+          // code covers several colourways, so a bill reading only "Cotton
+          // Shirt (M)" does not tell the customer which shirt they bought.
+          // Snapshotted into the existing name field, so no schema change
+          // and every historical sale is left exactly as it was recorded.
+          productName: item.product.displayName,
           productCode: item.product.productCode,
           variantBarcode: item.variant.barcode,
           variantSize: item.variant.size,

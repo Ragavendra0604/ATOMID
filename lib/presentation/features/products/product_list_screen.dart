@@ -116,7 +116,7 @@ class _ProductListScreenState extends ConsumerState<ProductListScreen> {
         final product = products[index];
         return ExpansionTile(
           title: Text(
-            product.productName,
+            product.displayName,
             style: const TextStyle(fontWeight: FontWeight.bold),
           ),
           subtitle: Text(product.productCode),
@@ -128,7 +128,7 @@ class _ProductListScreenState extends ConsumerState<ProductListScreen> {
               // fifty rows, a screen reader announcing "edit, button" fifty
               // times tells the user nothing about which one they are on.
               IconButton(
-                tooltip: 'Edit ${product.productName}',
+                tooltip: 'Edit ${product.displayName}',
                 icon: const Icon(Icons.edit, color: Colors.blue),
                 onPressed: () {
                   Navigator.push(
@@ -141,7 +141,7 @@ class _ProductListScreenState extends ConsumerState<ProductListScreen> {
                 },
               ),
               IconButton(
-                tooltip: 'Delete ${product.productName}',
+                tooltip: 'Delete ${product.displayName}',
                 icon: const Icon(Icons.delete, color: Colors.red),
                 onPressed: () => _deleteProduct(product),
               ),
@@ -189,7 +189,7 @@ class _ProductListScreenState extends ConsumerState<ProductListScreen> {
                 ).colorScheme.primary.withAlpha(30),
                 leading: const CircleAvatar(child: Icon(Icons.inventory)),
                 title: Text(
-                  product.productName,
+                  product.displayName,
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
                 subtitle: Text(product.productCode),
@@ -226,7 +226,7 @@ class _ProductListScreenState extends ConsumerState<ProductListScreen> {
                 ).colorScheme.primary.withAlpha(30),
                 leading: const CircleAvatar(child: Icon(Icons.inventory)),
                 title: Text(
-                  product.productName,
+                  product.displayName,
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
                 subtitle: Text(product.productCode),
@@ -261,7 +261,7 @@ class _ProductListScreenState extends ConsumerState<ProductListScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    product.productName,
+                    product.displayName,
                     style: const TextStyle(
                       fontSize: 28,
                       fontWeight: FontWeight.bold,

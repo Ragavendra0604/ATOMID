@@ -83,6 +83,11 @@ class _PosScreenState extends ConsumerState<PosScreen> {
     }
     if (matches.length == 1) {
       _openVariantPicker(matches.first);
+    } else if (_shareOneCode(matches)) {
+      // One style, several colourways. Asking "which product?" and then
+      // "which size?" makes the cashier answer the same question twice; the
+      // real question is which colour and size, and it is one question.
+      _openColourSizePicker(matches);
     } else {
       _openProductPicker(matches);
     }
@@ -92,7 +97,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
   void _addToCart(Product product, ProductVariant variant) {
     if (variant.quantity <= 0) {
       _toast(
-        '${product.productName} (${variant.size}) is out of stock.',
+        '${product.displayName} (${variant.size}) is out of stock.',
         isError: true,
       );
       return;
@@ -106,7 +111,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
       );
       return;
     }
-    _toast('${product.productName} (${variant.size}) added.', isSuccess: true);
+    _toast('${product.displayName} (${variant.size}) added.', isSuccess: true);
   }
 
   void _toast(String message, {bool isError = false, bool isSuccess = false}) {
@@ -126,12 +131,87 @@ class _PosScreenState extends ConsumerState<PosScreen> {
       );
   }
 
+  /// True when every match is the same product code — one style stocked in
+  /// several colours, which is how this shop files a garment.
+  bool _shareOneCode(List<Product> products) {
+    final first = products.first.productCode.trim().toLowerCase();
+    if (first.isEmpty) return false;
+    return products.every(
+      (p) => p.productCode.trim().toLowerCase() == first,
+    );
+  }
+
+  /// Every colour and size on one product code, in one list.
+  ///
+  /// The cashier picks the garment in front of them in a single tap, and the
+  /// colour it carries is what goes on the bill — so the customer can see
+  /// which of three shirts they actually bought.
+  void _openColourSizePicker(List<Product> products) {
+    final symbol = ref.read(currencySymbolProvider);
+    final code = products.first.productCode;
+    final rows = <({Product product, ProductVariant variant})>[];
+    for (final product in products) {
+      for (final variant in product.variants) {
+        rows.add((product: product, variant: variant));
+      }
+    }
+    rows.sort((a, b) {
+      final byColour = a.product.color.toLowerCase().compareTo(
+        b.product.color.toLowerCase(),
+      );
+      return byColour != 0
+          ? byColour
+          : a.variant.size.compareTo(b.variant.size);
+    });
+
+    showDialog<void>(
+      context: context,
+      builder: (context) => AdaptiveDialog(
+        title: Text('${products.first.productName} - $code'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: rows.length,
+            itemBuilder: (context, index) {
+              final row = rows[index];
+              final colour = row.product.color.trim();
+              final outOfStock = row.variant.quantity <= 0;
+              return ListTile(
+                enabled: !outOfStock,
+                title: Text(
+                  colour.isEmpty
+                      ? 'Size ${row.variant.size}'
+                      : '$colour - Size ${row.variant.size}',
+                ),
+                subtitle: Text(Fmt.money(row.variant.price, symbol)),
+                trailing: _StockBadge(quantity: row.variant.quantity),
+                onTap: outOfStock
+                    ? null
+                    : () {
+                        Navigator.pop(context);
+                        _addToCart(row.product, row.variant);
+                      },
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _openVariantPicker(Product product) {
     final symbol = ref.read(currencySymbolProvider);
     showDialog<void>(
       context: context,
       builder: (context) => AdaptiveDialog(
-        title: Text(product.productName),
+        title: Text(product.displayName),
         content: SizedBox(
           width: double.maxFinite,
           child: ListView.builder(
@@ -184,7 +264,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                 (sum, v) => sum + v.quantity,
               );
               return ListTile(
-                title: Text(product.productName),
+                title: Text(product.displayName),
                 subtitle: Text(
                   '${product.productCode} · ${product.variants.length} variants',
                 ),
@@ -479,7 +559,7 @@ class _CatalogueGrid extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    product.productName,
+                    product.displayName,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontWeight: FontWeight.w600),
@@ -633,7 +713,7 @@ class _CartPane extends ConsumerWidget {
                     vertical: 4,
                   ),
                   title: Text(
-                    item.product.productName,
+                    item.product.displayName,
                     style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
                   subtitle: Text(
@@ -753,9 +833,10 @@ class _CartFooter extends StatelessWidget {
               if (totals.taxAmount > 0)
                 _row(
                   context,
-                  settings.taxMode == TaxMode.inclusive
-                      ? 'GST Included (CGST+SGST/IGST)'
-                      : 'GST Added (CGST+SGST/IGST)',
+                  _gstRowLabel(
+                    isInclusive: settings.taxMode == TaxMode.inclusive,
+                    isInterState: totals.isInterState,
+                  ),
                   Fmt.money(totals.taxAmount, symbol),
                 ),
               if (totals.roundOff != 0.0)
@@ -775,7 +856,8 @@ class _CartFooter extends StatelessWidget {
                         'Payable Amount',
                         style: Theme.of(context).textTheme.titleSmall,
                       ),
-                      if (totals.placeOfSupply.isNotEmpty)
+                      if (totals.placeOfSupply.isNotEmpty &&
+                          totals.isInterState)
                         Text(
                           'POS: ${totals.placeOfSupply}',
                           style: TextStyle(
@@ -840,4 +922,14 @@ class _CartFooter extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The label on the till's tax line.
+///
+/// A Tamil Nadu counter sale is CGST + SGST, and saying so is clearer than
+/// listing every levy the engine can charge. An interstate bill still names
+/// IGST, because that is what the customer is being charged.
+String _gstRowLabel({required bool isInclusive, required bool isInterState}) {
+  final levies = isInterState ? 'IGST' : 'CGST + SGST';
+  return isInclusive ? 'GST Included ($levies)' : 'GST Added ($levies)';
 }

@@ -151,7 +151,7 @@ class InventoryDashboardScreen extends ConsumerWidget {
                         ),
                       ),
                       title: Text(
-                        '${product.productName} - ${variant.size}',
+                        '${product.displayName} - ${variant.size}',
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
                       subtitle: Text(
@@ -223,7 +223,7 @@ class InventoryDashboardScreen extends ConsumerWidget {
                         ),
                       ),
                       title: Text(
-                        '${product.productName} - ${variant.size}',
+                        '${product.displayName} - ${variant.size}',
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
                       subtitle: Text('Barcode: ${variant.barcode}'),

@@ -81,7 +81,7 @@ class _StockInScreenState extends ConsumerState<StockInScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Stock In: +$qty for ${_selectedProduct!.productName} (${_selectedVariant!.size})',
+              'Stock In: +$qty for ${_selectedProduct!.displayName} (${_selectedVariant!.size})',
             ),
             backgroundColor: Colors.green,
           ),
@@ -163,7 +163,7 @@ class _StockInScreenState extends ConsumerState<StockInScreen> {
                     return DropdownMenuItem(
                       value: p,
                       child: Text(
-                        '${p.productName} (${p.productCode})',
+                        '${p.displayName} (${p.productCode})',
                         overflow: TextOverflow.ellipsis,
                       ),
                     );
@@ -222,7 +222,7 @@ class _StockInScreenState extends ConsumerState<StockInScreen> {
                             ),
                           ),
                           const Divider(),
-                          _infoRow('Product', _selectedProduct!.productName),
+                          _infoRow('Product', _selectedProduct!.displayName),
                           _infoRow('Size', _selectedVariant!.size),
                           _infoRow(
                             'Current Qty',

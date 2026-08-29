@@ -496,6 +496,7 @@ class EntityCodec {
     thermalReceiptSize: _str(json['thermalReceiptSize'], '80mm'),
     showTaxOnThermalReceipt: _bool(json['showTaxOnThermalReceipt'], true),
     inclusiveTaxRounding: _str(json['inclusiveTaxRounding'], 'SHELF_PRICE'),
+    invoiceTemplate: _str(json['invoiceTemplate'], 'THERMAL'),
   );
 
   static CompanyModel company(Map<String, dynamic> json) => CompanyModel(

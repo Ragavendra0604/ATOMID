@@ -102,6 +102,7 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
         .where(
           (p) =>
               p.productName.toLowerCase().contains(q) ||
+              p.color.toLowerCase().contains(q) ||
               p.productCode.toLowerCase().contains(q),
         )
         .toList();
@@ -349,7 +350,7 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
                 .map(
                   (p) => DropdownMenuItem(
                     value: p,
-                    child: Text('${p.productName} (${p.productCode})'),
+                    child: Text('${p.displayName} (${p.productCode})'),
                   ),
                 )
                 .toList(),
@@ -469,7 +470,7 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
         // ValueKey identifies the tile across rebuilds without touching
         // PageStorage at all.
         key: ValueKey<String>(product.id),
-        title: Text('${product.productName} (${product.productCode})'),
+        title: Text('${product.displayName} (${product.productCode})'),
         subtitle: Text(
           selected > 0
               ? '$selected tag${selected == 1 ? '' : 's'} selected'

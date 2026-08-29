@@ -147,6 +147,89 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     }
   }
 
+  /// The other colourways already filed under the code being typed.
+  ///
+  /// Empty is the ordinary case. When it is not, the form says so rather
+  /// than treating the shared code as a mistake — one code is one style, and
+  /// each colour of that style is its own product record.
+  List<String> get _codeSharedWith {
+    final code = _codeCtrl.text.trim();
+    if (code.isEmpty) return const [];
+    final twins = ref
+        .read(storageRepositoryProvider)
+        .productsWithCode(code, excludeId: widget.existingProduct?.id);
+    final labels = <String>[];
+    for (final twin in twins) {
+      final colour = twin.color.trim();
+      final label = colour.isEmpty ? twin.productName : colour;
+      if (!labels.contains(label)) labels.add(label);
+    }
+    if (labels.length <= 3) return labels;
+    return [...labels.take(3), 'and ${labels.length - 3} more'];
+  }
+
+  /// True when the save should go ahead.
+  ///
+  /// Sharing a code is expected, so nothing here blocks it. What is worth
+  /// stopping for is a code shared with **no colour to tell the records
+  /// apart**, and a code plus colour that already exists — the one
+  /// combination that is a double entry rather than a second colourway.
+  Future<bool> _confirmSharedCode() async {
+    final repo = ref.read(storageRepositoryProvider);
+    final code = _codeCtrl.text.trim();
+    final colour = _colorCtrl.text.trim();
+    if (code.isEmpty) return true;
+
+    final twins = repo.productsWithCode(
+      code,
+      excludeId: widget.existingProduct?.id,
+    );
+    if (twins.isEmpty) return true;
+
+    if (colour.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Code $code is already used by ${twins.length} other '
+            'product(s). Enter the colour so they can be told apart.',
+          ),
+        ),
+      );
+      return false;
+    }
+
+    final twin = repo.productWithCodeAndColour(
+      code,
+      colour,
+      excludeId: widget.existingProduct?.id,
+    );
+    if (twin == null) return true;
+
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AdaptiveDialog(
+        title: const Text('Already stocked?'),
+        content: Text(
+          '${twin.displayName} is already filed under code $code with '
+          '${twin.variants.length} size(s).\n\n'
+          'Saving this creates a second record for the same colour. Stock '
+          'counts for the two will be kept separately.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Go back'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Save anyway'),
+          ),
+        ],
+      ),
+    );
+    return proceed ?? false;
+  }
+
   String _generateMockBarcode() {
     return _uuid.v4().replaceAll('-', '').substring(0, 12).toUpperCase();
   }
@@ -266,9 +349,17 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                               Expanded(
                                 child: TextFormField(
                                   controller: _codeCtrl,
-                                  decoration: const InputDecoration(
+                                  onChanged: (_) => setState(() {}),
+                                  decoration: InputDecoration(
                                     labelText: 'Product Code / Style #',
-                                    prefixIcon: Icon(Icons.qr_code_2),
+                                    prefixIcon: const Icon(Icons.qr_code_2),
+                                    helperMaxLines: 2,
+                                    helperText: _codeSharedWith.isEmpty
+                                        ? 'One code per style. Reuse it for '
+                                              'the same style in another '
+                                              'colour.'
+                                        : 'Also used by '
+                                              '${_codeSharedWith.join(", ")}',
                                   ),
                                 ),
                               ),
@@ -302,9 +393,19 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                               Expanded(
                                 child: TextFormField(
                                   controller: _colorCtrl,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Color / Pattern',
-                                    prefixIcon: Icon(Icons.palette_outlined),
+                                  decoration: InputDecoration(
+                                    labelText: _codeSharedWith.isEmpty
+                                        ? 'Color / Pattern'
+                                        : 'Color / Pattern *',
+                                    prefixIcon: const Icon(
+                                      Icons.palette_outlined,
+                                    ),
+                                    helperMaxLines: 2,
+                                    helperText: _codeSharedWith.isEmpty
+                                        ? null
+                                        : 'Needed to tell this apart from '
+                                              'the other products on this '
+                                              'code.',
                                   ),
                                 ),
                               ),
@@ -912,6 +1013,9 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
       );
       return;
     }
+
+    if (!await _confirmSharedCode()) return;
+    if (!mounted) return;
 
     final isNew = widget.existingProduct == null;
     final productId = widget.existingProduct?.id ?? _uuid.v4();

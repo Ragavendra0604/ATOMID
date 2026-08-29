@@ -30,6 +30,9 @@ class SettingsModel extends HiveObject {
   @HiveField(11)
   bool roundOffEnabled;
 
+  /// Whether the product form refuses to save without an HSN. A data-entry
+  /// policy only — the invoice prints whatever HSN a product carries
+  /// regardless of this switch.
   @HiveField(12)
   bool hsnRequired;
 
@@ -60,6 +63,13 @@ class SettingsModel extends HiveObject {
   @HiveField(19)
   String inclusiveTaxRounding; // 'SHELF_PRICE' or 'TAX_RATE'
 
+  /// Which invoice design prints by default. Holds an `InvoiceTemplate.id`
+  /// rather than the enum, so an id written by a newer build survives a
+  /// round trip through an older one. Presentation only: the template never
+  /// takes part in pricing.
+  @HiveField(20)
+  String invoiceTemplate; // an InvoiceTemplate.id, e.g. 'THERMAL'
+
   SettingsModel({
     this.isDarkMode = true,
     this.companyName = 'ATOMID STORE',
@@ -77,6 +87,7 @@ class SettingsModel extends HiveObject {
     this.thermalReceiptSize = '80mm',
     this.showTaxOnThermalReceipt = true,
     this.inclusiveTaxRounding = 'SHELF_PRICE',
+    this.invoiceTemplate = 'THERMAL',
   });
 
   /// Returns a copy with only the named fields changed.
@@ -97,6 +108,7 @@ class SettingsModel extends HiveObject {
     String? thermalReceiptSize,
     bool? showTaxOnThermalReceipt,
     String? inclusiveTaxRounding,
+    String? invoiceTemplate,
   }) {
     return SettingsModel(
       isDarkMode: isDarkMode ?? this.isDarkMode,
@@ -116,6 +128,7 @@ class SettingsModel extends HiveObject {
       showTaxOnThermalReceipt:
           showTaxOnThermalReceipt ?? this.showTaxOnThermalReceipt,
       inclusiveTaxRounding: inclusiveTaxRounding ?? this.inclusiveTaxRounding,
+      invoiceTemplate: invoiceTemplate ?? this.invoiceTemplate,
     );
   }
 }

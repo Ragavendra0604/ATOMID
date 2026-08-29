@@ -8,12 +8,30 @@ import 'package:atomid/data/models/invoice_settings_model.dart';
 import 'package:atomid/data/models/sale_model.dart';
 import 'package:atomid/data/models/settings_model.dart';
 import 'package:atomid/core/services/export_service.dart';
+import 'package:atomid/domain/invoice_template.dart';
 import 'package:atomid/presentation/providers/app_providers.dart';
 
-class InvoicePreviewScreen extends ConsumerWidget {
+/// Previews a completed sale and prints it.
+///
+/// The design is whatever the shop has set in Settings -> Invoice Template.
+/// It is deliberately not selectable here: the counter should print the same
+/// document on every bill, and one shop-wide choice is the only way that
+/// stays true. Changing it is a settings decision, not a per-sale one.
+class InvoicePreviewScreen extends ConsumerStatefulWidget {
   final Sale sale;
 
   const InvoicePreviewScreen({super.key, required this.sale});
+
+  @override
+  ConsumerState<InvoicePreviewScreen> createState() =>
+      _InvoicePreviewScreenState();
+}
+
+class _InvoicePreviewScreenState extends ConsumerState<InvoicePreviewScreen> {
+  Sale get sale => widget.sale;
+
+  InvoiceTemplate get _template =>
+      InvoiceTemplate.fromId(ref.read(settingsProvider).invoiceTemplate);
 
   /// Writes the invoice out under its own number and hands it to the OS
   /// share sheet.
@@ -24,7 +42,6 @@ class InvoicePreviewScreen extends ConsumerWidget {
   /// name and the amount in the text — otherwise the customer receives
   /// `document.pdf` and cannot tell one bill from the next.
   Future<void> _shareInvoice(
-    BuildContext context,
     SettingsModel settings,
     CompanyModel company,
     InvoiceSettingsModel invoiceSettings,
@@ -33,11 +50,12 @@ class InvoicePreviewScreen extends ConsumerWidget {
     // PDF is still rendering.
     final messenger = ScaffoldMessenger.of(context);
     try {
-      final pdf = await ExportService.generateInvoicePdf(
+      final pdf = await ExportService.generateInvoiceForTemplate(
         sale,
         settings,
         company,
         invoiceSettings,
+        template: _template,
       );
       final file = await ExportService.exportPdf(
         pdf,
@@ -56,11 +74,42 @@ class InvoicePreviewScreen extends ConsumerWidget {
     }
   }
 
+  Future<void> _print(
+    SettingsModel settings,
+    CompanyModel company,
+    InvoiceSettingsModel invoiceSettings,
+  ) async {
+    final template = _template;
+    // Built inside onLayout so a sheet invoice is laid out for the paper the
+    // print dialog actually reports. A till roll has its own fixed width and
+    // ignores that format.
+    await Printing.layoutPdf(
+      onLayout: (PdfPageFormat format) async {
+        final pdf = await ExportService.generateInvoiceForTemplate(
+          sale,
+          settings,
+          company,
+          invoiceSettings,
+          template: template,
+          pageFormat: format,
+        );
+        return pdf.save();
+      },
+      name: template.isThermal
+          ? 'Receipt_${sale.invoiceNumber}'
+          : 'Invoice_${sale.invoiceNumber}',
+    );
+    if (mounted) Navigator.pop(context);
+  }
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final settings = ref.watch(settingsProvider);
     final invoiceSettings = ref.watch(invoiceSettingsProvider);
     final company = ref.watch(companyProvider);
+    // Watched rather than read here, so changing the shop default in
+    // Settings is reflected in an already-open preview.
+    final template = InvoiceTemplate.fromId(settings.invoiceTemplate);
 
     return Scaffold(
       appBar: AppBar(
@@ -75,7 +124,7 @@ class InvoicePreviewScreen extends ConsumerWidget {
             tooltip: 'Share invoice',
             icon: const Icon(Icons.share),
             onPressed: () =>
-                _shareInvoice(context, settings, company, invoiceSettings),
+                _shareInvoice(settings, company, invoiceSettings),
           ),
         ],
       ),
@@ -83,27 +132,29 @@ class InvoicePreviewScreen extends ConsumerWidget {
         children: [
           Expanded(
             child: PdfPreview(
-              // The document is laid out for the format being previewed or
-              // printed, rather than always for A4. Returning a fixed A4 page
-              // to a print job on other paper left the platform to scale and
-              // crop it, so the printout did not match this preview.
-              build: (format) => ExportService.generateInvoicePdf(
+              // Rebuilt when the template changes: PdfPreview caches by key.
+              key: ValueKey(template),
+              build: (format) => ExportService.generateInvoiceForTemplate(
                 sale,
                 settings,
                 company,
                 invoiceSettings,
+                template: template,
                 pageFormat: format,
               ).then((pdf) => pdf.save()),
               allowPrinting: true,
               allowSharing: true,
               canChangeOrientation: false,
               canChangePageFormat: false,
-              // A tax invoice is a sheet, never an 80mm till roll — that is
-              // what the Thermal Receipt button is for. The old fallback sent
-              // every non-A4 shop (Letter) to roll80.
-              initialPageFormat: settings.pdfPageSize == 'Letter'
-                  ? PdfPageFormat.letter
-                  : PdfPageFormat.a4,
+              // A sheet invoice is a sheet, never an 80mm till roll. The old
+              // fallback sent every non-A4 shop (Letter) to roll80.
+              initialPageFormat: template.isThermal
+                  ? (settings.thermalReceiptSize == '58mm'
+                        ? PdfPageFormat.roll57
+                        : PdfPageFormat.roll80)
+                  : (settings.pdfPageSize == 'Letter'
+                        ? PdfPageFormat.letter
+                        : PdfPageFormat.a4),
             ),
           ),
           Container(
@@ -113,43 +164,20 @@ class InvoicePreviewScreen extends ConsumerWidget {
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
                 ElevatedButton.icon(
-                  onPressed: () async {
-                    final pdf = await ExportService.generateThermalReceiptPdf(
-                      sale,
-                      settings,
-                      company,
-                      invoiceSettings,
-                    );
-                    await Printing.layoutPdf(
-                      onLayout: (PdfPageFormat format) async => pdf.save(),
-                      name: 'Receipt_${sale.invoiceNumber}',
-                    );
-                    if (context.mounted) Navigator.pop(context);
-                  },
-                  icon: const Icon(Icons.receipt_long),
-                  label: const Text('Thermal Receipt'),
+                  onPressed: () =>
+                      _print(settings, company, invoiceSettings),
+                  icon: Icon(
+                    template.isThermal
+                        ? Icons.receipt_long
+                        : Icons.picture_as_pdf,
+                  ),
+                  label: Text('Print ${template.label}'),
                 ),
-                ElevatedButton.icon(
-                  onPressed: () async {
-                    // Built inside onLayout so the invoice is laid out for
-                    // the paper the print dialog actually reports.
-                    await Printing.layoutPdf(
-                      onLayout: (PdfPageFormat format) async {
-                        final pdf = await ExportService.generateInvoicePdf(
-                          sale,
-                          settings,
-                          company,
-                          invoiceSettings,
-                          pageFormat: format,
-                        );
-                        return pdf.save();
-                      },
-                      name: 'Invoice_${sale.invoiceNumber}',
-                    );
-                    if (context.mounted) Navigator.pop(context);
-                  },
-                  icon: const Icon(Icons.picture_as_pdf),
-                  label: const Text('A4 Invoice'),
+                OutlinedButton.icon(
+                  onPressed: () =>
+                      _shareInvoice(settings, company, invoiceSettings),
+                  icon: const Icon(Icons.download),
+                  label: const Text('Download PDF'),
                 ),
               ],
             ),

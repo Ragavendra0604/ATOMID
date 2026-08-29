@@ -37,13 +37,14 @@ class SettingsModelAdapter extends TypeAdapter<SettingsModel> {
       inclusiveTaxRounding: fields[19] == null
           ? 'SHELF_PRICE'
           : fields[19] as String,
+      invoiceTemplate: fields[20] == null ? 'THERMAL' : fields[20] as String,
     );
   }
 
   @override
   void write(BinaryWriter writer, SettingsModel obj) {
     writer
-      ..writeByte(16)
+      ..writeByte(17)
       ..writeByte(0)
       ..write(obj.isDarkMode)
       ..writeByte(1)
@@ -75,7 +76,9 @@ class SettingsModelAdapter extends TypeAdapter<SettingsModel> {
       ..writeByte(18)
       ..write(obj.showTaxOnThermalReceipt)
       ..writeByte(19)
-      ..write(obj.inclusiveTaxRounding);
+      ..write(obj.inclusiveTaxRounding)
+      ..writeByte(20)
+      ..write(obj.invoiceTemplate);
   }
 
   @override

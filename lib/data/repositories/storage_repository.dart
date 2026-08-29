@@ -1776,6 +1776,7 @@ class StorageRepository {
         'thermalReceiptSize': s.thermalReceiptSize,
         'showTaxOnThermalReceipt': s.showTaxOnThermalReceipt,
         'inclusiveTaxRounding': s.inclusiveTaxRounding,
+        'invoiceTemplate': s.invoiceTemplate,
       };
     }
     return null;
@@ -2075,8 +2076,43 @@ class StorageRepository {
           p.productCode.toLowerCase().contains(lowerQuery) ||
           p.category.toLowerCase().contains(lowerQuery) ||
           p.brand.toLowerCase().contains(lowerQuery) ||
+          p.color.toLowerCase().contains(lowerQuery) ||
           p.variants.any((v) => v.barcode.toLowerCase().contains(lowerQuery));
     }).toList()..sort((a, b) => b.createdDate.compareTo(a.createdDate));
+  }
+
+  /// Other products already filed under this product code.
+  ///
+  /// Sharing a code is normal and expected here: one code is a style, and
+  /// each colourway of that style is its own product. This exists to tell
+  /// the user what they are joining, not to stop them.
+  List<Product> productsWithCode(String code, {String? excludeId}) {
+    final wanted = code.trim().toLowerCase();
+    if (wanted.isEmpty) return const [];
+    return _productsBox.values
+        .where(
+          (p) =>
+              !p.isDeleted &&
+              p.id != excludeId &&
+              p.productCode.trim().toLowerCase() == wanted,
+        )
+        .toList();
+  }
+
+  /// The product already filed under this code *in this colour*, if any.
+  ///
+  /// Same code and same colour is the one combination that is a genuine
+  /// double entry rather than a second colourway.
+  Product? productWithCodeAndColour(
+    String code,
+    String colour, {
+    String? excludeId,
+  }) {
+    final wantedColour = colour.trim().toLowerCase();
+    for (final product in productsWithCode(code, excludeId: excludeId)) {
+      if (product.color.trim().toLowerCase() == wantedColour) return product;
+    }
+    return null;
   }
 
   Product? getProductByBarcode(String barcode) {

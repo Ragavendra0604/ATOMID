@@ -103,6 +103,18 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     final settings = ref.watch(settingsProvider);
     final loyalty = ref.watch(loyaltySettingsProvider);
     final totals = ref.read(saleServiceProvider).preview(_buildRequest());
+    // A counter sale in the shop's own state has nothing to choose: the
+    // place of supply is the shop. The selector is kept for the case that
+    // actually needs it — a customer recorded in another state, or a shop
+    // whose policy is to ask — so ordinary billing stays a two-tap job
+    // while the engine keeps pricing interstate bills correctly.
+    final shopStateCode = ref.watch(companyProvider).stateCode;
+    final customerStateCode = _customer?.stateCode ?? '';
+    final needsPlaceOfSupply =
+        settings.walkInPosPolicy == 'ASK_AT_CHECKOUT' ||
+        (customerStateCode.isNotEmpty &&
+            shopStateCode.isNotEmpty &&
+            customerStateCode != shopStateCode);
 
     if (_isProcessing) {
       return Scaffold(
@@ -221,8 +233,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                     ),
                 ],
 
-                if (settings.walkInPosPolicy == 'ASK_AT_CHECKOUT' ||
-                    (_customer?.state.isNotEmpty == true)) ...[
+                if (needsPlaceOfSupply) ...[
                   const SizedBox(height: 20),
                   _sectionTitle('Place of Supply (Destination)'),
                   DropdownButtonFormField<String>(
@@ -236,7 +247,8 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                       labelText: 'Place of Supply (Delivery State)',
                       border: OutlineInputBorder(),
                       helperText:
-                          'Determines whether bill is Intra-State (CGST+SGST) or Inter-State (IGST)',
+                          'Where the goods are delivered. Sets the tax that '
+                          'applies to this bill.',
                     ),
                     items: GstStates.allStates.map((s) {
                       return DropdownMenuItem(
@@ -500,7 +512,9 @@ class _SummaryCard extends StatelessWidget {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                if (totals.placeOfSupply.isNotEmpty)
+                // Only worth the cashier's attention when the bill is not
+                // an ordinary sale in the shop's own state.
+                if (totals.placeOfSupply.isNotEmpty && totals.isInterState)
                   Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 8,

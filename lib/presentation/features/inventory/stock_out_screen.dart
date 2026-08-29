@@ -88,7 +88,7 @@ class _StockOutScreenState extends ConsumerState<StockOutScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Stock Out: -$qty for ${_selectedProduct!.productName} (${_selectedVariant!.size})',
+              'Stock Out: -$qty for ${_selectedProduct!.displayName} (${_selectedVariant!.size})',
             ),
             backgroundColor: Colors.orange,
           ),
@@ -170,7 +170,7 @@ class _StockOutScreenState extends ConsumerState<StockOutScreen> {
                     return DropdownMenuItem(
                       value: p,
                       child: Text(
-                        '${p.productName} (${p.productCode})',
+                        '${p.displayName} (${p.productCode})',
                         overflow: TextOverflow.ellipsis,
                       ),
                     );
@@ -229,7 +229,7 @@ class _StockOutScreenState extends ConsumerState<StockOutScreen> {
                             ),
                           ),
                           const Divider(),
-                          _infoRow('Product', _selectedProduct!.productName),
+                          _infoRow('Product', _selectedProduct!.displayName),
                           _infoRow('Size', _selectedVariant!.size),
                           _infoRow(
                             'Available Qty',

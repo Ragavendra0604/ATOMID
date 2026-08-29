@@ -10,7 +10,9 @@ import 'package:atomid/domain/pricing.dart';
 import 'package:atomid/presentation/features/auth/auth_screen.dart';
 import 'package:atomid/presentation/features/settings/backup_screen.dart';
 import 'package:atomid/presentation/features/settings/company_profile_screen.dart';
+import 'package:atomid/domain/invoice_template.dart';
 import 'package:atomid/presentation/features/settings/invoice_settings_screen.dart';
+import 'package:atomid/presentation/features/settings/invoice_template_screen.dart';
 import 'package:atomid/presentation/features/settings/loyalty_settings_screen.dart';
 import 'package:atomid/presentation/providers/app_providers.dart';
 
@@ -332,7 +334,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 'Mandatory HSN on Product Entry',
                               ),
                               subtitle: const Text(
-                                'Blocks saving products without a valid HSN code.',
+                                'Blocks saving a product without a valid HSN '
+                                'code. The invoice prints the HSN either way.',
                               ),
                             ),
                           ],
@@ -360,20 +363,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               value: _showGstBreakdown,
                               onChanged: (val) =>
                                   setState(() => _showGstBreakdown = val),
-                              title: const Text('Print Tax Breakdown Table'),
+                              title: const Text('Print GST Summary Table'),
                               subtitle: const Text(
-                                'Prints CGST, SGST, UTGST, and IGST breakdowns on A4 Invoices.',
-                              ),
-                            ),
-                            const Divider(height: 24),
-                            SwitchListTile(
-                              contentPadding: EdgeInsets.zero,
-                              value: _showHsnSummary,
-                              onChanged: (val) =>
-                                  setState(() => _showHsnSummary = val),
-                              title: const Text('Print HSN Summary Table'),
-                              subtitle: const Text(
-                                'Prints statutory HSN-wise tax summary table at bottom of A4 Invoice.',
+                                'Prints the rate-wise CGST and SGST summary at the '
+                                'foot of the A4 invoice.',
                               ),
                             ),
                             const Divider(height: 24),
@@ -483,6 +476,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       subtitle:
                           'Legal name, shop GSTIN, state code, address and logo',
                       onTap: () => _open(const CompanyProfileScreen()),
+                    ),
+                    _link(
+                      icon: Icons.dashboard_customize_outlined,
+                      title: 'Invoice Template',
+                      subtitle:
+                          'Prints on every bill — currently '
+                          '${InvoiceTemplate.fromId(ref.watch(settingsProvider).invoiceTemplate).label}',
+                      onTap: () => _open(const InvoiceTemplateScreen()),
                     ),
                     _link(
                       icon: Icons.receipt_long_outlined,

@@ -165,7 +165,9 @@ class SalePricing {
 
       return GstLineInput(
         productId: i.product.id,
-        productName: i.product.productName,
+        // Same name the sale snapshot stores, so a tax error names the line
+        // the way the invoice will print it.
+        productName: i.product.displayName,
         productCode: i.product.productCode,
         variantBarcode: i.variant.barcode,
         variantSize: i.variant.size,

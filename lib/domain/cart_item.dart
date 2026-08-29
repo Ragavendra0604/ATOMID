@@ -23,5 +23,8 @@ class CartItem {
 
   double get total => Fmt.round2(variant.price * quantity);
 
-  String get displayName => '${product.productName} (${variant.size})';
+  /// How the line reads in the basket and at checkout — the same colour and
+  /// size the bill will carry, so what the cashier confirms on screen is
+  /// what the customer reads on the receipt.
+  String get displayName => '${product.displayName} (${variant.size})';
 }

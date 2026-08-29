@@ -17,7 +17,10 @@ import 'package:atomid/data/models/supplier_model.dart';
 import 'package:atomid/data/models/company_model.dart';
 import 'package:atomid/data/models/invoice_settings_model.dart';
 import 'package:atomid/core/utils/app_error.dart';
+import 'package:atomid/core/utils/amount_in_words.dart';
 import 'package:atomid/domain/document_totals.dart';
+import 'package:atomid/domain/gst_rate_summary.dart';
+import 'package:atomid/domain/invoice_template.dart';
 import 'package:atomid/domain/price_tag_job.dart';
 import 'package:atomid/domain/price_tag_size.dart';
 
@@ -771,6 +774,7 @@ class ExportService {
     CompanyModel company,
     InvoiceSettingsModel invoiceSettings, {
     PdfPageFormat? pageFormat,
+    InvoiceTemplate template = InvoiceTemplate.a4Professional,
   }) async {
     await _ensureResourcesLoaded();
     final theme = await _getTheme(invoiceSettings.fontName);
@@ -803,38 +807,14 @@ class ExportService {
         ? sale.documentType
         : (sellerGstin.isNotEmpty ? 'TAX INVOICE' : 'BILL OF SUPPLY');
 
-    // HSN aggregation from snapshot lines
-    final hsnMap = <String, Map<String, dynamic>>{};
-    for (final item in sale.items) {
-      final key = item.hsn.isNotEmpty ? item.hsn : 'General';
-      final entry = hsnMap.putIfAbsent(
-        key,
-        () => {
-          'hsn': key,
-          'uqc': item.uqc.isNotEmpty ? item.uqc : 'PCS',
-          'taxable': 0.0,
-          'cgst': 0.0,
-          'sgst': 0.0,
-          'utgst': 0.0,
-          'igst': 0.0,
-          'cess': 0.0,
-          'totalTax': 0.0,
-        },
-      );
-      entry['taxable'] = (entry['taxable'] as double) + item.taxableValue;
-      entry['cgst'] = (entry['cgst'] as double) + item.cgstAmount;
-      entry['sgst'] = (entry['sgst'] as double) + item.sgstAmount;
-      entry['utgst'] = (entry['utgst'] as double) + item.utgstAmount;
-      entry['igst'] = (entry['igst'] as double) + item.igstAmount;
-      entry['cess'] = (entry['cess'] as double) + item.cessAmount;
-      entry['totalTax'] =
-          (entry['totalTax'] as double) +
-          (item.cgstAmount +
-              item.sgstAmount +
-              item.utgstAmount +
-              item.igstAmount +
-              item.cessAmount);
-    }
+    // The bill's own tax, grouped by GST rate. Pure aggregation of what the
+    // GST engine wrote at checkout — no template recomputes tax.
+    final rateSummary = GstRateSummary.fromSale(sale);
+    final singleRate = rateSummary.rows.length == 1
+        ? rateSummary.rows.first.halfRate
+        : null;
+    String levy(String name) =>
+        singleRate == null ? name : '$name @ ${_ratePct(singleRate)}';
 
     pdf.addPage(
       pw.MultiPage(
@@ -947,13 +927,6 @@ class ExportService {
                         'Place of Supply: ${sale.placeOfSupply}',
                         style: const pw.TextStyle(fontSize: 9),
                       ),
-                    pw.Text(
-                      'Reverse Charge: No',
-                      style: const pw.TextStyle(
-                        fontSize: 8,
-                        color: PdfColors.grey700,
-                      ),
-                    ),
                   ],
                 ),
               ],
@@ -1034,7 +1007,8 @@ class ExportService {
             ),
             pw.SizedBox(height: 12),
 
-            // Items Table
+            // Items Table. Which columns appear is the template's
+            // choice; every figure in them comes from the stored sale.
             pw.TableHelper.fromTextArray(
               context: context,
               border: const pw.TableBorder(
@@ -1054,55 +1028,9 @@ class ExportService {
               ),
               cellHeight: 22,
               cellStyle: const pw.TextStyle(fontSize: 8),
-              cellAlignments: {
-                0: pw.Alignment.centerLeft,
-                1: pw.Alignment.center,
-                2: pw.Alignment.center,
-                3: pw.Alignment.centerRight,
-                4: pw.Alignment.centerRight,
-                5: pw.Alignment.centerRight,
-                6: pw.Alignment.center,
-                7: pw.Alignment.centerRight,
-                8: pw.Alignment.centerRight,
-              },
-              headers: [
-                'Item Description',
-                'HSN',
-                'Qty',
-                'Rate',
-                'Disc',
-                'Taxable',
-                'GST %',
-                'Tax',
-                'Total',
-              ],
-              data: sale.items.map((item) {
-                final taxAmt =
-                    item.cgstAmount +
-                    item.sgstAmount +
-                    item.utgstAmount +
-                    item.igstAmount +
-                    item.cessAmount;
-                final rateStr = item.gstRate != null
-                    ? '${Fmt.amount(item.gstRate!)}%'
-                    : '0%';
-                return [
-                  '${item.productName} (${item.variantSize})',
-                  item.hsn.isNotEmpty ? item.hsn : '-',
-                  '${item.quantity} ${item.uqc.isNotEmpty ? item.uqc : "PCS"}',
-                  Fmt.money(item.price, settings.currencySymbol),
-                  item.discountAmount > 0
-                      ? Fmt.money(item.discountAmount, settings.currencySymbol)
-                      : '-',
-                  Fmt.money(
-                    item.taxableValue > 0 ? item.taxableValue : item.total,
-                    settings.currencySymbol,
-                  ),
-                  rateStr,
-                  taxAmt > 0 ? Fmt.money(taxAmt, settings.currencySymbol) : '-',
-                  Fmt.money(item.total, settings.currencySymbol),
-                ];
-              }).toList(),
+              cellAlignments: _itemCellAlignments(template),
+              headers: _itemHeaders(template, sale, rateSummary),
+              data: _itemRows(sale, settings, template),
             ),
             pw.SizedBox(height: 12),
 
@@ -1118,6 +1046,12 @@ class ExportService {
                     children: [
                       pw.Text(
                         'Payment Mode: ${sale.paymentMethod}',
+                        style: const pw.TextStyle(fontSize: 9),
+                      ),
+                      // The sale record carries no unpaid state: a bill is
+                      // settled before it can be printed.
+                      pw.Text(
+                        'Payment Status: PAID',
                         style: const pw.TextStyle(fontSize: 9),
                       ),
                       if (sale.notes.isNotEmpty)
@@ -1181,7 +1115,7 @@ class ExportService {
                         if (sale.isInterState) ...[
                           if (sale.igstAmount > 0)
                             _buildPdfSummaryRow(
-                              'IGST',
+                              levy('IGST'),
                               Fmt.money(
                                 sale.igstAmount,
                                 settings.currencySymbol,
@@ -1190,7 +1124,7 @@ class ExportService {
                         ] else ...[
                           if (sale.cgstAmount > 0)
                             _buildPdfSummaryRow(
-                              'CGST',
+                              levy('CGST'),
                               Fmt.money(
                                 sale.cgstAmount,
                                 settings.currencySymbol,
@@ -1198,7 +1132,7 @@ class ExportService {
                             ),
                           if (sale.utgstAmount > 0)
                             _buildPdfSummaryRow(
-                              'UTGST',
+                              levy('UTGST'),
                               Fmt.money(
                                 sale.utgstAmount,
                                 settings.currencySymbol,
@@ -1206,13 +1140,18 @@ class ExportService {
                             )
                           else if (sale.sgstAmount > 0)
                             _buildPdfSummaryRow(
-                              'SGST',
+                              levy('SGST'),
                               Fmt.money(
                                 sale.sgstAmount,
                                 settings.currencySymbol,
                               ),
                             ),
                         ],
+                        if (sale.totalGst > 0)
+                          _buildPdfSummaryRow(
+                            'Total GST',
+                            Fmt.money(sale.totalGst, settings.currencySymbol),
+                          ),
                         if (sale.cessAmount > 0)
                           _buildPdfSummaryRow(
                             'Cess',
@@ -1253,12 +1192,51 @@ class ExportService {
                 ),
               ],
             ),
+            pw.SizedBox(height: 8),
+
+            // Rule 46 asks for the amount in words. Rendered from the same
+            // grand total printed above, so the two can never disagree.
+            pw.Container(
+              width: double.infinity,
+              padding: const pw.EdgeInsets.symmetric(
+                horizontal: 8,
+                vertical: 5,
+              ),
+              decoration: const pw.BoxDecoration(
+                color: PdfColors.grey100,
+                borderRadius: pw.BorderRadius.all(pw.Radius.circular(4)),
+              ),
+              child: pw.RichText(
+                text: pw.TextSpan(
+                  children: [
+                    pw.TextSpan(
+                      text: 'Amount in Words: ',
+                      style: pw.TextStyle(
+                        fontSize: 8,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    pw.TextSpan(
+                      text: AmountInWords.rupees(sale.grandTotal),
+                      style: const pw.TextStyle(fontSize: 8),
+                    ),
+                  ],
+                ),
+              ),
+            ),
             pw.SizedBox(height: 12),
 
-            // Optional HSN Summary Table
-            if (settings.showHsnSummary && hsnMap.isNotEmpty) ...[
+            // GST summary, grouped by rate. This replaces the older
+            // HSN-wise table on the customer's copy: a clothing shop bills a
+            // handful of rates, and the customer checks the rate they were
+            // charged, not the HSN. The per-item HSN column is still
+            // available on the A4 Detailed GST template.
+            if (settings.showGstBreakdown &&
+                rateSummary.isNotEmpty &&
+                (template != InvoiceTemplate.simpleRetail ||
+                    rateSummary.hasMultipleRates)) ...[
               pw.Text(
-                'HSN / SAC Tax Summary',
+                'GST SUMMARY',
                 style: pw.TextStyle(
                   fontSize: 8,
                   fontWeight: pw.FontWeight.bold,
@@ -1287,32 +1265,14 @@ class ExportService {
                 cellAlignments: {
                   0: pw.Alignment.centerLeft,
                   1: pw.Alignment.centerRight,
-                  2: pw.Alignment.centerRight,
+                  2: pw.Alignment.center,
                   3: pw.Alignment.centerRight,
-                  4: pw.Alignment.centerRight,
+                  4: pw.Alignment.center,
                   5: pw.Alignment.centerRight,
+                  6: pw.Alignment.centerRight,
                 },
-                headers: [
-                  'HSN',
-                  'Taxable Value',
-                  'CGST',
-                  'SGST/UTGST',
-                  'IGST',
-                  'Total Tax',
-                ],
-                data: hsnMap.values.map((h) {
-                  return [
-                    h['hsn'] as String,
-                    Fmt.money(h['taxable'] as double, settings.currencySymbol),
-                    Fmt.money(h['cgst'] as double, settings.currencySymbol),
-                    Fmt.money(
-                      ((h['sgst'] as double) + (h['utgst'] as double)),
-                      settings.currencySymbol,
-                    ),
-                    Fmt.money(h['igst'] as double, settings.currencySymbol),
-                    Fmt.money(h['totalTax'] as double, settings.currencySymbol),
-                  ];
-                }).toList(),
+                headers: _gstSummaryHeaders(sale, rateSummary),
+                data: _gstSummaryRows(sale, rateSummary, settings),
               ),
               pw.SizedBox(height: 12),
             ],
@@ -1387,6 +1347,238 @@ class ExportService {
     return pdf;
   }
 
+  /// A GST rate as it reads on an invoice: '18%', '2.5%', '0%'.
+  static String _ratePct(double rate) {
+    final whole = rate.roundToDouble() == rate;
+    return whole ? '${rate.toInt()}%' : '${rate.toStringAsFixed(2)}%';
+  }
+
+  /// The item-table columns for a template. The Detailed GST sheet carries
+  /// HSN and per-line tax; Simple Retail carries none of it.
+  static List<String> _itemHeaders(
+    InvoiceTemplate template,
+    import_sale.Sale sale,
+    GstRateSummary summary,
+  ) {
+    return switch (template) {
+      InvoiceTemplate.simpleRetail => [
+        '#',
+        'Item',
+        'HSN',
+        'Qty',
+        'Rate',
+        'Amount',
+      ],
+      InvoiceTemplate.a4DetailedGst => [
+        '#',
+        'Item',
+        'HSN',
+        'Qty',
+        'Rate',
+        'Taxable',
+        sale.isInterState ? 'IGST' : 'CGST',
+        if (!sale.isInterState) summary.stateLevyLabel,
+        'Amount',
+      ],
+      InvoiceTemplate.thermal ||
+      InvoiceTemplate.a4Professional => [
+        '#',
+        'Item',
+        'HSN',
+        'Qty',
+        'Rate',
+        'Taxable',
+        'GST %',
+        'Amount',
+      ],
+    };
+  }
+
+  static Map<int, pw.Alignment> _itemCellAlignments(InvoiceTemplate template) {
+    final columns = template == InvoiceTemplate.simpleRetail ? 6 : 9;
+    final alignments = <int, pw.Alignment>{
+      0: pw.Alignment.center,
+      1: pw.Alignment.centerLeft,
+    };
+    for (var i = 2; i < columns; i++) {
+      alignments[i] = pw.Alignment.centerRight;
+    }
+    return alignments;
+  }
+
+  /// One printed row per billed line. Every figure is read off the stored
+  /// sale — this method does no arithmetic beyond adding the tax the engine
+  /// already wrote onto the line.
+  static List<List<String>> _itemRows(
+    import_sale.Sale sale,
+    SettingsModel settings,
+    InvoiceTemplate template,
+  ) {
+    final symbol = settings.currencySymbol;
+    final rows = <List<String>>[];
+    for (var index = 0; index < sale.items.length; index++) {
+      final item = sale.items[index];
+      final position = '${index + 1}';
+      final name = item.variantSize.isNotEmpty
+          ? '${item.productName} (${item.variantSize})'
+          : item.productName;
+      final qty = item.uqc.isNotEmpty
+          ? '${item.quantity} ${item.uqc}'
+          : '${item.quantity}';
+      final taxable = item.taxableValue > 0 ? item.taxableValue : item.total;
+      // Every invoice carries the HSN. A dash means the product predates
+      // the rule and still needs one filling in — it is never omitted.
+      final hsn = item.hsn.isNotEmpty ? item.hsn : '-';
+      final stateTax = item.sgstAmount + item.utgstAmount;
+      rows.add(
+        switch (template) {
+          InvoiceTemplate.simpleRetail => [
+            position,
+            name,
+            hsn,
+            qty,
+            Fmt.money(item.price, symbol),
+            Fmt.money(item.total, symbol),
+          ],
+          InvoiceTemplate.a4DetailedGst => [
+            position,
+            name,
+            hsn,
+            qty,
+            Fmt.money(item.price, symbol),
+            Fmt.money(taxable, symbol),
+            Fmt.money(
+              sale.isInterState ? item.igstAmount : item.cgstAmount,
+              symbol,
+            ),
+            if (!sale.isInterState) Fmt.money(stateTax, symbol),
+            Fmt.money(item.total, symbol),
+          ],
+          InvoiceTemplate.thermal ||
+          InvoiceTemplate.a4Professional => [
+            position,
+            name,
+            hsn,
+            qty,
+            Fmt.money(item.price, symbol),
+            Fmt.money(taxable, symbol),
+            item.gstRate != null ? _ratePct(item.gstRate!) : '-',
+            Fmt.money(item.total, symbol),
+          ],
+        },
+      );
+    }
+    return rows;
+  }
+
+  static List<String> _gstSummaryHeaders(
+    import_sale.Sale sale,
+    GstRateSummary summary,
+  ) {
+    if (sale.isInterState) {
+      return ['GST Rate', 'Taxable', 'IGST %', 'IGST', 'Total GST'];
+    }
+    final state = summary.stateLevyLabel;
+    return [
+      'GST Rate',
+      'Taxable',
+      'CGST %',
+      'CGST',
+      '$state %',
+      state,
+      'Total GST',
+    ];
+  }
+
+  /// The rate-wise summary, plus a totals line. Both come from the grouped
+  /// sale — nothing is recomputed from rates.
+  static List<List<String>> _gstSummaryRows(
+    import_sale.Sale sale,
+    GstRateSummary summary,
+    SettingsModel settings,
+  ) {
+    final symbol = settings.currencySymbol;
+    final rows = <List<String>>[];
+    for (final row in summary.rows) {
+      if (sale.isInterState) {
+        rows.add([
+          _ratePct(row.gstRate),
+          Fmt.money(row.taxable, symbol),
+          _ratePct(row.gstRate),
+          Fmt.money(row.igst, symbol),
+          Fmt.money(row.totalGst, symbol),
+        ]);
+      } else {
+        rows.add([
+          _ratePct(row.gstRate),
+          Fmt.money(row.taxable, symbol),
+          _ratePct(row.halfRate),
+          Fmt.money(row.cgst, symbol),
+          _ratePct(row.halfRate),
+          Fmt.money(row.stateGst, symbol),
+          Fmt.money(row.totalGst, symbol),
+        ]);
+      }
+    }
+    if (summary.rows.length > 1) {
+      rows.add(
+        sale.isInterState
+            ? [
+                'Total',
+                Fmt.money(summary.taxable, symbol),
+                '',
+                Fmt.money(summary.igst, symbol),
+                Fmt.money(summary.totalGst, symbol),
+              ]
+            : [
+                'Total',
+                Fmt.money(summary.taxable, symbol),
+                '',
+                Fmt.money(summary.cgst, symbol),
+                '',
+                Fmt.money(summary.stateGst, symbol),
+                Fmt.money(summary.totalGst, symbol),
+              ],
+      );
+    }
+    return rows;
+  }
+
+  /// Renders the sale with whichever invoice design the shop has chosen,
+  /// or with [template] when the cashier overrides it for one print.
+  ///
+  /// This is the single entry point the billing screens use. The templates
+  /// differ only in layout: each is handed the same stored sale, so the
+  /// quantities, taxable value, GST rates, CGST, SGST and total payable are
+  /// identical whichever one is picked.
+  static Future<pw.Document> generateInvoiceForTemplate(
+    import_sale.Sale sale,
+    SettingsModel settings,
+    CompanyModel company,
+    InvoiceSettingsModel invoiceSettings, {
+    InvoiceTemplate? template,
+    PdfPageFormat? pageFormat,
+  }) {
+    final chosen =
+        template ?? InvoiceTemplate.fromId(settings.invoiceTemplate);
+    if (chosen.isThermal) {
+      return generateThermalReceiptPdf(
+        sale,
+        settings,
+        company,
+        invoiceSettings,
+      );
+    }
+    return generateInvoicePdf(
+      sale,
+      settings,
+      company,
+      invoiceSettings,
+      pageFormat: pageFormat,
+      template: chosen,
+    );
+  }
+
   static pw.Widget _buildPdfSummaryRow(String label, String value) {
     return pw.Padding(
       padding: const pw.EdgeInsets.symmetric(vertical: 1.5),
@@ -1425,6 +1617,15 @@ class ExportService {
     final is58mm = settings.thermalReceiptSize == '58mm';
     final format = is58mm ? PdfPageFormat.roll57 : PdfPageFormat.roll80;
 
+    // The same grouping the sheet invoice prints, so a receipt and an A4 of
+    // one sale always show the same tax against the same rate.
+    final rateSummary = GstRateSummary.fromSale(sale);
+    final rollRate = rateSummary.rows.length == 1
+        ? rateSummary.rows.first.halfRate
+        : null;
+    String rollLevy(String name) =>
+        rollRate == null ? '$name:' : '$name @ ${_ratePct(rollRate)}:';
+
     final sellerLegal = sale.sellerLegalName.isNotEmpty
         ? sale.sellerLegalName
         : (company.name.isNotEmpty ? company.name : settings.companyName);
@@ -1436,20 +1637,27 @@ class ExportService {
       pw.Page(
         pageFormat: format,
         theme: theme,
-        margin: const pw.EdgeInsets.all(8),
+        // Tighter side margins than the sheet invoice: on a 57mm roll every
+        // millimetre of margin is a millimetre the item names do not get.
+        margin: const pw.EdgeInsets.fromLTRB(5, 6, 5, 8),
         build: (pw.Context context) {
           return pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.center,
             mainAxisSize: pw.MainAxisSize.min,
             children: [
+              // Header, kept to what a customer needs to identify the
+              // shop and find the bill again. The postal address and a
+              // separate 'TAX INVOICE' banner were costing four lines of
+              // roll on every sale and telling the customer nothing they
+              // were not already holding.
               if (logoImage != null) ...[
-                pw.Image(logoImage, height: is58mm ? 28 : 36),
-                pw.SizedBox(height: 4),
+                pw.Image(logoImage, height: is58mm ? 24 : 30),
+                pw.SizedBox(height: 2),
               ],
               pw.Text(
                 sellerLegal,
                 style: pw.TextStyle(
-                  fontSize: is58mm ? 12 : 14,
+                  fontSize: is58mm ? 11 : 13,
                   fontWeight: pw.FontWeight.bold,
                 ),
                 textAlign: pw.TextAlign.center,
@@ -1457,69 +1665,74 @@ class ExportService {
               if (sellerGstin.isNotEmpty)
                 pw.Text(
                   'GSTIN: $sellerGstin',
-                  style: const pw.TextStyle(fontSize: 8),
-                ),
-              if (sale.sellerAddress.isNotEmpty)
-                pw.Text(
-                  sale.sellerAddress,
                   style: const pw.TextStyle(fontSize: 7),
-                  textAlign: pw.TextAlign.center,
                 ),
-              pw.SizedBox(height: 4),
-              pw.Text(
-                sale.documentType.isNotEmpty
-                    ? sale.documentType
-                    : 'TAX INVOICE',
-                style: pw.TextStyle(
-                  fontSize: 8,
-                  fontWeight: pw.FontWeight.bold,
-                ),
-              ),
-              pw.Text(
-                'Bill #: ${sale.invoiceNumber}',
-                style: const pw.TextStyle(fontSize: 8),
-              ),
-              pw.Text(
-                'Date: ${sale.date.year}-${sale.date.month.toString().padLeft(2, '0')}-${sale.date.day.toString().padLeft(2, '0')} ${sale.date.hour.toString().padLeft(2, '0')}:${sale.date.minute.toString().padLeft(2, '0')}',
-                style: const pw.TextStyle(fontSize: 7),
+              pw.SizedBox(height: 3),
+              pw.Divider(borderStyle: pw.BorderStyle.dashed, height: 4),
+              // Bill number and date share one line: two facts, one row.
+              _buildThermalRow(
+                sale.invoiceNumber,
+                '${sale.date.day.toString().padLeft(2, '0')}-'
+                    '${sale.date.month.toString().padLeft(2, '0')}-'
+                    '${sale.date.year} '
+                    '${sale.date.hour.toString().padLeft(2, '0')}:'
+                    '${sale.date.minute.toString().padLeft(2, '0')}',
               ),
               if (sale.customerName.isNotEmpty &&
                   sale.customerName != 'Walk-In Customer')
-                pw.Text(
-                  'Customer: ${sale.customerName}',
-                  style: const pw.TextStyle(fontSize: 8),
+                _buildThermalRow(
+                  sale.customerName,
+                  sale.customerGstin.isNotEmpty ? sale.customerGstin : '',
                 ),
-              if (sale.customerGstin.isNotEmpty)
-                pw.Text(
-                  'Customer GSTIN: ${sale.customerGstin}',
-                  style: const pw.TextStyle(fontSize: 7),
-                ),
-              pw.SizedBox(height: 4),
-              pw.Divider(borderStyle: pw.BorderStyle.dashed),
+              pw.Divider(borderStyle: pw.BorderStyle.dashed, height: 4),
 
-              // Line Items
+              // Line Items. The second line was already being spent on the
+              // HSN, so it now carries the rate breakdown too rather than
+              // leaving the rest of that row blank.
               ...sale.items.map((item) {
+                final detail = StringBuffer();
+                if (item.hsn.isNotEmpty) detail.write('HSN ${item.hsn}  ');
+                detail.write(
+                  '${item.quantity} x '
+                  '${Fmt.amount(item.price)}',
+                );
                 return pw.Padding(
-                  padding: const pw.EdgeInsets.symmetric(vertical: 1.5),
-                  child: pw.Row(
-                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  padding: const pw.EdgeInsets.only(bottom: 2),
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
                     children: [
-                      pw.Expanded(
-                        child: pw.Text(
-                          '${item.productName} (${item.variantSize}) x${item.quantity}',
-                          style: const pw.TextStyle(fontSize: 8),
-                        ),
+                      pw.Row(
+                        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                        children: [
+                          pw.Expanded(
+                            child: pw.Text(
+                              item.variantSize.isNotEmpty
+                                  ? '${item.productName} '
+                                        '(${item.variantSize})'
+                                  : item.productName,
+                              maxLines: 1,
+                              style: const pw.TextStyle(fontSize: 8),
+                            ),
+                          ),
+                          pw.Text(
+                            Fmt.money(item.total, settings.currencySymbol),
+                            style: const pw.TextStyle(fontSize: 8),
+                          ),
+                        ],
                       ),
                       pw.Text(
-                        Fmt.money(item.total, settings.currencySymbol),
-                        style: const pw.TextStyle(fontSize: 8),
+                        detail.toString(),
+                        style: const pw.TextStyle(
+                          fontSize: 6,
+                          color: PdfColors.grey700,
+                        ),
                       ),
                     ],
                   ),
                 );
               }),
 
-              pw.Divider(borderStyle: pw.BorderStyle.dashed),
+              pw.Divider(borderStyle: pw.BorderStyle.dashed, height: 4),
 
               // Totals
               _buildThermalRow(
@@ -1541,24 +1754,40 @@ class ExportService {
                   'Taxable Value:',
                   Fmt.money(sale.taxableAmount, settings.currencySymbol),
                 ),
-                if (sale.isInterState)
+                // With more than one rate on the bill, a single 'CGST @ 9%'
+                // line would be wrong, so the roll lists each rate.
+                if (rateSummary.hasMultipleRates)
+                  ...rateSummary.rows.map(
+                    (row) => _buildThermalRow(
+                      sale.isInterState
+                          ? 'IGST ${_ratePct(row.gstRate)}:'
+                          : 'C+${rateSummary.stateLevyLabel} '
+                                '${_ratePct(row.gstRate)}:',
+                      Fmt.money(row.totalGst, settings.currencySymbol),
+                    ),
+                  )
+                else if (sale.isInterState)
                   _buildThermalRow(
-                    'IGST:',
+                    rollLevy('IGST'),
                     Fmt.money(sale.igstAmount, settings.currencySymbol),
                   )
                 else ...[
                   _buildThermalRow(
-                    'CGST:',
+                    rollLevy('CGST'),
                     Fmt.money(sale.cgstAmount, settings.currencySymbol),
                   ),
                   _buildThermalRow(
-                    'SGST/UTGST:',
+                    rollLevy(rateSummary.stateLevyLabel),
                     Fmt.money(
                       sale.sgstAmount + sale.utgstAmount,
                       settings.currencySymbol,
                     ),
                   ),
                 ],
+                _buildThermalRow(
+                  'Total GST:',
+                  Fmt.money(sale.totalGst, settings.currencySymbol),
+                ),
               ],
               if (sale.roundOff != 0.0)
                 _buildThermalRow(
@@ -1586,13 +1815,14 @@ class ExportService {
                 ],
               ),
               pw.SizedBox(height: 4),
-              pw.Divider(borderStyle: pw.BorderStyle.dashed),
-              pw.Text(
-                'Paid by ${sale.paymentMethod}',
-                style: const pw.TextStyle(fontSize: 8),
-              ),
+              pw.Divider(borderStyle: pw.BorderStyle.dashed, height: 4),
+              // A sale reaches this printer only once it has been settled
+              // at the till — the record carries no unpaid state to report,
+              // so the status rides on the payment line rather than taking
+              // a row of its own.
+              _buildThermalRow('Payment:', '${sale.paymentMethod} - PAID'),
               if (upiQrImage != null) ...[
-                pw.SizedBox(height: 4),
+                pw.SizedBox(height: 3),
                 pw.Image(upiQrImage, width: 60, height: 60),
                 if (invoiceSettings.upiId.isNotEmpty)
                   pw.Text(
@@ -1601,28 +1831,27 @@ class ExportService {
                   ),
               ],
               if (invoiceSettings.termsAndConditions.isNotEmpty) ...[
-                pw.SizedBox(height: 4),
-                pw.Divider(borderStyle: pw.BorderStyle.dashed),
+                pw.SizedBox(height: 3),
+                pw.Divider(borderStyle: pw.BorderStyle.dashed, height: 4),
                 pw.Text(
                   invoiceSettings.termsAndConditions,
                   style: const pw.TextStyle(fontSize: 6),
                   textAlign: pw.TextAlign.center,
                 ),
               ],
+              // One line, no signing gap. A till roll is handed over at the
+              // counter, not signed, and the 18mm of blank paper the ruled
+              // block reserved was pure waste on every sale. The A4 invoice
+              // keeps the full signature block.
               if (invoiceSettings.showSignature) ...[
-                pw.SizedBox(height: 6),
+                pw.SizedBox(height: 3),
                 pw.Text(
-                  'For $sellerLegal',
-                  style: pw.TextStyle(
-                    fontSize: 7,
-                    fontWeight: pw.FontWeight.bold,
+                  'For $sellerLegal - Authorized Signatory',
+                  style: const pw.TextStyle(
+                    fontSize: 6,
+                    color: PdfColors.grey700,
                   ),
                   textAlign: pw.TextAlign.center,
-                ),
-                pw.SizedBox(height: 18),
-                pw.Text(
-                  'Authorized Signatory',
-                  style: const pw.TextStyle(fontSize: 7),
                 ),
               ],
               pw.SizedBox(height: 4),

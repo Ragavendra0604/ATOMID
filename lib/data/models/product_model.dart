@@ -91,6 +91,15 @@ class Product extends HiveObject {
     this.gstRateConfigId,
   });
 
+  /// The name to show wherever a person picks or reviews a product.
+  ///
+  /// One `Product` is one colourway — sizes are its variants — so a shirt
+  /// stocked in three colours is three records sharing a product code. On
+  /// screen that made them indistinguishable. Anything a user chooses from
+  /// should use this, never `productName` alone.
+  String get displayName =>
+      color.trim().isEmpty ? productName : '$productName - ${color.trim()}';
+
   bool get isGstConfigured =>
       gstTreatment != 'UNCONFIGURED' &&
       (gstTreatment != 'TAXABLE' || gstRate != null);
