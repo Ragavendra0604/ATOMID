@@ -95,9 +95,7 @@ class _InvoicePreviewScreenState extends ConsumerState<InvoicePreviewScreen> {
         pdf,
         'Invoice_${sale.invoiceNumber}',
       );
-      messenger.showSnackBar(
-        SnackBar(content: Text('Saved to ${file.path}')),
-      );
+      messenger.showSnackBar(SnackBar(content: Text('Saved to ${file.path}')));
     } catch (error) {
       messenger.showSnackBar(
         SnackBar(content: Text('Could not download the invoice: $error')),
@@ -197,8 +195,7 @@ class _InvoicePreviewScreenState extends ConsumerState<InvoicePreviewScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
                 ElevatedButton.icon(
-                  onPressed: () =>
-                      _print(settings, company, invoiceSettings),
+                  onPressed: () => _print(settings, company, invoiceSettings),
                   icon: Icon(
                     template.isThermal
                         ? Icons.receipt_long

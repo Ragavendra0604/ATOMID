@@ -7,14 +7,14 @@ void main() {
   test('Verify all local data', () async {
     TestWidgetsFlutterBinding.ensureInitialized();
     final repo = StorageRepository();
-    
+
     // Use dart:io to bypass path_provider plugin channels in tests
     final dbPath = r'C:\Users\HARIRAGAVENDRA\AppData\Roaming\atomid\atomid\db';
-    
+
     print('USING DB PATH: $dbPath');
 
     await repo.init(storagePath: dbPath);
-    
+
     print('=====================================');
     print('DATABASE VERIFICATION REPORT');
     print('=====================================');
@@ -30,7 +30,7 @@ void main() {
     print('Failed Items: ${repo.getDeadSyncItems().length}');
     print('Total Sync Logs: ${repo.getSyncLogs().length}');
     print('=====================================');
-    
+
     await repo.dispose();
   });
 }

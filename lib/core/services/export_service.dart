@@ -504,9 +504,13 @@ class ExportService {
     return file;
   }
 
-  static Future<void> shareFile(BuildContext context, PlatformFile file, String text) async {
+  static Future<void> shareFile(
+    BuildContext context,
+    PlatformFile file,
+    String text,
+  ) async {
     if (kIsWeb) return;
-    
+
     if (PlatformIo.isWindows || PlatformIo.isLinux || PlatformIo.isMacOS) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -529,7 +533,7 @@ class ExportService {
 
     await SharePlus.instance.share(
       ShareParams(
-        files: [XFile(file.path)], 
+        files: [XFile(file.path)],
         text: text,
         sharePositionOrigin: sharePositionOrigin,
       ),
@@ -1408,8 +1412,7 @@ class ExportService {
         if (!sale.isInterState) summary.stateLevyLabel,
         'Amount',
       ],
-      InvoiceTemplate.thermal ||
-      InvoiceTemplate.a4Professional => [
+      InvoiceTemplate.thermal || InvoiceTemplate.a4Professional => [
         '#',
         'Item',
         'HSN',
@@ -1458,43 +1461,40 @@ class ExportService {
       // the rule and still needs one filling in — it is never omitted.
       final hsn = item.hsn.isNotEmpty ? item.hsn : '-';
       final stateTax = item.sgstAmount + item.utgstAmount;
-      rows.add(
-        switch (template) {
-          InvoiceTemplate.simpleRetail => [
-            position,
-            name,
-            hsn,
-            qty,
-            Fmt.money(item.price, symbol),
-            Fmt.money(item.total, symbol),
-          ],
-          InvoiceTemplate.a4DetailedGst => [
-            position,
-            name,
-            hsn,
-            qty,
-            Fmt.money(item.price, symbol),
-            Fmt.money(taxable, symbol),
-            Fmt.money(
-              sale.isInterState ? item.igstAmount : item.cgstAmount,
-              symbol,
-            ),
-            if (!sale.isInterState) Fmt.money(stateTax, symbol),
-            Fmt.money(item.total, symbol),
-          ],
-          InvoiceTemplate.thermal ||
-          InvoiceTemplate.a4Professional => [
-            position,
-            name,
-            hsn,
-            qty,
-            Fmt.money(item.price, symbol),
-            Fmt.money(taxable, symbol),
-            item.gstRate != null ? _ratePct(item.gstRate!) : '-',
-            Fmt.money(item.total, symbol),
-          ],
-        },
-      );
+      rows.add(switch (template) {
+        InvoiceTemplate.simpleRetail => [
+          position,
+          name,
+          hsn,
+          qty,
+          Fmt.money(item.price, symbol),
+          Fmt.money(item.total, symbol),
+        ],
+        InvoiceTemplate.a4DetailedGst => [
+          position,
+          name,
+          hsn,
+          qty,
+          Fmt.money(item.price, symbol),
+          Fmt.money(taxable, symbol),
+          Fmt.money(
+            sale.isInterState ? item.igstAmount : item.cgstAmount,
+            symbol,
+          ),
+          if (!sale.isInterState) Fmt.money(stateTax, symbol),
+          Fmt.money(item.total, symbol),
+        ],
+        InvoiceTemplate.thermal || InvoiceTemplate.a4Professional => [
+          position,
+          name,
+          hsn,
+          qty,
+          Fmt.money(item.price, symbol),
+          Fmt.money(taxable, symbol),
+          item.gstRate != null ? _ratePct(item.gstRate!) : '-',
+          Fmt.money(item.total, symbol),
+        ],
+      });
     }
     return rows;
   }
@@ -1587,8 +1587,7 @@ class ExportService {
     InvoiceTemplate? template,
     PdfPageFormat? pageFormat,
   }) {
-    final chosen =
-        template ?? InvoiceTemplate.fromId(settings.invoiceTemplate);
+    final chosen = template ?? InvoiceTemplate.fromId(settings.invoiceTemplate);
     if (chosen.isThermal) {
       return generateThermalReceiptPdf(
         sale,
@@ -1701,10 +1700,10 @@ class ExportService {
               _buildThermalRow(
                 sale.invoiceNumber,
                 '${sale.date.day.toString().padLeft(2, '0')}-'
-                    '${sale.date.month.toString().padLeft(2, '0')}-'
-                    '${sale.date.year} '
-                    '${sale.date.hour.toString().padLeft(2, '0')}:'
-                    '${sale.date.minute.toString().padLeft(2, '0')}',
+                '${sale.date.month.toString().padLeft(2, '0')}-'
+                '${sale.date.year} '
+                '${sale.date.hour.toString().padLeft(2, '0')}:'
+                '${sale.date.minute.toString().padLeft(2, '0')}',
               ),
               if (sale.customerName.isNotEmpty &&
                   sale.customerName != 'Walk-In Customer')

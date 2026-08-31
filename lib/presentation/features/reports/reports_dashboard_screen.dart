@@ -48,7 +48,6 @@ class _ReportsDashboardScreenState extends ConsumerState<ReportsDashboardScreen>
     return allSales.where((s) => window.contains(s.date)).toList();
   }
 
-
   @override
   Widget build(BuildContext context) {
     final allSales = ref.watch(salesProvider);

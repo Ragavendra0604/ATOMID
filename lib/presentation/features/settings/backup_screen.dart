@@ -108,21 +108,22 @@ class _BackupScreenState extends ConsumerState<BackupScreen> {
   /// A backup sitting next to the data it protects survives a mistake but not
   /// a lost phone. Getting it off the device is the half people skip, so it is
   /// one tap here.
-  Future<void> _share(BuildContext context, BackupResult backup) => _run(() async {
-    final box = context.findRenderObject() as RenderBox?;
-    final sharePositionOrigin = box != null
-        ? box.localToGlobal(Offset.zero) & box.size
-        : null;
+  Future<void> _share(BuildContext context, BackupResult backup) =>
+      _run(() async {
+        final box = context.findRenderObject() as RenderBox?;
+        final sharePositionOrigin = box != null
+            ? box.localToGlobal(Offset.zero) & box.size
+            : null;
 
-    await SharePlus.instance.share(
-      ShareParams(
-        files: [XFile(backup.path)],
-        text: 'Atomid backup — ${Fmt.dateTime(backup.takenAt)}',
-        sharePositionOrigin: sharePositionOrigin,
-      ),
-    );
-    return 'Backup shared.';
-  });
+        await SharePlus.instance.share(
+          ShareParams(
+            files: [XFile(backup.path)],
+            text: 'Atomid backup — ${Fmt.dateTime(backup.takenAt)}',
+            sharePositionOrigin: sharePositionOrigin,
+          ),
+        );
+        return 'Backup shared.';
+      });
 
   static String _size(int bytes) {
     if (bytes < 1024) return '$bytes B';

@@ -25,8 +25,7 @@ class InvoiceTemplateScreen extends ConsumerStatefulWidget {
       _InvoiceTemplateScreenState();
 }
 
-class _InvoiceTemplateScreenState
-    extends ConsumerState<InvoiceTemplateScreen> {
+class _InvoiceTemplateScreenState extends ConsumerState<InvoiceTemplateScreen> {
   /// One rasterised first page per template. Absent while it renders, and
   /// absent for good if rasterising is unavailable on this platform — the
   /// card then falls back to a drawn impression of the layout rather than
@@ -404,8 +403,7 @@ class _Placeholder extends StatelessWidget {
           if (!template.isThermal) bar(1),
           const SizedBox(height: 4),
           bar(0.6, strong: true),
-          if (template != InvoiceTemplate.simpleRetail)
-            bar(0.6, strong: true),
+          if (template != InvoiceTemplate.simpleRetail) bar(0.6, strong: true),
           bar(0.4, strong: true),
           const Spacer(),
           if (isLoading)

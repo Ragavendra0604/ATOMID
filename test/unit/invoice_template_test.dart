@@ -62,15 +62,21 @@ Sale _threeRateSale() {
 
 void main() {
   group('AmountInWords', () {
-    test('renders correct singular and plural wording for rupees and paise', () {
-      expect(AmountInWords.rupees(1.00), 'One Rupee Only');
-      expect(AmountInWords.rupees(2.00), 'Two Rupees Only');
-      expect(AmountInWords.rupees(1.01), 'One Rupee and One Paise Only');
-      expect(AmountInWords.rupees(1.05), 'One Rupee and Five Paise Only');
-      expect(AmountInWords.rupees(1.50), 'One Rupee and Fifty Paise Only');
-      expect(AmountInWords.rupees(10.99), 'Ten Rupees and Ninety-Nine Paise Only');
-      expect(AmountInWords.rupees(100.00), 'One Hundred Rupees Only');
-    });
+    test(
+      'renders correct singular and plural wording for rupees and paise',
+      () {
+        expect(AmountInWords.rupees(1.00), 'One Rupee Only');
+        expect(AmountInWords.rupees(2.00), 'Two Rupees Only');
+        expect(AmountInWords.rupees(1.01), 'One Rupee and One Paise Only');
+        expect(AmountInWords.rupees(1.05), 'One Rupee and Five Paise Only');
+        expect(AmountInWords.rupees(1.50), 'One Rupee and Fifty Paise Only');
+        expect(
+          AmountInWords.rupees(10.99),
+          'Ten Rupees and Ninety-Nine Paise Only',
+        );
+        expect(AmountInWords.rupees(100.00), 'One Hundred Rupees Only');
+      },
+    );
 
     test('renders the invoice footer figure accurately for large amounts', () {
       expect(
@@ -85,7 +91,7 @@ void main() {
     });
 
     test('rounds to the figure printed beside it', () {
-      // 0.005 rounds away from zero natively via fixed-point rendering 
+      // 0.005 rounds away from zero natively via fixed-point rendering
       // preventing IEEE 754 precision truncations from producing 0 Paise
       expect(AmountInWords.rupees(1.005), 'One Rupee and One Paise Only');
     });

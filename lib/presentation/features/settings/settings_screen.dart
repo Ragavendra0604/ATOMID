@@ -176,7 +176,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               value: _hsnRequired,
                               onChanged: (val) =>
                                   setState(() => _hsnRequired = val),
-                              title: const Text('Mandatory HSN on Product Entry'),
+                              title: const Text(
+                                'Mandatory HSN on Product Entry',
+                              ),
                               subtitle: const Text(
                                 'Blocks saving a product without a valid HSN code.',
                               ),
@@ -501,9 +503,7 @@ class _GstRateManagerSheet extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
-            const Text(
-              'Manage GST rates for your business setup.',
-            ),
+            const Text('Manage GST rates for your business setup.'),
             const SizedBox(height: 16),
             Align(
               alignment: Alignment.centerRight,

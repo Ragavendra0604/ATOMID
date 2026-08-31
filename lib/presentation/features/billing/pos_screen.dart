@@ -136,9 +136,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
   bool _shareOneCode(List<Product> products) {
     final first = products.first.productCode.trim().toLowerCase();
     if (first.isEmpty) return false;
-    return products.every(
-      (p) => p.productCode.trim().toLowerCase() == first,
-    );
+    return products.every((p) => p.productCode.trim().toLowerCase() == first);
   }
 
   /// Every colour and size on one product code, in one list.

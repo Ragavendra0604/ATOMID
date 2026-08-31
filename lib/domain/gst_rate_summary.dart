@@ -140,10 +140,7 @@ class GstRateSummary {
 
     final rows = grouped.values.toList()
       ..sort((a, b) => a.gstRate.compareTo(b.gstRate));
-    return GstRateSummary(
-      rows: _reconciled(rows, sale),
-      stateLevyLabel: label,
-    );
+    return GstRateSummary(rows: _reconciled(rows, sale), stateLevyLabel: label);
   }
 
   /// Pushes any per-column difference between the grouped rows and the sale's
@@ -187,8 +184,7 @@ class GstRateSummary {
       taxable: _round2(widest.taxable + (sale.taxableAmount - taxableSum)),
       cgst: _round2(widest.cgst + (sale.cgstAmount - cgstSum)),
       stateGst: _round2(
-        widest.stateGst +
-            ((sale.sgstAmount + sale.utgstAmount) - stateSum),
+        widest.stateGst + ((sale.sgstAmount + sale.utgstAmount) - stateSum),
       ),
       igst: _round2(widest.igst + (sale.igstAmount - igstSum)),
       cess: _round2(widest.cess + (sale.cessAmount - cessSum)),

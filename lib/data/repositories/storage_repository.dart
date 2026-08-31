@@ -331,7 +331,7 @@ class StorageRepository {
     _rebuildBarcodeIndex();
     _rebuildCustomerIndexes();
     _rebuildLedgerBalances();
-    
+
     _rebuildProductCache();
     _rebuildSaleCache();
     _rebuildCustomerCache();
@@ -616,30 +616,34 @@ class StorageRepository {
   void _rebuildProductCache() {
     _cachedProducts = _productsBox.values.toList()
       ..sort((a, b) => b.createdDate.compareTo(a.createdDate));
-      
+
     _productSearchIndex.clear();
     for (final p in _cachedProducts) {
-      _productSearchIndex[p.id] = '${p.productName} ${p.productCode} ${p.category} ${p.brand} ${p.color} ${p.variants.map((v) => v.barcode).join(' ')}'.toLowerCase();
+      _productSearchIndex[p.id] =
+          '${p.productName} ${p.productCode} ${p.category} ${p.brand} ${p.color} ${p.variants.map((v) => v.barcode).join(' ')}'
+              .toLowerCase();
     }
   }
 
   void _rebuildSaleCache() {
     _cachedSales = _salesBox.values.where((s) => !s.isDeleted).toList()
       ..sort((a, b) => b.date.compareTo(a.date));
-      
+
     _saleSearchIndex.clear();
     for (final s in _cachedSales) {
-      _saleSearchIndex[s.id] = '${s.invoiceNumber} ${s.customerName}'.toLowerCase();
+      _saleSearchIndex[s.id] = '${s.invoiceNumber} ${s.customerName}'
+          .toLowerCase();
     }
   }
 
   void _rebuildCustomerCache() {
     _cachedCustomers = _customersBox.values.where((c) => !c.isDeleted).toList()
       ..sort((a, b) => b.createdDate.compareTo(a.createdDate));
-      
+
     _customerSearchIndex.clear();
     for (final c in _cachedCustomers) {
-      _customerSearchIndex[c.id] = '${c.name} ${c.mobile} ${c.email} ${c.customerGroup}'.toLowerCase();
+      _customerSearchIndex[c.id] =
+          '${c.name} ${c.mobile} ${c.email} ${c.customerGroup}'.toLowerCase();
     }
   }
 

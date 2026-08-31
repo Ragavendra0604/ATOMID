@@ -21,7 +21,9 @@ class _SyncStatusBarState extends ConsumerState<SyncStatusBar> {
     final status = ref.watch(syncStatusProvider);
 
     // If there is no activity (idle or offline) and no pending items, hide the bar.
-    if (status.phase != SyncPhase.syncing && status.pending == 0 && status.dead == 0) {
+    if (status.phase != SyncPhase.syncing &&
+        status.pending == 0 &&
+        status.dead == 0) {
       // Return an empty widget to take up no space.
       return const SizedBox.shrink();
     }
@@ -30,18 +32,20 @@ class _SyncStatusBarState extends ConsumerState<SyncStatusBar> {
     final isSyncing = status.phase == SyncPhase.syncing;
     final hasFailed = status.dead > 0;
 
-    final bgColor = hasFailed 
-        ? scheme.errorContainer 
-        : (isSyncing ? scheme.primaryContainer : scheme.surfaceContainerHighest);
-    final fgColor = hasFailed 
-        ? scheme.onErrorContainer 
+    final bgColor = hasFailed
+        ? scheme.errorContainer
+        : (isSyncing
+              ? scheme.primaryContainer
+              : scheme.surfaceContainerHighest);
+    final fgColor = hasFailed
+        ? scheme.onErrorContainer
         : (isSyncing ? scheme.onPrimaryContainer : scheme.onSurfaceVariant);
 
     String statusText;
     if (status.message != null && status.message!.isNotEmpty) {
       statusText = status.message!;
     } else if (isSyncing) {
-      statusText = status.pending > 0 
+      statusText = status.pending > 0
           ? 'Uploading ${status.pending} items...'
           : 'Syncing...';
     } else if (hasFailed) {
@@ -78,11 +82,16 @@ class _SyncStatusBarState extends ConsumerState<SyncStatusBar> {
             InkWell(
               onTap: () => setState(() => _isExpanded = !_isExpanded),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
                 child: Row(
                   children: [
                     Icon(
-                      isSyncing ? Icons.cloud_sync : (hasFailed ? Icons.cloud_off : Icons.cloud_queue),
+                      isSyncing
+                          ? Icons.cloud_sync
+                          : (hasFailed ? Icons.cloud_off : Icons.cloud_queue),
                       color: fgColor,
                       size: 20,
                     ),
@@ -128,7 +137,7 @@ class _ExpandedLogsPanel extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final pendingItems = ref.watch(pendingSyncItemsProvider);
     final logs = ref.watch(syncLogProvider);
-    
+
     // Sort logs descending (newest first)
     final sortedLogs = List<SyncLogModel>.from(logs)
       ..sort((a, b) => b.completedAt.compareTo(a.completedAt));
@@ -140,8 +149,14 @@ class _ExpandedLogsPanel extends ConsumerWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         children: [
           if (pendingItems.isNotEmpty) ...[
-            Text('WAITING TO UPLOAD', 
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: fgColor.withValues(alpha: 0.7))),
+            Text(
+              'WAITING TO UPLOAD',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: fgColor.withValues(alpha: 0.7),
+              ),
+            ),
             const SizedBox(height: 8),
             for (final item in pendingItems.take(5))
               _buildItemRow(
@@ -153,21 +168,37 @@ class _ExpandedLogsPanel extends ConsumerWidget {
             if (pendingItems.length > 5)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Text('...and ${pendingItems.length - 5} more', style: TextStyle(color: fgColor.withValues(alpha: 0.6), fontSize: 12)),
+                child: Text(
+                  '...and ${pendingItems.length - 5} more',
+                  style: TextStyle(
+                    color: fgColor.withValues(alpha: 0.6),
+                    fontSize: 12,
+                  ),
+                ),
               ),
             const SizedBox(height: 16),
           ],
-          
+
           if (sortedLogs.isNotEmpty) ...[
-            Text('RECENTLY UPLOADED', 
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: fgColor.withValues(alpha: 0.7))),
+            Text(
+              'RECENTLY UPLOADED',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: fgColor.withValues(alpha: 0.7),
+              ),
+            ),
             const SizedBox(height: 8),
             for (final log in sortedLogs.take(10))
               _buildItemRow(
-                icon: log.status == 'SUCCESS' ? Icons.check_circle : Icons.error,
+                icon: log.status == 'SUCCESS'
+                    ? Icons.check_circle
+                    : Icons.error,
                 title: '${log.operation} ${log.entityType}',
                 subtitle: Fmt.dateTime(log.completedAt),
-                color: log.status == 'SUCCESS' ? Colors.green.shade600 : Colors.red.shade600,
+                color: log.status == 'SUCCESS'
+                    ? Colors.green.shade600
+                    : Colors.red.shade600,
               ),
           ],
         ],
@@ -175,7 +206,12 @@ class _ExpandedLogsPanel extends ConsumerWidget {
     );
   }
 
-  Widget _buildItemRow({required IconData icon, required String title, required String subtitle, required Color color}) {
+  Widget _buildItemRow({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Color color,
+  }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8.0),
       child: Row(
@@ -192,7 +228,10 @@ class _ExpandedLogsPanel extends ConsumerWidget {
           ),
           Text(
             subtitle,
-            style: TextStyle(fontSize: 11, color: fgColor.withValues(alpha: 0.7)),
+            style: TextStyle(
+              fontSize: 11,
+              color: fgColor.withValues(alpha: 0.7),
+            ),
           ),
         ],
       ),
