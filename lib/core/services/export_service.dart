@@ -4,6 +4,7 @@ import 'package:atomid/core/utils/platform_io.dart';
 import 'package:atomid/core/utils/formatters.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
+import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -503,10 +504,35 @@ class ExportService {
     return file;
   }
 
-  static Future<void> shareFile(PlatformFile file, String text) async {
+  static Future<void> shareFile(BuildContext context, PlatformFile file, String text) async {
     if (kIsWeb) return;
+    
+    if (PlatformIo.isWindows || PlatformIo.isLinux || PlatformIo.isMacOS) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Saved to ${file.path}'),
+          action: SnackBarAction(
+            label: 'Copy Path',
+            onPressed: () => Clipboard.setData(ClipboardData(text: file.path)),
+          ),
+          duration: const Duration(seconds: 10),
+        ),
+      );
+      return;
+    }
+
+    final box = context.findRenderObject() as RenderBox?;
+    final sharePositionOrigin = box != null
+        ? box.localToGlobal(Offset.zero) & box.size
+        : null;
+
     await SharePlus.instance.share(
-      ShareParams(files: [XFile(file.path)], text: text),
+      ShareParams(
+        files: [XFile(file.path)], 
+        text: text,
+        sharePositionOrigin: sharePositionOrigin,
+      ),
     );
   }
 
@@ -1318,7 +1344,7 @@ class ExportService {
                           fontWeight: pw.FontWeight.bold,
                         ),
                       ),
-                      pw.SizedBox(height: 28),
+                      pw.SizedBox(height: 50),
                       pw.Text(
                         'Authorized Signatory',
                         style: const pw.TextStyle(fontSize: 8),

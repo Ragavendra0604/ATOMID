@@ -519,6 +519,15 @@ class _GstRateManagerSheet extends StatelessWidget {
   }
 }
 
+class _TaxModeSelector extends StatelessWidget {
+  const _TaxModeSelector();
+
+  @override
+  Widget build(BuildContext context) {
+    return const SizedBox.shrink();
+  }
+}
+
 class _AboutFooter extends StatelessWidget {
   @override
   Widget build(BuildContext context) {

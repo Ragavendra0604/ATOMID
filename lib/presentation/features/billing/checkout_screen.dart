@@ -360,7 +360,6 @@ class _PaymentMethodSelector extends StatelessWidget {
   }
 }
 
-
 class _SummaryCard extends StatelessWidget {
   final SaleTotals totals;
   final SettingsModel settings;

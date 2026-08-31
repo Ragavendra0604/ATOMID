@@ -11,6 +11,7 @@ import 'package:atomid/presentation/features/purchases/purchase_list_screen.dart
 import 'package:atomid/presentation/features/reports/reports_dashboard_screen.dart';
 import 'package:atomid/presentation/features/settings/settings_screen.dart';
 import 'package:atomid/presentation/features/suppliers/supplier_list_screen.dart';
+import 'package:atomid/presentation/features/sync/sync_status_bar.dart';
 import 'package:atomid/presentation/features/system/system_console_screen.dart';
 import 'package:atomid/presentation/providers/app_providers.dart';
 import 'package:atomid/presentation/widgets/brand_title.dart';
@@ -190,12 +191,19 @@ class _AppShellState extends ConsumerState<AppShell> {
       ],
     );
 
+    final bodyWithSyncBar = Column(
+      children: [
+        Expanded(child: body),
+        const SyncStatusBar(),
+      ],
+    );
+
     return ResponsiveBuilder(
-      mobileBuilder: (context) => _mobile(visible, safeIndex, body),
+      mobileBuilder: (context) => _mobile(visible, safeIndex, bodyWithSyncBar),
       tabletBuilder: (context) =>
-          _rail(visible, safeIndex, body, extended: false),
+          _rail(visible, safeIndex, bodyWithSyncBar, extended: false),
       desktopBuilder: (context) =>
-          _rail(visible, safeIndex, body, extended: true),
+          _rail(visible, safeIndex, bodyWithSyncBar, extended: true),
     );
   }
 

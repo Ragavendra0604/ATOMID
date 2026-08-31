@@ -177,6 +177,17 @@ class StorageRepository {
   final Map<String, double> _customerBalances = {};
   final Map<String, double> _supplierBalances = {};
 
+  // Caches for fast UI rendering, built once and updated incrementally,
+  // avoiding O(N log N) sorts and massive memory allocations on every read.
+  List<Product> _cachedProducts = [];
+  Map<String, String> _productSearchIndex = {};
+
+  List<Sale> _cachedSales = [];
+  Map<String, String> _saleSearchIndex = {};
+
+  List<Customer> _cachedCustomers = [];
+  Map<String, String> _customerSearchIndex = {};
+
   static bool _adaptersRegistered = false;
 
   bool _isInitialized = false;
@@ -320,6 +331,10 @@ class StorageRepository {
     _rebuildBarcodeIndex();
     _rebuildCustomerIndexes();
     _rebuildLedgerBalances();
+    
+    _rebuildProductCache();
+    _rebuildSaleCache();
+    _rebuildCustomerCache();
     await resetStuckSyncItems();
     await seedDefaultGstRates();
 
@@ -424,6 +439,7 @@ class StorageRepository {
         product == null
             ? _unindexProduct(entityId)
             : _indexProductBarcodes(product);
+        _rebuildProductCache();
       case 'Customer':
         final customer = _customersBox.get(entityId);
         if (customer == null) return;
@@ -431,9 +447,11 @@ class StorageRepository {
         // The cache mirrors the record rather than being trusted over it, so
         // a remote write cannot leave a balance the ledger disagrees with.
         _customerBalances[entityId] = customer.currentBalance;
+        _rebuildCustomerCache();
       case 'Sale':
         final sale = _salesBox.get(entityId);
         sale == null ? _unindexSale(entityId) : _indexSaleForCustomer(sale);
+        _rebuildSaleCache();
       case 'Supplier':
         final supplier = _suppliersBox.get(entityId);
         if (supplier != null) {
@@ -593,6 +611,36 @@ class StorageRepository {
     }
 
     return problems;
+  }
+
+  void _rebuildProductCache() {
+    _cachedProducts = _productsBox.values.toList()
+      ..sort((a, b) => b.createdDate.compareTo(a.createdDate));
+      
+    _productSearchIndex.clear();
+    for (final p in _cachedProducts) {
+      _productSearchIndex[p.id] = '${p.productName} ${p.productCode} ${p.category} ${p.brand} ${p.color} ${p.variants.map((v) => v.barcode).join(' ')}'.toLowerCase();
+    }
+  }
+
+  void _rebuildSaleCache() {
+    _cachedSales = _salesBox.values.where((s) => !s.isDeleted).toList()
+      ..sort((a, b) => b.date.compareTo(a.date));
+      
+    _saleSearchIndex.clear();
+    for (final s in _cachedSales) {
+      _saleSearchIndex[s.id] = '${s.invoiceNumber} ${s.customerName}'.toLowerCase();
+    }
+  }
+
+  void _rebuildCustomerCache() {
+    _cachedCustomers = _customersBox.values.where((c) => !c.isDeleted).toList()
+      ..sort((a, b) => b.createdDate.compareTo(a.createdDate));
+      
+    _customerSearchIndex.clear();
+    for (final c in _cachedCustomers) {
+      _customerSearchIndex[c.id] = '${c.name} ${c.mobile} ${c.email} ${c.customerGroup}'.toLowerCase();
+    }
   }
 
   void _rebuildBarcodeIndex() {
@@ -2059,8 +2107,7 @@ class StorageRepository {
   }
 
   List<Product> getAllProducts() {
-    return _productsBox.values.toList()
-      ..sort((a, b) => b.createdDate.compareTo(a.createdDate));
+    return List.unmodifiable(_cachedProducts);
   }
 
   List<Product> searchProducts(String query) {
@@ -2071,14 +2118,10 @@ class StorageRepository {
     if (exactMatch != null) return [exactMatch];
 
     final lowerQuery = query.toLowerCase();
-    return _productsBox.values.where((p) {
-      return p.productName.toLowerCase().contains(lowerQuery) ||
-          p.productCode.toLowerCase().contains(lowerQuery) ||
-          p.category.toLowerCase().contains(lowerQuery) ||
-          p.brand.toLowerCase().contains(lowerQuery) ||
-          p.color.toLowerCase().contains(lowerQuery) ||
-          p.variants.any((v) => v.barcode.toLowerCase().contains(lowerQuery));
-    }).toList()..sort((a, b) => b.createdDate.compareTo(a.createdDate));
+    return _cachedProducts.where((p) {
+      final searchString = _productSearchIndex[p.id];
+      return searchString != null && searchString.contains(lowerQuery);
+    }).toList();
   }
 
   /// Other products already filed under this product code.
@@ -2680,8 +2723,7 @@ class StorageRepository {
           .toList();
 
   List<Sale> getAllSales() {
-    return _salesBox.values.where((s) => !s.isDeleted).toList()
-      ..sort((a, b) => b.date.compareTo(a.date));
+    return List.unmodifiable(_cachedSales);
   }
 
   Sale? getSaleById(String id) {
@@ -2967,8 +3009,7 @@ class StorageRepository {
   }
 
   List<Customer> getAllCustomers() {
-    return _customersBox.values.where((c) => !c.isDeleted).toList()
-      ..sort((a, b) => b.createdDate.compareTo(a.createdDate));
+    return List.unmodifiable(_cachedCustomers);
   }
 
   Customer? getCustomerById(String id) {
@@ -2978,22 +3019,15 @@ class StorageRepository {
   List<Customer> searchCustomers(String query) {
     if (query.isEmpty) return getAllCustomers();
     final lowerQuery = query.toLowerCase();
-    return _customersBox.values.where((c) {
-      if (c.isDeleted) return false;
-      return c.name.toLowerCase().contains(lowerQuery) ||
-          c.mobile.toLowerCase().contains(lowerQuery) ||
-          c.code.toLowerCase().contains(lowerQuery) ||
-          c.email.toLowerCase().contains(lowerQuery) ||
-          c.tags.any((tag) => tag.toLowerCase().contains(lowerQuery));
-    }).toList()..sort((a, b) => b.createdDate.compareTo(a.createdDate));
+    return _cachedCustomers.where((c) {
+      final searchString = _customerSearchIndex[c.id];
+      return searchString != null && searchString.contains(lowerQuery);
+    }).toList();
   }
 
   List<Customer> getCustomersByGroup(String group) {
     if (group.isEmpty || group == 'All') return getAllCustomers();
-    return _customersBox.values
-        .where((c) => !c.isDeleted && c.customerGroup == group)
-        .toList()
-      ..sort((a, b) => b.createdDate.compareTo(a.createdDate));
+    return _cachedCustomers.where((c) => c.customerGroup == group).toList();
   }
 
   List<CustomerLedger> getLedgerForCustomer(String customerId) {

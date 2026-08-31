@@ -42,6 +42,7 @@ class _InvoicePreviewScreenState extends ConsumerState<InvoicePreviewScreen> {
   /// name and the amount in the text — otherwise the customer receives
   /// `document.pdf` and cannot tell one bill from the next.
   Future<void> _shareInvoice(
+    BuildContext context,
     SettingsModel settings,
     CompanyModel company,
     InvoiceSettingsModel invoiceSettings,
@@ -62,7 +63,9 @@ class _InvoicePreviewScreenState extends ConsumerState<InvoicePreviewScreen> {
         'Invoice_${sale.invoiceNumber}',
       );
       final from = company.name.trim().isEmpty ? '' : ' from ${company.name}';
+      if (!context.mounted) return;
       await ExportService.shareFile(
+        context,
         file,
         'Invoice ${sale.invoiceNumber}$from — '
         '${Fmt.money(sale.grandTotal, settings.currencySymbol)}',
@@ -70,6 +73,34 @@ class _InvoicePreviewScreenState extends ConsumerState<InvoicePreviewScreen> {
     } catch (error) {
       messenger.showSnackBar(
         SnackBar(content: Text('Could not share the invoice: $error')),
+      );
+    }
+  }
+
+  Future<void> _downloadInvoice(
+    SettingsModel settings,
+    CompanyModel company,
+    InvoiceSettingsModel invoiceSettings,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final pdf = await ExportService.generateInvoiceForTemplate(
+        sale,
+        settings,
+        company,
+        invoiceSettings,
+        template: _template,
+      );
+      final file = await ExportService.exportPdf(
+        pdf,
+        'Invoice_${sale.invoiceNumber}',
+      );
+      messenger.showSnackBar(
+        SnackBar(content: Text('Saved to ${file.path}')),
+      );
+    } catch (error) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('Could not download the invoice: $error')),
       );
     }
   }
@@ -120,11 +151,13 @@ class _InvoicePreviewScreenState extends ConsumerState<InvoicePreviewScreen> {
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
-          IconButton(
-            tooltip: 'Share invoice',
-            icon: const Icon(Icons.share),
-            onPressed: () =>
-                _shareInvoice(settings, company, invoiceSettings),
+          Builder(
+            builder: (ctx) => IconButton(
+              tooltip: 'Share invoice',
+              icon: const Icon(Icons.share),
+              onPressed: () =>
+                  _shareInvoice(ctx, settings, company, invoiceSettings),
+            ),
           ),
         ],
       ),
@@ -175,7 +208,7 @@ class _InvoicePreviewScreenState extends ConsumerState<InvoicePreviewScreen> {
                 ),
                 OutlinedButton.icon(
                   onPressed: () =>
-                      _shareInvoice(settings, company, invoiceSettings),
+                      _downloadInvoice(settings, company, invoiceSettings),
                   icon: const Icon(Icons.download),
                   label: const Text('Download PDF'),
                 ),

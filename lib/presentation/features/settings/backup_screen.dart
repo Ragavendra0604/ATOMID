@@ -108,11 +108,17 @@ class _BackupScreenState extends ConsumerState<BackupScreen> {
   /// A backup sitting next to the data it protects survives a mistake but not
   /// a lost phone. Getting it off the device is the half people skip, so it is
   /// one tap here.
-  Future<void> _share(BackupResult backup) => _run(() async {
+  Future<void> _share(BuildContext context, BackupResult backup) => _run(() async {
+    final box = context.findRenderObject() as RenderBox?;
+    final sharePositionOrigin = box != null
+        ? box.localToGlobal(Offset.zero) & box.size
+        : null;
+
     await SharePlus.instance.share(
       ShareParams(
         files: [XFile(backup.path)],
         text: 'Atomid backup — ${Fmt.dateTime(backup.takenAt)}',
+        sharePositionOrigin: sharePositionOrigin,
       ),
     );
     return 'Backup shared.';
@@ -228,10 +234,12 @@ class _BackupScreenState extends ConsumerState<BackupScreen> {
                       if (!PlatformIo.isWindows &&
                           !PlatformIo.isLinux &&
                           !PlatformIo.isMacOS)
-                        IconButton(
-                          tooltip: 'Send a copy',
-                          icon: const Icon(Icons.ios_share, size: 20),
-                          onPressed: _busy ? null : () => _share(backup),
+                        Builder(
+                          builder: (ctx) => IconButton(
+                            tooltip: 'Send a copy',
+                            icon: const Icon(Icons.ios_share, size: 20),
+                            onPressed: _busy ? null : () => _share(ctx, backup),
+                          ),
                         ),
                       IconButton(
                         tooltip: 'Restore',

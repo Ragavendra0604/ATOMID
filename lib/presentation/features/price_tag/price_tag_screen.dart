@@ -74,10 +74,12 @@ class _PriceTagScreenState extends ConsumerState<PriceTagScreen> {
                   icon: const Icon(Icons.picture_as_pdf),
                   label: const Text('Export PDF'),
                 ),
-                ElevatedButton.icon(
-                  onPressed: () => _shareTag(settings.companyName),
-                  icon: const Icon(Icons.share),
-                  label: const Text('Share'),
+                Builder(
+                  builder: (ctx) => ElevatedButton.icon(
+                    onPressed: () => _shareTag(ctx, settings.companyName),
+                    icon: const Icon(Icons.share),
+                    label: const Text('Share'),
+                  ),
                 ),
                 ElevatedButton.icon(
                   onPressed: () => _printTag(settings.companyName),
@@ -349,7 +351,7 @@ class _PriceTagScreenState extends ConsumerState<PriceTagScreen> {
     }
   }
 
-  Future<void> _shareTag(String companyName) async {
+  Future<void> _shareTag(BuildContext context, String companyName) async {
     try {
       final settings = ref.read(settingsProvider);
       // read, not watch: a callback must not subscribe the widget that
@@ -362,14 +364,16 @@ class _PriceTagScreenState extends ConsumerState<PriceTagScreen> {
         company,
       );
       final file = await ExportService.exportPng(pdf, _getFileName());
+      if (!context.mounted) return;
       await ExportService.shareFile(
+        context,
         file,
         'Price Tag for ${widget.product.displayName} Size ${_selectedVariant.size}',
       );
       await _logAction('Tag Shared');
     } catch (e) {
       debugPrint('Share tag error: $e');
-      if (mounted) {
+      if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Unable to share tag. Please try again.'),

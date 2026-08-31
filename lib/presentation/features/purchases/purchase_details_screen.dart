@@ -75,25 +75,29 @@ class PurchaseDetailsScreen extends ConsumerWidget {
               );
             },
           ),
-          IconButton(
-            icon: const Icon(Icons.share),
-            tooltip: 'Share Purchase',
-            onPressed: () async {
-              final pdf = await ExportService.generatePurchaseReportPdf(
-                [purchase],
-                'Single Purchase',
-                settings,
-                company,
-              );
-              final file = await ExportService.exportPdf(
-                pdf,
-                freshPurchase.purchaseNumber,
-              );
-              await ExportService.shareFile(
-                file,
-                'Purchase ${freshPurchase.purchaseNumber} from ${freshPurchase.supplierName}',
-              );
-            },
+          Builder(
+            builder: (ctx) => IconButton(
+              icon: const Icon(Icons.share),
+              tooltip: 'Share Purchase',
+              onPressed: () async {
+                final pdf = await ExportService.generatePurchaseReportPdf(
+                  [purchase],
+                  'Single Purchase',
+                  settings,
+                  company,
+                );
+                final file = await ExportService.exportPdf(
+                  pdf,
+                  freshPurchase.purchaseNumber,
+                );
+                if (!ctx.mounted) return;
+                await ExportService.shareFile(
+                  ctx,
+                  file,
+                  'Purchase ${freshPurchase.purchaseNumber} from ${freshPurchase.supplierName}',
+                );
+              },
+            ),
           ),
         ],
       ),
