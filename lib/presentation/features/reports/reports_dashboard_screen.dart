@@ -5,7 +5,6 @@ import 'package:printing/printing.dart';
 
 import 'package:atomid/core/services/export_service.dart';
 import 'package:atomid/core/utils/formatters.dart';
-import 'package:atomid/data/models/purchase_model.dart';
 import 'package:atomid/data/models/sale_model.dart';
 import 'package:atomid/domain/date_window.dart';
 import 'package:atomid/domain/document_totals.dart';

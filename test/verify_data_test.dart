@@ -1,7 +1,6 @@
+// ignore_for_file: avoid_print
 import 'package:flutter_test/flutter_test.dart';
 import 'package:atomid/data/repositories/storage_repository.dart';
-import 'dart:io';
-import 'package:hive_ce/hive.dart';
 
 void main() {
   test('Verify all local data', () async {

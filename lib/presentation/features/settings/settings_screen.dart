@@ -1,12 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:atomid/core/utils/formatters.dart';
-import 'package:atomid/core/utils/ids.dart';
 import 'package:atomid/core/utils/responsive.dart';
-import 'package:atomid/data/models/gst_rate_config_model.dart';
 import 'package:atomid/data/models/settings_model.dart';
-import 'package:atomid/domain/pricing.dart';
 import 'package:atomid/presentation/features/auth/auth_screen.dart';
 import 'package:atomid/presentation/features/settings/advanced_settings_screen.dart';
 import 'package:atomid/presentation/features/settings/backup_screen.dart';
@@ -89,15 +85,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     await ref
         .read(storageRepositoryProvider)
         .saveSettings(_draft(isDarkMode: value));
-  }
-
-  void _openGstRateManager() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (ctx) => const _GstRateManagerSheet(),
-    );
   }
 
   @override
@@ -472,59 +459,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         onTap: onTap,
       ),
     );
-  }
-}
-
-class _GstRateManagerSheet extends StatelessWidget {
-  const _GstRateManagerSheet();
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'GST Rate Manager',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                ),
-                IconButton(
-                  tooltip: 'Close',
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            const Text('Manage GST rates for your business setup.'),
-            const SizedBox(height: 16),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Close'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _TaxModeSelector extends StatelessWidget {
-  const _TaxModeSelector();
-
-  @override
-  Widget build(BuildContext context) {
-    return const SizedBox.shrink();
   }
 }
 

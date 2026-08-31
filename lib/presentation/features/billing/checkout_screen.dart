@@ -103,8 +103,6 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     final settings = ref.watch(settingsProvider);
     final loyalty = ref.watch(loyaltySettingsProvider);
     final totals = ref.read(saleServiceProvider).preview(_buildRequest());
-    final shopStateCode = ref.watch(companyProvider).stateCode;
-    final customerStateCode = _customer?.stateCode ?? '';
 
     if (_isProcessing) {
       return Scaffold(

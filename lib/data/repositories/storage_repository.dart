@@ -177,16 +177,14 @@ class StorageRepository {
   final Map<String, double> _customerBalances = {};
   final Map<String, double> _supplierBalances = {};
 
-  // Caches for fast UI rendering, built once and updated incrementally,
-  // avoiding O(N log N) sorts and massive memory allocations on every read.
-  List<Product> _cachedProducts = [];
-  Map<String, String> _productSearchIndex = {};
+  final List<Product> _cachedProducts = [];
+  final Map<String, String> _productSearchIndex = {};
 
-  List<Sale> _cachedSales = [];
-  Map<String, String> _saleSearchIndex = {};
+  final List<Sale> _cachedSales = [];
+  final Map<String, String> _saleSearchIndex = {};
 
-  List<Customer> _cachedCustomers = [];
-  Map<String, String> _customerSearchIndex = {};
+  final List<Customer> _cachedCustomers = [];
+  final Map<String, String> _customerSearchIndex = {};
 
   static bool _adaptersRegistered = false;
 
@@ -614,8 +612,11 @@ class StorageRepository {
   }
 
   void _rebuildProductCache() {
-    _cachedProducts = _productsBox.values.toList()
-      ..sort((a, b) => b.createdDate.compareTo(a.createdDate));
+    _cachedProducts.clear();
+    _cachedProducts.addAll(
+      _productsBox.values.toList()
+        ..sort((a, b) => b.createdDate.compareTo(a.createdDate)),
+    );
 
     _productSearchIndex.clear();
     for (final p in _cachedProducts) {
@@ -626,8 +627,11 @@ class StorageRepository {
   }
 
   void _rebuildSaleCache() {
-    _cachedSales = _salesBox.values.where((s) => !s.isDeleted).toList()
-      ..sort((a, b) => b.date.compareTo(a.date));
+    _cachedSales.clear();
+    _cachedSales.addAll(
+      _salesBox.values.where((s) => !s.isDeleted).toList()
+        ..sort((a, b) => b.date.compareTo(a.date)),
+    );
 
     _saleSearchIndex.clear();
     for (final s in _cachedSales) {
@@ -637,8 +641,11 @@ class StorageRepository {
   }
 
   void _rebuildCustomerCache() {
-    _cachedCustomers = _customersBox.values.where((c) => !c.isDeleted).toList()
-      ..sort((a, b) => b.createdDate.compareTo(a.createdDate));
+    _cachedCustomers.clear();
+    _cachedCustomers.addAll(
+      _customersBox.values.where((c) => !c.isDeleted).toList()
+        ..sort((a, b) => b.createdDate.compareTo(a.createdDate)),
+    );
 
     _customerSearchIndex.clear();
     for (final c in _cachedCustomers) {

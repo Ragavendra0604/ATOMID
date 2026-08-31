@@ -5,7 +5,6 @@ import 'package:atomid/core/utils/formatters.dart';
 import 'package:atomid/core/utils/ids.dart';
 import 'package:atomid/core/utils/responsive.dart';
 import 'package:atomid/data/models/gst_rate_config_model.dart';
-import 'package:atomid/data/models/settings_model.dart';
 import 'package:atomid/domain/pricing.dart';
 import 'package:atomid/presentation/providers/app_providers.dart';
 
@@ -130,8 +129,9 @@ class _AdvancedSettingsScreenState
                                 ),
                               ],
                               onChanged: (v) {
-                                if (v != null)
+                                if (v != null) {
                                   setState(() => _walkInPosPolicy = v);
+                                }
                               },
                             ),
                             const SizedBox(height: 16),
@@ -159,8 +159,9 @@ class _AdvancedSettingsScreenState
                                 ),
                               ],
                               onChanged: (v) {
-                                if (v != null)
+                                if (v != null) {
                                   setState(() => _inclusiveTaxRounding = v);
+                                }
                               },
                             ),
                             const SizedBox(height: 16),
@@ -194,7 +195,9 @@ class _AdvancedSettingsScreenState
                                 ),
                               ],
                               onChanged: (v) {
-                                if (v != null) setState(() => _defaultUqc = v);
+                                if (v != null) {
+                                  setState(() => _defaultUqc = v);
+                                }
                               },
                             ),
                           ],

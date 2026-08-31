@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:atomid/core/utils/formatters.dart';
 import 'package:atomid/domain/services/sync_service.dart';
 import 'package:atomid/presentation/providers/app_providers.dart';
-import 'package:atomid/data/models/sync_queue_model.dart';
 import 'package:atomid/data/models/sync_log_model.dart';
 
 class SyncStatusBar extends ConsumerStatefulWidget {
