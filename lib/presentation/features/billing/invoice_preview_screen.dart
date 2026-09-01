@@ -10,6 +10,7 @@ import 'package:atomid/data/models/settings_model.dart';
 import 'package:atomid/core/services/export_service.dart';
 import 'package:atomid/domain/invoice_template.dart';
 import 'package:atomid/presentation/providers/app_providers.dart';
+import 'package:atomid/presentation/common/share_bottom_sheet.dart';
 
 /// Previews a completed sale and prints it.
 ///
@@ -58,17 +59,16 @@ class _InvoicePreviewScreenState extends ConsumerState<InvoicePreviewScreen> {
         invoiceSettings,
         template: _template,
       );
-      final file = await ExportService.exportPdf(
-        pdf,
-        'Invoice_${sale.invoiceNumber}',
-      );
+      final pdfBytes = await pdf.save();
       final from = company.name.trim().isEmpty ? '' : ' from ${company.name}';
       if (!context.mounted) return;
-      await ExportService.shareFile(
-        context,
-        file,
-        'Invoice ${sale.invoiceNumber}$from — '
-        '${Fmt.money(sale.grandTotal, settings.currencySymbol)}',
+      await ShareBottomSheet.show(
+        context: context,
+        pdfBytes: pdfBytes,
+        fileName: 'Invoice_${sale.invoiceNumber}',
+        shareText:
+            'Invoice ${sale.invoiceNumber}$from — '
+            '${Fmt.money(sale.grandTotal, settings.currencySymbol)}',
       );
     } catch (error) {
       messenger.showSnackBar(
@@ -173,8 +173,8 @@ class _InvoicePreviewScreenState extends ConsumerState<InvoicePreviewScreen> {
                 template: template,
                 pageFormat: format,
               ).then((pdf) => pdf.save()),
-              allowPrinting: true,
-              allowSharing: true,
+              allowPrinting: false,
+              allowSharing: false,
               canChangeOrientation: false,
               canChangePageFormat: false,
               // A sheet invoice is a sheet, never an 80mm till roll. The old

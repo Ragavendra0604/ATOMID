@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:io';
 
 import 'package:atomid/core/utils/platform_io.dart';
 import 'package:atomid/core/utils/formatters.dart';
@@ -477,6 +478,21 @@ class ExportService {
     return file;
   }
 
+  /// Like [exportPdf], but accepts pre-rendered bytes.
+  ///
+  /// Used by the share bottom sheet, which already holds the rendered PDF and
+  /// should not regenerate it just to save a local copy.
+  static Future<PlatformFile> exportPdfBytes(
+    Uint8List bytes,
+    String fileName,
+  ) async {
+    if (kIsWeb) throw UnsupportedError('File export is not supported on Web');
+    final dir = await _getExportDirectory('PDF');
+    final file = PlatformFile('${dir.path}/${safeFileName(fileName)}.pdf');
+    await file.writeAsBytes(bytes);
+    return file;
+  }
+
   static Future<PlatformFile> exportPng(
     pw.Document pdf,
     String fileName, {
@@ -511,33 +527,62 @@ class ExportService {
   ) async {
     if (kIsWeb) return;
 
-    if (PlatformIo.isWindows || PlatformIo.isLinux || PlatformIo.isMacOS) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Saved to ${file.path}'),
-          action: SnackBarAction(
-            label: 'Copy Path',
-            onPressed: () => Clipboard.setData(ClipboardData(text: file.path)),
-          ),
-          duration: const Duration(seconds: 10),
-        ),
-      );
-      return;
-    }
-
+    // Anchor rect for iPad / tablet share popover — required on iOS 26+.
     final box = context.findRenderObject() as RenderBox?;
     final sharePositionOrigin = box != null
         ? box.localToGlobal(Offset.zero) & box.size
         : null;
 
-    await SharePlus.instance.share(
-      ShareParams(
-        files: [XFile(file.path)],
-        text: text,
-        sharePositionOrigin: sharePositionOrigin,
-      ),
-    );
+    try {
+      final result = await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(file.path)],
+          text: text,
+          sharePositionOrigin: sharePositionOrigin,
+        ),
+      );
+
+      // User dismissed the sheet without choosing anything — not an error,
+      // but the caller might want to know the file is still sitting locally.
+      if (result.status == ShareResultStatus.dismissed) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Share cancelled. File saved to ${file.path}'),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e) {
+      if (!context.mounted) return;
+
+      // Fallback for desktop platforms if native share fails
+      if (PlatformIo.isWindows || PlatformIo.isLinux || PlatformIo.isMacOS) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Native Share failed. Saved to ${file.path}'),
+            action: SnackBarAction(
+              label: PlatformIo.isWindows ? 'Show in Folder' : 'Copy Path',
+              onPressed: () {
+                if (PlatformIo.isWindows) {
+                  Process.run('explorer.exe', ['/select,', file.path]);
+                } else {
+                  Clipboard.setData(ClipboardData(text: file.path));
+                }
+              },
+            ),
+            duration: const Duration(seconds: 8),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not share file: $e'),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    }
   }
 
   static Future<PlatformDirectory> _getExportDirectory(String subFolder) async {

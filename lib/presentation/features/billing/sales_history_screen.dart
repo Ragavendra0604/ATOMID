@@ -6,6 +6,7 @@ import 'package:atomid/presentation/features/billing/invoice_preview_screen.dart
 import 'package:atomid/core/services/export_service.dart';
 import 'package:atomid/domain/invoice_template.dart';
 import 'package:atomid/data/models/sale_model.dart';
+import 'package:atomid/presentation/common/share_bottom_sheet.dart';
 
 class SalesHistoryScreen extends ConsumerStatefulWidget {
   const SalesHistoryScreen({super.key});
@@ -32,17 +33,16 @@ class _SalesHistoryScreenState extends ConsumerState<SalesHistoryScreen> {
         invoiceSettings,
         template: template,
       );
-      final file = await ExportService.exportPdf(
-        pdf,
-        'Invoice_${sale.invoiceNumber}',
-      );
+      final pdfBytes = await pdf.save();
       final from = company.name.trim().isEmpty ? '' : ' from ${company.name}';
       if (!context.mounted) return;
-      await ExportService.shareFile(
-        context,
-        file,
-        'Invoice ${sale.invoiceNumber}$from — '
-        '${Fmt.money(sale.grandTotal, settings.currencySymbol)}',
+      await ShareBottomSheet.show(
+        context: context,
+        pdfBytes: pdfBytes,
+        fileName: 'Invoice_${sale.invoiceNumber}',
+        shareText:
+            'Invoice ${sale.invoiceNumber}$from — '
+            '${Fmt.money(sale.grandTotal, settings.currencySymbol)}',
       );
     } catch (error) {
       messenger.showSnackBar(

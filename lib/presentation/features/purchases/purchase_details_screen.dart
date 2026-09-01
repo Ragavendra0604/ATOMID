@@ -10,6 +10,7 @@ import 'package:atomid/presentation/providers/app_providers.dart';
 import 'package:atomid/core/services/export_service.dart';
 import 'package:printing/printing.dart';
 import 'package:pdf/pdf.dart';
+import 'package:atomid/presentation/common/share_bottom_sheet.dart';
 
 class PurchaseDetailsScreen extends ConsumerWidget {
   final Purchase purchase;
@@ -86,15 +87,14 @@ class PurchaseDetailsScreen extends ConsumerWidget {
                   settings,
                   company,
                 );
-                final file = await ExportService.exportPdf(
-                  pdf,
-                  freshPurchase.purchaseNumber,
-                );
+                final pdfBytes = await pdf.save();
                 if (!ctx.mounted) return;
-                await ExportService.shareFile(
-                  ctx,
-                  file,
-                  'Purchase ${freshPurchase.purchaseNumber} from ${freshPurchase.supplierName}',
+                await ShareBottomSheet.show(
+                  context: ctx,
+                  pdfBytes: pdfBytes,
+                  fileName: freshPurchase.purchaseNumber,
+                  shareText:
+                      'Purchase ${freshPurchase.purchaseNumber} from ${freshPurchase.supplierName}',
                 );
               },
             ),

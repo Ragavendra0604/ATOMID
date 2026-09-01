@@ -8,6 +8,7 @@ import 'package:atomid/data/models/action_history_model.dart';
 import 'package:uuid/uuid.dart';
 import 'package:barcode_widget/barcode_widget.dart';
 import 'package:printing/printing.dart';
+import 'package:atomid/presentation/common/share_bottom_sheet.dart';
 
 class PriceTagScreen extends ConsumerStatefulWidget {
   final Product product;
@@ -363,12 +364,14 @@ class _PriceTagScreenState extends ConsumerState<PriceTagScreen> {
         settings,
         company,
       );
-      final file = await ExportService.exportPng(pdf, _getFileName());
+      final pdfBytes = await pdf.save();
       if (!context.mounted) return;
-      await ExportService.shareFile(
-        context,
-        file,
-        'Price Tag for ${widget.product.displayName} Size ${_selectedVariant.size}',
+      await ShareBottomSheet.show(
+        context: context,
+        pdfBytes: pdfBytes,
+        fileName: _getFileName(),
+        shareText:
+            'Price Tag for ${widget.product.displayName} Size ${_selectedVariant.size}',
       );
       await _logAction('Tag Shared');
     } catch (e) {
