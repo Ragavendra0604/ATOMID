@@ -94,9 +94,9 @@ class _ShareBottomSheetState extends State<ShareBottomSheet> {
         }
 
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Opened ${file.path}')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Opened ${file.path}')));
         Navigator.pop(context);
       } else {
         // Mobile (Android / iOS): write to cache dir and use share_plus.
@@ -126,9 +126,9 @@ class _ShareBottomSheetState extends State<ShareBottomSheet> {
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Share failed: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Share failed: $e')));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -157,9 +157,7 @@ class _ShareBottomSheetState extends State<ShareBottomSheet> {
       );
       if (mounted) Navigator.pop(context);
     } catch (e) {
-      messenger.showSnackBar(
-        SnackBar(content: Text('Download failed: $e')),
-      );
+      messenger.showSnackBar(SnackBar(content: Text('Download failed: $e')));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -178,9 +176,9 @@ class _ShareBottomSheetState extends State<ShareBottomSheet> {
       if (mounted) Navigator.pop(context);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Print failed: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Print failed: $e')));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -307,14 +305,10 @@ class _ShareOption extends StatelessWidget {
               child: Icon(icon, color: color, size: 26),
             ),
             const SizedBox(height: 8),
-            Text(
-              label,
-              style: Theme.of(context).textTheme.labelMedium,
-            ),
+            Text(label, style: Theme.of(context).textTheme.labelMedium),
           ],
         ),
       ),
     );
   }
 }
-
