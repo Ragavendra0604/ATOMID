@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Architecture - POS Audit</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({ startOnLoad: true, theme: 'default' });
+  </script>
+</head>
+<body>
+  <div class="dashboard-container">
+    <nav class="sidebar">
+      <div class="sidebar-title">POS Audit</div>
+      <ul class="sidebar-nav">
+        <li><a href="index.html">Dashboard Home</a></li>
+        <li><a href="architecture.html" class="active">Architecture</a></li>
+        <li><a href="sync-engine.html">Sync Engine</a></li>
+        <li><a href="conflict-resolution.html">Conflict Resolution</a></li>
+        <li><a href="local-database.html">Local Database</a></li>
+        <li><a href="failure-analysis.html">Failure Analysis</a></li>
+        <li><a href="findings.html">Audit Findings</a></li>
+        <li><a href="recommendations.html">Recommendations</a></li>
+      </ul>
+    </nav>
+    <main class="main-content">
+      <h1>System Architecture</h1>
+      
+      <h2>Overview</h2>
+      <p>The system is a fully distributed offline-first POS application using Flutter, Hive CE, and Firebase. It does not follow a traditional "Frontend → API → Database" model. Instead, every POS terminal functions as an independent, fully-capable node that commits transactions entirely locally first.</p>
+      
+      <h2>High-Level Diagram</h2>
+      <div class="mermaid">
+        flowchart TB
+          subgraph Central Cloud [Central Server]
+            API[Firestore API]
+            DB[(Firebase Firestore)]
+            API --- DB
+          end
+          
+          subgraph Store Location [Store]
+            subgraph Terminal A [POS Terminal A]
+              UI_A[POS UI]
+              DB_A[(Hive Local DB)]
+              Sync_A[Sync Queue Box]
+              Eng_A[Sync Engine]
+              UI_A -->|Read/Write| DB_A
+              DB_A -->|Triggers| Sync_A
+              Sync_A -->|Push/Pull| Eng_A
+            end
+            
+            subgraph Terminal B [POS Terminal B]
+              UI_B[POS UI]
+              DB_B[(Hive Local DB)]
+              Sync_B[Sync Queue Box]
+              Eng_B[Sync Engine]
+              UI_B -->|Read/Write| DB_B
+              DB_B -->|Triggers| Sync_B
+              Sync_B -->|Push/Pull| Eng_B
+            end
+          end
+          
+          Eng_A <==>|Internet| API
+          Eng_B <==>|Internet| API
+      </div>
+
+      <h2>Data Ownership & Source of Truth</h2>
+      <table>
+        <tr>
+          <th>Entity</th>
+          <th>Offline Writable</th>
+          <th>Sync Direction</th>
+          <th>Source of Truth</th>
+        </tr>
+        <tr>
+          <td>Product</td>
+          <td><span class="badge badge-success">Yes</span></td>
+          <td>Bidirectional</td>
+          <td>Pending local queue, then Server</td>
+        </tr>
+        <tr>
+          <td>Sale</td>
+          <td><span class="badge badge-success">Yes</span></td>
+          <td>Local → Server</td>
+          <td>Local Device (Source)</td>
+        </tr>
+        <tr>
+          <td>Inventory</td>
+          <td><span class="badge badge-success">Yes</span></td>
+          <td>Bidirectional</td>
+          <td>Server (but overwritten by last-writer)</td>
+        </tr>
+        <tr>
+          <td>Customer</td>
+          <td><span class="badge badge-success">Yes</span></td>
+          <td>Bidirectional</td>
+          <td>Pending local queue, then Server</td>
+        </tr>
+      </table>
+
+      <h2>Offline Transaction Flow Trace</h2>
+      <pre><code>Cashier
+  ↓
+Add Product (UI: Cart state updated)
+  ↓
+Complete Sale (SaleService.checkout)
+  ↓
+Generate offline Invoice Number (INV-YYYYMMDD-[DeviceID]-0001)
+  ↓
+Deduct Inventory Locally (StorageRepository.performStockOut)
+  ↓
+Save Sale (Hive: salesBox)
+  ↓
+Add to Sync Queue (Hive: syncQueueBox, Status: PENDING)
+  ↓
+Internet Disconnected: Queue remains pending in Hive indefinitely until reconnection.</code></pre>
+
+      <h2>Online Transaction Flow Trace</h2>
+      <pre><code>Cashier
+  ↓
+Complete Sale (SaleService.checkout)
+  ↓
+Local Hive Transactions & Sync Queue Appended
+  ↓
+Connectivity Detected (Connectivity_plus triggers SyncService.processQueue)
+  ↓
+Sync Queue Slice (Batch of 20)
+  ↓
+Firestore Batch Commit (FirebaseRepository.commitBatch)
+  ↓
+Server Timestamp & DeviceID Stamped on Server (syncedAt)
+  ↓
+Commit Success
+  ↓
+Queue Item Deleted Locally</code></pre>
+
+    </main>
+  </div>
+</body>
+</html>

@@ -9,6 +9,9 @@ import 'package:uuid/uuid.dart';
 import 'package:barcode_widget/barcode_widget.dart';
 import 'package:printing/printing.dart';
 import 'package:atomid/presentation/common/share_bottom_sheet.dart';
+import 'package:atomid/data/models/hardware_config_model.dart';
+import 'package:atomid/core/hardware/label_printer_service.dart';
+import 'package:atomid/core/hardware/print_job_manager.dart';
 
 class PriceTagScreen extends ConsumerStatefulWidget {
   final Product product;
@@ -27,11 +30,22 @@ class PriceTagScreen extends ConsumerStatefulWidget {
 class _PriceTagScreenState extends ConsumerState<PriceTagScreen> {
   late ProductVariant _selectedVariant;
   bool _showQuantity = false;
+  HardwareConfigModel? _hardwareConfig;
 
   @override
   void initState() {
     super.initState();
     _selectedVariant = widget.initialVariant;
+    _loadHardwareConfig();
+  }
+
+  Future<void> _loadHardwareConfig() async {
+    final config = await HardwareConfigModel.load();
+    if (mounted) {
+      setState(() {
+        _hardwareConfig = config;
+      });
+    }
   }
 
   @override
@@ -85,7 +99,9 @@ class _PriceTagScreenState extends ConsumerState<PriceTagScreen> {
                 ElevatedButton.icon(
                   onPressed: () => _printTag(settings.companyName),
                   icon: const Icon(Icons.print),
-                  label: const Text('Print'),
+                  label: Text(_hardwareConfig?.labelPrinterName != null && _hardwareConfig!.labelPrinterName!.isNotEmpty
+                      ? 'Print to TVS LP 46 DLITE'
+                      : 'Print (OS Dialog)'),
                 ),
               ],
             ),
@@ -389,24 +405,57 @@ class _PriceTagScreenState extends ConsumerState<PriceTagScreen> {
 
   Future<void> _printTag(String companyName) async {
     try {
+      final config = _hardwareConfig ?? await HardwareConfigModel.load();
       final settings = ref.read(settingsProvider);
-      // read, not watch: a callback must not subscribe the widget that
-      // happened to be building when it was created.
       final company = ref.read(companyProvider);
+      final is50x50 = config.labelProfileId == '50x50';
       final pdf = await ExportService.generateSingleTagPdf(
         widget.product,
         _selectedVariant,
         settings,
         company,
+        widthMm: (config.labelPrinterName != null && config.labelPrinterName!.isNotEmpty) ? 50.0 : null,
+        heightMm: (config.labelPrinterName != null && config.labelPrinterName!.isNotEmpty) ? (is50x50 ? 50.0 : 35.0) : null,
       );
-      await Printing.layoutPdf(onLayout: (format) async => pdf.save());
-      await _logAction('Tag Printed');
+      final pdfBytes = await pdf.save();
+
+      if (config.labelPrinterName != null && config.labelPrinterName!.isNotEmpty) {
+        // Print silently to configured hardware
+        final printerSvc = ref.read(labelPrinterServiceProvider);
+        final jobId = 'tag_${widget.product.id}_${_selectedVariant.size}_${DateTime.now().millisecondsSinceEpoch}';
+        final jobMgr = ref.read(printJobManagerProvider);
+
+        if (!jobMgr.startJob(jobId, widget.product.id, 'LABEL', config.labelPrinterName!)) {
+          return;
+        }
+
+        final success = await printerSvc.printLabel(
+          pdfBytes, 
+          'PriceTag_${widget.product.productCode}',
+          printerName: config.labelPrinterName,
+        );
+
+        if (success) {
+          jobMgr.completeJob(jobId);
+          await _logAction('Hardware Tag Printed');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sent to label printer.')));
+          }
+        } else {
+          jobMgr.failJob(jobId, printerSvc.statusMessage ?? 'Driver error');
+          throw Exception(printerSvc.statusMessage);
+        }
+      } else {
+        // Fallback to OS dialog
+        await Printing.layoutPdf(onLayout: (format) async => pdfBytes);
+        await _logAction('Tag Printed (OS Dialog)');
+      }
     } catch (e) {
       debugPrint('Print tag error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Unable to print tag. Please try again.'),
+          SnackBar(
+            content: Text('Unable to print tag: $e'),
             backgroundColor: Colors.red,
           ),
         );

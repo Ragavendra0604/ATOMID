@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pdf/pdf.dart';
-import 'package:printing/printing.dart';
 
+import 'package:atomid/presentation/common/share_bottom_sheet.dart';
 import 'package:atomid/core/services/export_service.dart';
 import 'package:atomid/core/utils/formatters.dart';
 import 'package:atomid/data/models/sale_model.dart';
@@ -69,9 +69,13 @@ class _ReportsDashboardScreenState extends ConsumerState<ReportsDashboardScreen>
                 settings,
                 company,
               );
-              await Printing.layoutPdf(
-                onLayout: (PdfPageFormat format) async => pdf.save(),
-                name: 'Sales_GST_Report_$_selectedTimeframe',
+              if (!context.mounted) return;
+              await ShareBottomSheet.show(
+                context: context,
+                pdfBytes: await pdf.save(),
+                fileName: 'Sales_GST_Report_$_selectedTimeframe',
+                shareText: 'Sales and GST Report ($_selectedTimeframe)',
+                printPageFormat: PdfPageFormat.a4,
               );
             },
           ),

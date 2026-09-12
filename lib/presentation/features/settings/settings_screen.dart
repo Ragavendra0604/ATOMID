@@ -11,6 +11,8 @@ import 'package:atomid/domain/invoice_template.dart';
 import 'package:atomid/presentation/features/settings/invoice_settings_screen.dart';
 import 'package:atomid/presentation/features/settings/invoice_template_screen.dart';
 import 'package:atomid/presentation/features/settings/loyalty_settings_screen.dart';
+import 'package:atomid/presentation/features/hardware/hardware_settings_screen.dart';
+import 'package:atomid/presentation/features/hardware/hardware_diagnostics_screen.dart';
 import 'package:atomid/presentation/providers/app_providers.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -313,6 +315,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           },
                         ),
                       ),
+                    ),
+
+                    _heading('Hardware & Peripherals'),
+                    _link(
+                      icon: Icons.print_outlined,
+                      title: 'Terminal Hardware Setup',
+                      subtitle: 'Configure barcode scanners, receipt printers, and label printers for this specific terminal.',
+                      onTap: () => _open(const HardwareSettingsScreen()),
+                    ),
+                    _link(
+                      icon: Icons.monitor_heart_outlined,
+                      title: 'Hardware Diagnostics',
+                      subtitle: 'Test connection status of configured hardware devices.',
+                      onTap: () => _open(const HardwareDiagnosticsScreen()),
                     ),
 
                     _heading('Configure Modules'),

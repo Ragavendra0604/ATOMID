@@ -15,6 +15,12 @@ import 'package:atomid/presentation/features/billing/widgets/customer_lookup_fie
 import 'package:atomid/presentation/features/loyalty/widgets/reward_discount_widget.dart';
 import 'package:atomid/presentation/providers/app_providers.dart';
 import 'package:atomid/presentation/providers/cart_notifier.dart';
+import 'package:atomid/data/models/hardware_config_model.dart';
+import 'package:atomid/core/hardware/receipt_printer_service.dart';
+import 'package:atomid/core/hardware/print_job_manager.dart';
+import 'package:atomid/core/services/export_service.dart';
+import 'package:atomid/domain/invoice_template.dart';
+import 'package:atomid/data/models/sale_model.dart' as import_sale;
 
 class CheckoutScreen extends ConsumerStatefulWidget {
   const CheckoutScreen({super.key});
@@ -64,6 +70,9 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
           .checkout(_buildRequest());
 
       ref.read(cartProvider.notifier).clearCart();
+      
+      // Dispatch hardware receipt printing silently
+      _dispatchAutoPrint(sale);
 
       if (!mounted) return;
       Navigator.pushAndRemoveUntil(
@@ -88,6 +97,52 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       );
     } finally {
       if (mounted) setState(() => _isProcessing = false);
+    }
+  }
+
+  Future<void> _dispatchAutoPrint(import_sale.Sale sale) async {
+    try {
+      final config = await HardwareConfigModel.load();
+      if (config.receiptPrinterName == null || config.receiptPrinterName!.isEmpty) {
+        return; // No hardware printer configured for this terminal
+      }
+
+      final printerSvc = ref.read(receiptPrinterServiceProvider);
+      final jobMgr = ref.read(printJobManagerProvider);
+      final jobId = 'receipt_${sale.id}';
+
+      if (!jobMgr.startJob(jobId, sale.id, 'RECEIPT', config.receiptPrinterName!)) {
+        return; // Prevent duplicate hardware print attempt
+      }
+
+      final settings = ref.read(settingsProvider);
+      final company = ref.read(companyProvider);
+      final invoiceSettings = ref.read(invoiceSettingsProvider);
+      final template = InvoiceTemplate.fromId(settings.invoiceTemplate);
+
+      final pdf = await ExportService.generateInvoiceForTemplate(
+        sale,
+        settings,
+        company,
+        invoiceSettings,
+        template: template,
+      );
+
+      final pdfBytes = await pdf.save();
+
+      final success = await printerSvc.printReceipt(
+        pdfBytes, 
+        'Invoice_${sale.invoiceNumber}',
+        printerName: config.receiptPrinterName,
+      );
+
+      if (success) {
+        jobMgr.completeJob(jobId);
+      } else {
+        jobMgr.failJob(jobId, printerSvc.statusMessage ?? 'Print failed');
+      }
+    } catch (e) {
+      debugPrint('Hardware auto-print error: $e');
     }
   }
 

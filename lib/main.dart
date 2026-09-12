@@ -7,6 +7,7 @@ import 'package:atomid/core/theme/theme_provider.dart';
 import 'package:atomid/presentation/features/splash/splash_screen.dart';
 import 'package:atomid/presentation/providers/app_providers.dart';
 import 'package:atomid/presentation/widgets/app_shell.dart';
+import 'package:atomid/presentation/features/hardware/global_barcode_listener.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -91,7 +92,9 @@ class AtomidApp extends ConsumerWidget {
       darkTheme: AppTheme.darkTheme,
       themeMode: settings.isDarkMode ? ThemeMode.dark : ThemeMode.light,
       debugShowCheckedModeBanner: false,
-      home: AppShell(startup: startup),
+      home: GlobalBarcodeListener(
+        child: AppShell(startup: startup),
+      ),
     );
   }
 }

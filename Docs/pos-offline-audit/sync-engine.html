@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sync Engine - POS Audit</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({ startOnLoad: true, theme: 'default' });
+  </script>
+</head>
+<body>
+  <div class="dashboard-container">
+    <nav class="sidebar">
+      <div class="sidebar-title">POS Audit</div>
+      <ul class="sidebar-nav">
+        <li><a href="index.html">Dashboard Home</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="sync-engine.html" class="active">Sync Engine</a></li>
+        <li><a href="conflict-resolution.html">Conflict Resolution</a></li>
+        <li><a href="local-database.html">Local Database</a></li>
+        <li><a href="failure-analysis.html">Failure Analysis</a></li>
+        <li><a href="findings.html">Audit Findings</a></li>
+        <li><a href="recommendations.html">Recommendations</a></li>
+      </ul>
+    </nav>
+    <main class="main-content">
+      <h1>Sync Engine Deep Dive</h1>
+      
+      <p>The synchronization engine (<code>SyncService</code>) runs purely as a background worker, triggered by connection state changes, timer fallbacks, and auth state changes.</p>
+
+      <h2>Push Synchronization</h2>
+      <p>The push sync relies on an <strong>Outbox Pattern</strong> using Hive CE (<code>SyncQueueBox</code>).</p>
+      
+      <ol>
+        <li>Every local mutation (create/update/delete) creates or updates a <code>SyncQueueItem</code>.</li>
+        <li>Pending items for the same entity are <strong>collapsed</strong>—if a user updates a Product 5 times while offline, the queue keeps only 1 entry with the final state.</li>
+        <li>Upon sync trigger, a batch of 20 items is processed.</li>
+        <li>The JSON payload is dynamically constructed at upload time (not at queue time). If an item was deleted locally before upload, the sync item is quietly removed without uploading.</li>
+        <li>The engine uses Firestore <code>commitBatch</code> for atomicity.</li>
+      </ol>
+
+      <h2>Pull Synchronization</h2>
+      <p>Pull synchronization is heavily optimized to be incremental.</p>
+      
+      <div class="finding">
+        <div class="finding-title">Incremental Pagination</div>
+        <p>The pull sync uses <code>updatedAt</code> cursors to fetch only records changed since the last fully successful pull. The request is paginated using <code>limit(300)</code> and processed sequentially to maintain a low memory footprint.</p>
+      </div>
+
+      <h2>State Machine & Retries</h2>
+      <div class="mermaid">
+        stateDiagram-v2
+          [*] --> PENDING
+          PENDING --> SYNCING : Process Queue Batch
+          SYNCING --> COMPLETED : Success (Deleted from Queue)
+          SYNCING --> FAILED : Error
+          FAILED --> PENDING : Exponential Backoff Timer
+          FAILED --> DEAD : Max Retries Exhausted (5)
+      </div>
+
+      <p><strong>Exponential Backoff:</strong> The retry delay is calculated as <code>2^retryCount * 30</code> seconds.</p>
+
+      <h2>Delete Synchronization</h2>
+      <p>Deletions are handled using soft-deletes (tombstones) on some entities via <code>isDeleted</code> flags. However, the sync queue explicitely supports hard deletes (<code>action: 'DELETE'</code>). When an action is 'DELETE', the <code>SyncService</code> adds a <code>SyncWrite.delete()</code> command to the Firestore batch.</p>
+
+      <h2>Timestamps & Clocks</h2>
+      <p>Locally, devices rely on their own clocks for <code>updatedAt</code>. However, when pushed, the server enforces <code>syncedAt: FieldValue.serverTimestamp()</code>. Pull sync filtering relies on the entity's <code>updatedAt</code>, which is vulnerable to client device clock drift if two devices have significantly divergent times.</p>
+    </main>
+  </div>
+</body>
+</html>

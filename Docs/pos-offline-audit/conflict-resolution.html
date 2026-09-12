@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Conflict Resolution - POS Audit</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="dashboard-container">
+    <nav class="sidebar">
+      <div class="sidebar-title">POS Audit</div>
+      <ul class="sidebar-nav">
+        <li><a href="index.html">Dashboard Home</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="sync-engine.html">Sync Engine</a></li>
+        <li><a href="conflict-resolution.html" class="active">Conflict Resolution</a></li>
+        <li><a href="local-database.html">Local Database</a></li>
+        <li><a href="failure-analysis.html">Failure Analysis</a></li>
+        <li><a href="findings.html">Audit Findings</a></li>
+        <li><a href="recommendations.html">Recommendations</a></li>
+      </ul>
+    </nav>
+    <main class="main-content">
+      <h1>Conflict Detection & Resolution</h1>
+
+      <h2>Strategy: Last-Write-Wins (LWW)</h2>
+      <p>The system utilizes a time-based Last-Write-Wins strategy without strict vector clocks or conflict resolution merging (aside from standard Firestore <code>SetOptions(merge: true)</code> semantics). Conflict resolution happens exclusively during the <strong>Pull</strong> phase (<code>applyRemote</code>).</p>
+
+      <div class="finding critical">
+        <div class="finding-title">Pending Local Overrides</div>
+        <p>In <code>storage_repository.dart</code> (<code>applyRemote</code>), if an entity being pulled from the server currently has an unsent operation in the local <code>SyncQueueBox</code>, <strong>the remote pull is completely ignored for that entity</strong>. Local pending changes are considered the absolute source of truth.</p>
+      </div>
+
+      <h2>Idempotency</h2>
+      <p>Operations are highly idempotent because:</p>
+      <ol>
+        <li>Transactions (Sales/Purchases) are allocated unique UUIDs (<code>Ids.generate()</code>) before they even reach the sync queue.</li>
+        <li>Firestore uses <code>batch.set()</code> with absolute UUID paths, meaning if a request drops its ACK and the client retries, Firestore safely overwrites the exact same data without duplicating the Sale.</li>
+      </ol>
+
+      <h2>Inventory Conflict Risks (Overselling)</h2>
+      <p>Inventory counts represent the biggest conflict risk.</p>
+      <pre><code>POS A sells Product X (Qty -1)
+POS B sells Product X (Qty -1)
+Both are offline.</code></pre>
+      
+      <p>When selling, <code>performStockOut</code> directly subtracts the quantity from the <code>Product</code> entity and enqueues the <em>entire product entity</em> for sync. Because the system uses Last-Write-Wins for the entire document:</p>
+      <ul>
+        <li>POS A syncs: Server product quantity is updated to N-1.</li>
+        <li>POS B syncs: Server product quantity is overwritten to N-1 (it ignores POS A's change because it sends its absolute locally calculated value).</li>
+      </ul>
+      <p>The correct stock should be N-2. This architecture causes silent inventory overwrites across multiple terminals.</p>
+
+      <h2>Invoice Number Collision Prevention</h2>
+      <p>Because sales are created offline, generating invoice numbers safely is critical. The system solves this elegantly by embedding a <strong>Device Short Code</strong> into the offline-generated invoice sequence:</p>
+      <code>INV-20260810-A3F1-0001</code>
+      <p>Because <code>A3F1</code> is unique to POS Terminal A, Terminal B will generate <code>INV-20260810-B9Z4-0001</code>, completely eliminating offline invoice number collisions.</p>
+
+    </main>
+  </div>
+</body>
+</html>

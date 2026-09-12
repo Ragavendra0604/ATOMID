@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Recommendations - POS Audit</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="dashboard-container">
+    <nav class="sidebar">
+      <div class="sidebar-title">POS Audit</div>
+      <ul class="sidebar-nav">
+        <li><a href="index.html">Dashboard Home</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="sync-engine.html">Sync Engine</a></li>
+        <li><a href="conflict-resolution.html">Conflict Resolution</a></li>
+        <li><a href="local-database.html">Local Database</a></li>
+        <li><a href="failure-analysis.html">Failure Analysis</a></li>
+        <li><a href="findings.html">Audit Findings</a></li>
+        <li><a href="recommendations.html" class="active">Recommendations</a></li>
+      </ul>
+    </nav>
+    <main class="main-content">
+      <h1>Audit Recommendations</h1>
+
+      <p>The following architectural changes are recommended to address risks identified during the offline-first audit.</p>
+
+      <div class="card" style="margin-bottom: 20px; border-left: 4px solid var(--critical)">
+        <h3>1. Fix Inventory Overselling via FieldValue.increment()</h3>
+        <p><strong>Current Architecture:</strong> Local stock calculations are pushed as absolute numbers replacing remote documents.</p>
+        <p><strong>Problem:</strong> Offline terminals overwrite each other's stock deductions.</p>
+        <p><strong>Minimal Safe Fix:</strong> Modify <code>SyncService</code> and <code>SyncQueueItem</code>. When a queue item involves inventory deduction, do not push the whole <code>Product</code> entity. Instead, push a specialized sync action that utilizes <code>FieldValue.increment(-quantity)</code> during the Firestore <code>commitBatch</code>. The pull engine can then continue overwriting the local Hive db with the safe central quantity.</p>
+        <p><strong>Migration Risk:</strong> High. Requires refactoring the sync queue payloads and differentiating between "Product Meta Update" and "Product Stock Movement".</p>
+      </div>
+
+      <div class="card" style="margin-bottom: 20px; border-left: 4px solid var(--conflict)">
+        <h3>2. Implement Hive Database Encryption</h3>
+        <p><strong>Current Architecture:</strong> Hive database files are stored plaintext in <code>ApplicationSupportDirectory</code>.</p>
+        <p><strong>Problem:</strong> Stolen devices compromise all customer and ledger data.</p>
+        <p><strong>Minimal Safe Fix:</strong> Generate an encryption key (stored securely via <code>flutter_secure_storage</code>) and pass it to <code>Hive.openBox(..., encryptionCipher: HiveAesCipher(key))</code> during initialization.</p>
+        <p><strong>Migration Risk:</strong> Medium. Requires a data migration step to read old plaintext boxes and copy them to new encrypted boxes upon app update.</p>
+      </div>
+
+      <div class="card" style="margin-bottom: 20px; border-left: 4px solid var(--database)">
+        <h3>3. Add Server-Side Dead-Letter Logging</h3>
+        <p><strong>Current Architecture:</strong> Max retry (DEAD) items sit silently on the local terminal.</p>
+        <p><strong>Problem:</strong> Central management cannot see if a store has failed to upload its data.</p>
+        <p><strong>Minimal Safe Fix:</strong> Add a lightweight secondary queue that attempts to simply report the <em>presence</em> of a failure (a ping) to a Firestore <code>/telemetry</code> endpoint whenever a sync reaches DEAD status.</p>
+        <p><strong>Migration Risk:</strong> Low.</p>
+      </div>
+
+      <h2>Final Summary</h2>
+      <p>Overall, the POS application demonstrates an extremely high quality implementation of the Offline-First Outbox Pattern. The system robustly handles offline invoice numbering without collisions and perfectly implements idempotency during network drops. The primary architectural flaw lies in treating inventory stock modifications as absolute document updates rather than mathematical deltas.</p>
+
+    </main>
+  </div>
+</body>
+</html>

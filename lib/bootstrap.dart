@@ -10,6 +10,7 @@ import 'package:atomid/domain/services/session_service.dart';
 import 'package:atomid/domain/services/sync_service.dart';
 import 'package:atomid/firebase_options.dart';
 import 'package:atomid/presentation/providers/app_providers.dart';
+import 'package:atomid/core/hardware/hardware_manager.dart';
 
 /// Outcome of starting the app, so the splash screen can report precisely
 /// what worked rather than dying on the first exception.
@@ -115,6 +116,9 @@ Future<BootstrapResult> bootstrap() async {
   await ExpenseService(storageRepo).seedDefaultCategories();
 
   if (cloudReady) syncService.start();
+
+  // Initialize hardware devices (e.g. barcode scanner)
+  await container.read(hardwareManagerProvider).connectAll();
 
   return BootstrapResult(
     container: container,

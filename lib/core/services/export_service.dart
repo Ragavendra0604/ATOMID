@@ -26,6 +26,11 @@ import 'package:atomid/domain/invoice_template.dart';
 import 'package:atomid/domain/price_tag_job.dart';
 import 'package:atomid/domain/price_tag_size.dart';
 
+
+import 'package:atomid/core/hardware/label_printer_profile.dart' as import_hardware_profile;
+import 'package:atomid/core/hardware/label_layout_engine.dart' as import_layout_engine;
+import 'package:atomid/core/hardware/label_renderer.dart' as import_label_renderer;
+
 class ExportService {
   static pw.Font? _cachedRegularFont;
   static pw.Font? _cachedBoldFont;
@@ -277,18 +282,21 @@ class ExportService {
     Product product,
     ProductVariant variant,
     SettingsModel settings,
-    CompanyModel company,
-  ) async {
+    CompanyModel company, {
+    double? widthMm,
+    double? heightMm,
+  }) async {
     await _ensureResourcesLoaded();
     final pdf = pw.Document();
     final logoImage = await _getCompanyLogo(company);
 
+    final pageFormat = (widthMm != null && heightMm != null)
+        ? PdfPageFormat(widthMm * PdfPageFormat.mm, heightMm * PdfPageFormat.mm, marginAll: 2 * PdfPageFormat.mm)
+        : const PdfPageFormat(200 * PdfPageFormat.point, 300 * PdfPageFormat.point);
+
     pdf.addPage(
       pw.Page(
-        pageFormat: const PdfPageFormat(
-          200 * PdfPageFormat.point,
-          300 * PdfPageFormat.point,
-        ),
+        pageFormat: pageFormat,
         theme: _theme,
         build: (pw.Context context) {
           return pw.Container(
@@ -717,11 +725,73 @@ class ExportService {
     return pdf;
   }
 
-  /// One tag in the bulk sheet.
+  /// Generates a PDF designed for a label roll printer (like TVS LP 46 DLITE).
   ///
-  /// The rows are spaced evenly rather than pushed apart by a single
-  /// [pw.Spacer], which used to collect every spare point into one gap above
-  /// the price and leave the tag looking half empty on the taller sizes.
+  static Future<pw.Document> generateBulkLabelRollPdf(
+    List<PriceTagLine> lines,
+    SettingsModel settings,
+    CompanyModel company,
+    import_hardware_profile.LabelPrinterProfile profile,
+  ) async {
+    await _ensureResourcesLoaded();
+    final pdf = pw.Document();
+
+    final tags = <PriceTagLine>[];
+    for (final line in lines) {
+      for (var i = 0; i < line.quantity; i++) {
+        tags.add(
+          PriceTagLine(
+            product: line.product,
+            variant: line.variant,
+            quantity: 1,
+          ),
+        );
+      }
+    }
+    if (tags.isEmpty) return pdf;
+
+    final engine = import_layout_engine.LabelLayoutEngine(profile);
+    final renderer = import_label_renderer.LabelRenderer(
+      profile: profile,
+      settings: settings,
+      defaultFont: _cachedRegularFont!,
+      logoImage: await _getCompanyLogo(company),
+    );
+
+    final totalLabels = tags.length;
+
+    // ── Row-based printing (singleLabel / multiColumnMedia / LP46) ─
+    final rollFormat = engine.pdfPageFormat;
+    final totalPages = engine.calculateTotalPages(totalLabels);
+
+    for (var pageIdx = 0; pageIdx < totalPages; pageIdx++) {
+      pdf.addPage(
+        pw.Page(
+          pageFormat: rollFormat,
+          theme: _theme,
+          build: (pw.Context context) {
+            final startIdx = pageIdx * engine.labelsPerPage;
+            final endIdx = (startIdx + engine.labelsPerPage).clamp(0, totalLabels);
+            final pageTags = tags.sublist(startIdx, endIdx);
+
+            return pw.Stack(
+              children: List.generate(pageTags.length, (colIdx) {
+                final tagWidget = renderer.buildLabelContent(pageTags[colIdx]);
+                return pw.Positioned(
+                  left: engine.getColumnOffset(colIdx) * PdfPageFormat.mm,
+                  top: profile.topMarginMm.toDouble() * PdfPageFormat.mm,
+                  child: tagWidget,
+                );
+              }),
+            );
+          },
+        ),
+      );
+    }
+    return pdf;
+  }
+
+
   static pw.Widget _buildBulkTag({
     required PriceTagLine tag,
     required PriceTagSize tagSize,
@@ -1687,7 +1757,16 @@ class ExportService {
         : null;
 
     final is58mm = settings.thermalReceiptSize == '58mm';
-    final format = is58mm ? PdfPageFormat.roll57 : PdfPageFormat.roll80;
+    // Thermal printers have a printable area smaller than the physical paper.
+    // Standard 80mm paper -> ~72mm printable width.
+    // Standard 58mm paper -> ~48mm printable width.
+    // We explicitly set the PDF width to the printable area to prevent the driver from clipping the right edge.
+    final double printableWidthMm = is58mm ? 48.0 : 72.0;
+    final format = PdfPageFormat(
+      printableWidthMm * PdfPageFormat.mm,
+      double.infinity,
+      marginAll: 1.5 * PdfPageFormat.mm,
+    );
 
     // The same grouping the sheet invoice prints, so a receipt and an A4 of
     // one sale always show the same tax against the same rate.
@@ -1709,9 +1788,8 @@ class ExportService {
       pw.Page(
         pageFormat: format,
         theme: theme,
-        // Tighter side margins than the sheet invoice: on a 57mm roll every
-        // millimetre of margin is a millimetre the item names do not get.
-        margin: const pw.EdgeInsets.fromLTRB(5, 6, 5, 8),
+        // Small safety margins (approx 1.5mm) to ensure we don't hit the absolute edges of the printable canvas.
+        margin: const pw.EdgeInsets.fromLTRB(2, 6, 2, 8),
         build: (pw.Context context) {
           return pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.center,
@@ -1775,6 +1853,7 @@ class ExportService {
                     children: [
                       pw.Row(
                         mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
                         children: [
                           pw.Expanded(
                             child: pw.Text(
@@ -1782,7 +1861,6 @@ class ExportService {
                                   ? '${item.productName} '
                                         '(${item.variantSize})'
                                   : item.productName,
-                              maxLines: 1,
                               style: const pw.TextStyle(fontSize: 8),
                             ),
                           ),
@@ -1951,9 +2029,20 @@ class ExportService {
       padding: const pw.EdgeInsets.symmetric(vertical: 1),
       child: pw.Row(
         mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
-          pw.Text(label, style: const pw.TextStyle(fontSize: 8)),
-          pw.Text(value, style: const pw.TextStyle(fontSize: 8)),
+          pw.Expanded(
+            child: pw.Text(
+              label, 
+              style: const pw.TextStyle(fontSize: 8),
+            ),
+          ),
+          pw.SizedBox(width: 4),
+          pw.Text(
+            value, 
+            style: const pw.TextStyle(fontSize: 8),
+            textAlign: pw.TextAlign.right,
+          ),
         ],
       ),
     );

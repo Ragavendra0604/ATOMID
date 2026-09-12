@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:atomid/core/hardware/barcode_scanner_service.dart';
 
 import 'package:atomid/core/utils/formatters.dart';
 import 'package:atomid/core/utils/responsive.dart';
@@ -26,9 +28,24 @@ class _PosScreenState extends ConsumerState<PosScreen> {
   final _searchFocus = FocusNode();
   MobileScannerController? _scannerController;
   bool _isScanning = false;
+  StreamSubscription<String>? _hardwareScannerSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    // Listen for physical hardware scanner events globally
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _hardwareScannerSubscription = ref.read(barcodeScannerServiceProvider).onBarcodeScanned.listen((barcode) {
+        if (mounted) {
+          _processSearch(barcode);
+        }
+      });
+    });
+  }
 
   @override
   void dispose() {
+    _hardwareScannerSubscription?.cancel();
     _searchController.dispose();
     _searchFocus.dispose();
     _scannerController?.dispose();

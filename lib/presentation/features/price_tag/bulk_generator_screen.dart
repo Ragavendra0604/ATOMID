@@ -10,6 +10,13 @@ import 'package:atomid/core/utils/responsive.dart';
 import 'package:atomid/data/models/product_model.dart';
 import 'package:atomid/domain/price_tag_job.dart';
 import 'package:atomid/domain/price_tag_size.dart';
+import 'package:atomid/domain/price_tag_print_mode.dart';
+import 'package:atomid/core/hardware/label_layout_engine.dart' as import_layout_engine;
+import 'package:atomid/core/hardware/label_printer_profile.dart' as import_hardware_profile;
+import 'package:atomid/presentation/common/share_bottom_sheet.dart';
+import 'package:atomid/data/models/hardware_config_model.dart';
+import 'package:atomid/core/hardware/label_printer_service.dart';
+import 'package:atomid/core/hardware/print_job_manager.dart';
 import 'package:atomid/presentation/providers/app_providers.dart';
 
 /// Which products the sheet is being built from.
@@ -38,6 +45,8 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
   _BulkMode _mode = _BulkMode.singleProduct;
   Product? _selectedProduct;
   PriceTagSize _tagSize = PriceTagSize.medium;
+  PriceTagPrintMode? _printMode;
+  HardwareConfigModel? _hardwareConfig;
   bool _isLoading = false;
 
   /// Keyed by product and barcode rather than by the variant object, because
@@ -46,6 +55,24 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
   final Map<String, TextEditingController> _qtyControllers = {};
   final TextEditingController _searchController = TextEditingController();
   String _search = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadHardwareConfig();
+  }
+
+  Future<void> _loadHardwareConfig() async {
+    final config = await HardwareConfigModel.load();
+    if (mounted) {
+      setState(() {
+        _hardwareConfig = config;
+        _printMode = (config.labelPrinterName != null && config.labelPrinterName!.isNotEmpty)
+            ? PriceTagPrintMode.lp46Direct
+            : PriceTagPrintMode.a4Sheet;
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -207,34 +234,83 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
     setState(() => _isLoading = true);
 
     try {
-      final settings = ref.read(settingsProvider);
-      final company = ref.read(companyProvider);
       final name = _mode == _BulkMode.allProducts
           ? 'Bulk_Tags_All_Products'
           : 'Bulk_Tags_${_selectedProduct?.productCode ?? ''}';
 
-      // Built inside onLayout: the tag grid divides the sheet exactly, so it
-      // has to be laid out for the paper the print dialog reports rather than
-      // sized for one sheet and then scaled onto another.
-      await Printing.layoutPdf(
-        onLayout: (format) async {
-          final pdf = await ExportService.generateBulkSheetPdf(
-            lines,
-            settings,
-            company,
-            tagSize: _tagSize,
-            pageFormat: format,
+      if (_printMode == PriceTagPrintMode.lp46Direct) {
+        // --- HARDWARE DIRECT PRINTING FLOW ---
+        final config = _hardwareConfig ?? await HardwareConfigModel.load();
+        
+        if (config.labelPrinterName == null || config.labelPrinterName!.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('TVS LP 46 DLITE label printer is not configured.'), backgroundColor: Colors.red),
           );
-          return pdf.save();
-        },
-        name: name,
-      );
+          return;
+        }
+
+        final settings = ref.read(settingsProvider);
+        final company = ref.read(companyProvider);
+        final printerSvc = ref.read(labelPrinterServiceProvider);
+        final profile = printerSvc.activeProfile;
+
+        final pdfDoc = await ExportService.generateBulkLabelRollPdf(
+          lines,
+          settings,
+          company,
+          profile,
+        );
+        final pdfBytes = await pdfDoc.save();
+
+        final jobMgr = ref.read(printJobManagerProvider);
+        final jobId = 'bulk_tag_${DateTime.now().millisecondsSinceEpoch}';
+
+        if (!jobMgr.startJob(jobId, 'BULK_PRINT', 'LABEL', config.labelPrinterName!)) {
+          setState(() => _isLoading = false);
+          return;
+        }
+
+        final engine = import_layout_engine.LabelLayoutEngine(profile);
+        final success = await printerSvc.printLabel(
+          pdfBytes, 
+          name,
+          printerName: config.labelPrinterName,
+          format: engine.pdfPageFormat,
+        );
+
+        if (!mounted) return;
+
+        if (success) {
+          jobMgr.completeJob(jobId);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Sent to label printer.')),
+          );
+        } else {
+          jobMgr.failJob(jobId, printerSvc.statusMessage ?? 'Driver error');
+          throw Exception(printerSvc.statusMessage);
+        }
+
+      } else {
+        // --- FALLBACK INTERACTIVE FLOW ---
+        final format = _sheetFormat;
+        final pdfBytes = await _generatePdf(format);
+
+        if (!mounted) return;
+
+        await ShareBottomSheet.show(
+          context: context,
+          pdfBytes: pdfBytes,
+          fileName: name,
+          shareText: 'Bulk Price Tags',
+          printPageFormat: format,
+        );
+      }
     } catch (e) {
       debugPrint('Bulk PDF generation error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Unable to generate PDF. Please try again.'),
+          SnackBar(
+            content: Text('Unable to print tags: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -248,6 +324,9 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_printMode == null) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
     return Scaffold(
       appBar: AppBar(title: const Text('Bulk Price Tag Generator')),
       body: ResponsiveBuilder(
@@ -296,15 +375,45 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
   }
 
   Widget _buildPreview() {
-    return PdfPreview(
-      build: _generatePdf,
-      initialPageFormat: _sheetFormat,
-      canChangeOrientation: false,
-      canChangePageFormat: false,
-      canDebug: false,
-      allowPrinting: true,
-      allowSharing: true,
-    );
+    if (_printMode == PriceTagPrintMode.lp46Direct) {
+      final printerSvc = ref.read(labelPrinterServiceProvider);
+      final profile = printerSvc.activeProfile;
+      final engine = import_layout_engine.LabelLayoutEngine(profile);
+      
+      return PdfPreview(
+        build: (f) async {
+          final lines = _collectLines();
+          if (lines.isEmpty) return Uint8List(0);
+
+          final settings = ref.read(settingsProvider);
+          final company = ref.read(companyProvider);
+
+          final pdfDoc = await ExportService.generateBulkLabelRollPdf(
+            lines,
+            settings,
+            company,
+            profile,
+          );
+          return pdfDoc.save();
+        },
+        initialPageFormat: engine.pdfPageFormat,
+        canChangeOrientation: false,
+        canChangePageFormat: false,
+        canDebug: false,
+        allowPrinting: false, // Force them to use our controlled print dispatch button
+        allowSharing: false,
+      );
+    } else {
+      return PdfPreview(
+        build: _generatePdf,
+        initialPageFormat: _sheetFormat,
+        canChangeOrientation: false,
+        canChangePageFormat: false,
+        canDebug: false,
+        allowPrinting: true,
+        allowSharing: true,
+      );
+    }
   }
 
   Widget _buildForm() {
@@ -362,30 +471,74 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
         ],
 
         if (_mode == _BulkMode.allProducts || _selectedProduct != null) ...[
-          const Text('Tag Size', style: TextStyle(fontWeight: FontWeight.bold)),
+          const Text('Print Destination', style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
-          SegmentedButton<PriceTagSize>(
-            segments: PriceTagSize.values
-                .map(
-                  (size) => ButtonSegment(value: size, label: Text(size.label)),
-                )
-                .toList(),
-            selected: {_tagSize},
+          SegmentedButton<PriceTagPrintMode>(
+            segments: const [
+              ButtonSegment(value: PriceTagPrintMode.a4Sheet, label: Text('A4 Sheet Printer')),
+              ButtonSegment(value: PriceTagPrintMode.lp46Direct, label: Text('LP46 Label Printer')),
+            ],
+            selected: {_printMode!},
             showSelectedIcon: false,
-            // The preview rebuilds from _tagSize, so the sheet on screen is
-            // always the sheet that will print.
-            onSelectionChanged: (values) =>
-                setState(() => _tagSize = values.first),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            '${_tagSize.description} · ${_tagSize.columns} across × '
-            '${_tagSize.rows} down',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
+            onSelectionChanged: (values) => setState(() => _printMode = values.first),
           ),
           const SizedBox(height: 24),
+
+          if (_printMode == PriceTagPrintMode.a4Sheet) ...[
+            const Text('Tag Size', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            SegmentedButton<PriceTagSize>(
+              segments: PriceTagSize.values
+                  .map(
+                    (size) => ButtonSegment(value: size, label: Text(size.label)),
+                  )
+                  .toList(),
+              selected: {_tagSize},
+              showSelectedIcon: false,
+              onSelectionChanged: (values) => setState(() => _tagSize = values.first),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '${_tagSize.description} · ${_tagSize.columns} across × '
+              '${_tagSize.rows} down',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 24),
+          ] else ...[
+            const Text('Label Size', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                border: Border.all(color: theme.colorScheme.outlineVariant),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Builder(builder: (context) {
+                final config = _hardwareConfig;
+                if (config?.labelPrinterName == null || config!.labelPrinterName!.isEmpty) {
+                  return const Text(
+                    '⚠️ TVS LP 46 DLITE label printer is not configured.',
+                    style: TextStyle(color: Colors.red, fontWeight: FontWeight.w500),
+                  );
+                }
+                final profile = ref.read(labelPrinterServiceProvider).activeProfile;
+                return Text(
+                  'Printer: ${config.labelPrinterName}\n'
+                  'Label: ${profile.labelWidthMm} × ${profile.labelHeightMm} mm\n'
+                  'Media: ${profile.mediaWidthMm} × ${profile.mediaHeightMm} mm\n'
+                  'Columns: ${profile.columns} · Gap: ${profile.horizontalGapMm} mm',
+                  style: TextStyle(
+                    color: theme.colorScheme.onSurface,
+                    fontWeight: FontWeight.w500,
+                  ),
+                );
+              }),
+            ),
+            const SizedBox(height: 24),
+          ],
 
           Row(
             children: [
@@ -445,8 +598,8 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
                 ? const Center(child: CircularProgressIndicator())
                 : ElevatedButton.icon(
                     onPressed: _generateBulkSheet,
-                    icon: const Icon(Icons.print),
-                    label: const Text('Generate & Print Sheet'),
+                    icon: const Icon(Icons.ios_share),
+                    label: const Text('Export or Print Sheet'),
                   ),
           ),
         ],
@@ -560,23 +713,43 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
         ),
       );
     }
-    final perPage = _tagSize.perPage;
-    final sheets = (total / perPage).ceil();
-    final free = sheets * perPage - total;
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Text(
-        '$total tag${total == 1 ? '' : 's'} · $sheets sheet'
-        '${sheets == 1 ? '' : 's'}'
-        '${free > 0 ? ' · $free empty slot${free == 1 ? '' : 's'} on the last sheet' : ' · sheets filled exactly'}',
-        style: theme.textTheme.bodyMedium,
-      ),
-    );
+    if (_printMode == PriceTagPrintMode.lp46Direct) {
+      final profile = ref.read(labelPrinterServiceProvider).activeProfile;
+      
+      final rows = (total + 1) ~/ 2;
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          '$total label${total == 1 ? '' : 's'} · $rows print row${rows == 1 ? '' : 's'}\n'
+          '(${profile.labelWidthMm}×${profile.labelHeightMm} mm, ${profile.columns} columns)',
+          style: theme.textTheme.bodyMedium,
+        ),
+      );
+    } else {
+      final perPage = _tagSize.perPage;
+      final sheets = (total / perPage).ceil();
+      final free = sheets * perPage - total;
+
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          '$total tag${total == 1 ? '' : 's'} · $sheets sheet'
+          '${sheets == 1 ? '' : 's'}'
+          '${free > 0 ? ' · $free empty slot${free == 1 ? '' : 's'} on the last sheet' : ' · sheets filled exactly'}',
+          style: theme.textTheme.bodyMedium,
+        ),
+      );
+    }
   }
 }

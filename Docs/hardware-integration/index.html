@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>POS Hardware Integration Documentation</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; max-width: 900px; margin: 0 auto; padding: 2rem; }
+        h1, h2, h3 { color: #2c3e50; }
+        code { background-color: #f4f4f4; padding: 2px 5px; border-radius: 3px; font-family: monospace; }
+        pre { background-color: #f4f4f4; padding: 1rem; border-radius: 5px; overflow-x: auto; }
+        .alert { padding: 1rem; margin-bottom: 1rem; border-radius: 5px; }
+        .alert-info { background-color: #e3f2fd; border: 1px solid #b3e5fc; color: #0277bd; }
+        .alert-warning { background-color: #fff3cd; border: 1px solid #ffeeba; color: #856404; }
+        table { border-collapse: collapse; width: 100%; margin-bottom: 1rem; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+    </style>
+</head>
+<body>
+
+    <h1>POS Hardware Integration Architecture</h1>
+    <p>This document details the hardware integration layer for the offline-first Flutter POS application.</p>
+
+    <div class="alert alert-info">
+        <strong>Goal:</strong> Decouple physical peripheral connections from business logic while maintaining the <code>OFFLINE-FIRST → ONLINE SYNC</code> transaction reliability guarantees.
+    </div>
+
+    <h2>1. Supported Hardware</h2>
+    <table>
+        <tr>
+            <th>Device</th>
+            <th>Type</th>
+            <th>Protocol/Connection</th>
+            <th>Notes</th>
+        </tr>
+        <tr>
+            <td>iBall BSS209</td>
+            <td>Barcode Scanner</td>
+            <td>Keyboard HID</td>
+            <td>Intercepted globally via FocusNode and timestamp debouncing.</td>
+        </tr>
+        <tr>
+            <td>RETSOL RTP-81</td>
+            <td>Receipt Printer</td>
+            <td>System Print Spooler (PDF)</td>
+            <td>Requires OS driver. App generates thermal PDF and routes to spooler natively.</td>
+        </tr>
+        <tr>
+            <td>TVS Electronics LP 46 DLITE</td>
+            <td>Label Printer</td>
+            <td>System Print Spooler (PDF)</td>
+            <td>Configurable profiles (50x35mm, 50x50mm).</td>
+        </tr>
+    </table>
+
+    <h2>2. Architecture: Hardware Abstraction Layer (HAL)</h2>
+    <p>The system interacts with peripherals through the HAL rather than embedding native plugins into UI code.</p>
+
+    <ul>
+        <li><code>HardwareManager</code>: Registry for all connected devices.</li>
+        <li><code>BarcodeScannerService</code>: Emits a stream of decoded barcodes.</li>
+        <li><code>ReceiptPrinterService</code> & <code>LabelPrinterService</code>: Receives pre-rendered PDF bytes and transmits them to the configured spooler asynchronously.</li>
+        <li><code>PrintJobManager</code>: Protects against duplicate document prints resulting from UI rapid-tapping or background sync retries.</li>
+        <li><code>GlobalBarcodeListener</code>: A global Flutter widget that wraps the app shell, trapping rapid keystrokes to differentiate hardware scanners from slow human typing.</li>
+    </ul>
+
+    <h2>3. Transaction Safety (Offline-First Rules)</h2>
+    <div class="alert alert-warning">
+        <strong>CRITICAL:</strong> A hardware failure MUST NEVER cause data loss or roll back a completed local transaction.
+    </div>
+    <p>When a sale is completed, the transaction is saved to the local Hive database and placed into the Sync Queue. Only <strong>after</strong> successful database persistence is the print job dispatched.</p>
+    <p>If the printer is disconnected or out of paper, the <code>PrintJobManager</code> marks the print as <code>FAILED</code>. The sale itself remains completely valid, inventory is deducted, and the transaction will sync to Firebase once online. The cashier can manually reprint the receipt.</p>
+
+    <h2>4. Hardware Configuration</h2>
+    <p>Hardware configuration is specific to each terminal/device. The app persists selections locally in <code>hardware_config</code> via a raw Hive Box. This allows Till A to use Printer X while Till B uses Printer Y without conflicting settings.</p>
+    <p><strong>Configured via:</strong> <code>HardwareSettingsScreen</code>.</p>
+    <h2>5. TVS Electronics LP 46 DLITE Direct Label Printing Architecture</h2>
+    
+    <h3>The Windows "Add a device" Error Explained</h3>
+    <p>Previously, the application relied on the interactive <code>Printing.layoutPdf()</code> flow, which passes the generated PDF to the native Windows OS print spooler UI. If the host machine has zero printers installed (not even virtual printers like "Microsoft Print to PDF"), Windows intercepts the call and forces a generic "Before you can perform printer-related tasks... you need to install a printer" error dialog, blocking the app entirely.</p>
+    
+    <h3>Previous Flow vs New Direct-Print Flow</h3>
+    <p><strong>Previous Flow (Interactive):</strong></p>
+    <pre>Bulk Generator UI → Generate A4 Sheet PDF → Printing.layoutPdf() → Windows OS Dialog → Select Printer → Print</pre>
+    
+    <p><strong>New Flow (Direct/Silent):</strong></p>
+    <pre>Bulk Generator UI → LabelTemplateEngine (Exact mm sizing) → LabelDocument → PrintJobManager (Duplicate Protection) → LabelPrinterService → WindowsPdfLabelPrinterAdapter → Windows Spooler → TVS LP 46 DLITE</pre>
+    <p>The new flow uses the selected hardware configuration to bypass the OS dialog, submitting the print job silently. This is achieved using <code>package:printing</code>'s <code>directPrintPdf</code> capabilities, wrapped inside our <code>WindowsPdfLabelPrinterAdapter</code>.</p>
+
+    <h3>Label Generation & Configurations</h3>
+    <p>Instead of generating a standard A4/Letter sheet of labels (which would scale incorrectly and squish onto a single TVS label), the <code>ExportService.generateBulkLabelRollPdf()</code> method constructs a continuous PDF where <strong>every individual page</strong> precisely matches the physical label dimensions. The adapter respects two primary configurations:</p>
+    <ul>
+        <li><strong>50 × 35 mm:</strong> Standard price tag, aggressively scales text down to fit vertical bounds.</li>
+        <li><strong>50 × 50 mm:</strong> Square price tag format with more vertical breathing room.</li>
+    </ul>
+
+    <h3>Failure Handling, Retry, and Protection</h3>
+    <p>The <code>PrintJobManager</code> prevents multiple background or accidental rapid-tap submissions of the exact same label sequence. If the TVS printer is disconnected (or driver missing), the <code>WindowsPdfLabelPrinterAdapter</code> instantly detects the failure. The <code>LabelPrinterService</code> marks the hardware status as <code>DeviceStatus.error</code> and fails the job without crashing the application. Crucially, the business data (the created products/variants) remains completely intact, and the user is free to retry once hardware is restored.</p>
+
+    <div class="alert alert-warning">
+        <h3>UNKNOWN — REQUIRES PHYSICAL HARDWARE VERIFICATION</h3>
+        <p>The following aspects of the TVS LP 46 DLITE could not be fully tested in the development environment because the physical printer was not connected (only "Microsoft Print to PDF" was available to the OS spooler during development). They must be verified on the actual hardware:</p>
+        <ul>
+            <li><strong>Actual Connection Method & Driver Discovery:</strong> The exact driver name installed by Windows when the TVS LP 46 is plugged in via USB.</li>
+            <li><strong>Physical Margins & Padding:</strong> Whether the TVS driver injects its own hardware margins that might crop the perfectly sized 50x35mm PDF.</li>
+            <li><strong>Label Gap / Tear-off Alignment:</strong> How the spooler pages align with the physical roll gaps between consecutive tags in bulk printing.</li>
+            <li><strong>Print Density / Quality:</strong> Readability of the scaled-down barcode strings at 203 DPI.</li>
+        </ul>
+    </div>
+
+</body>
+</html>

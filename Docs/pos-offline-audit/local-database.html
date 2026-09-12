@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Local Database - POS Audit</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="dashboard-container">
+    <nav class="sidebar">
+      <div class="sidebar-title">POS Audit</div>
+      <ul class="sidebar-nav">
+        <li><a href="index.html">Dashboard Home</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="sync-engine.html">Sync Engine</a></li>
+        <li><a href="conflict-resolution.html">Conflict Resolution</a></li>
+        <li><a href="local-database.html" class="active">Local Database</a></li>
+        <li><a href="failure-analysis.html">Failure Analysis</a></li>
+        <li><a href="findings.html">Audit Findings</a></li>
+        <li><a href="recommendations.html">Recommendations</a></li>
+      </ul>
+    </nav>
+    <main class="main-content">
+      <h1>Local Database Architecture</h1>
+
+      <p>The system relies heavily on <strong>Hive CE</strong>, a fast, synchronous, key-value NoSQL database for Dart/Flutter. Because the system is truly offline-first, Hive acts as the primary data store, not just a cache.</p>
+
+      <h2>Database Schema & Boxes</h2>
+      <p>Data is separated into distinct "Boxes" managed inside <code>StorageRepository</code>. Key boxes include:</p>
+      <ul>
+        <li><code>products</code>, <code>customers</code>, <code>suppliers</code></li>
+        <li><code>sales</code>, <code>purchases</code>, <code>expenses</code></li>
+        <li><code>customer_ledgers</code>, <code>supplier_ledgers</code></li>
+        <li><code>sync_queue</code>, <code>sync_logs</code></li>
+        <li><code>checkout_journal</code> (Write-Ahead Log for crash recovery)</li>
+      </ul>
+
+      <h2>Memory Indexing</h2>
+      <p>To provide instant search capability (e.g., scanning barcodes or typing phone numbers) without repeatedly querying disk, <code>StorageRepository</code> maintains in-memory maps synchronized with Hive data:</p>
+      <pre><code>// Fast index for barcode -> Product
+final Map&lt;String, Product&gt; _barcodeIndex = {};
+
+// Mobile number -> Customer
+final Map&lt;String, Customer&gt; _mobileIndex = {};</code></pre>
+
+      <h2>Transactions & Safety</h2>
+      <p>Hive CE does not support atomic cross-box transactions natively. To prevent partial writes or data corruption during complex workflows (like checking out a cart which affects Sales, Products, Customers, and SyncQueues), the system utilizes an application-level rollback mechanism:</p>
+
+      <div class="finding medium">
+        <div class="finding-title">Manual Reversals (Undo Stack)</div>
+        <p>In <code>SaleService.checkout</code>, operations are pushed to an <code>undo</code> array of async functions. If any step fails (e.g., throwing an error before the checkout is completely finalized), the system walks backwards through the <code>undo</code> stack and reverses the stock movements, ledger entries, and deletes the sale record.</p>
+      </div>
+
+    </main>
+  </div>
+</body>
+</html>

@@ -7,8 +7,8 @@ import 'package:atomid/presentation/features/inventory/stock_in_screen.dart';
 import 'package:atomid/presentation/features/inventory/stock_out_screen.dart';
 import 'package:atomid/presentation/features/inventory/inventory_movement_screen.dart';
 import 'package:atomid/core/services/export_service.dart';
-import 'package:printing/printing.dart';
 import 'package:pdf/pdf.dart';
+import 'package:atomid/presentation/common/share_bottom_sheet.dart';
 import 'package:atomid/core/utils/responsive.dart';
 
 class InventoryDashboardScreen extends ConsumerWidget {
@@ -36,9 +36,13 @@ class InventoryDashboardScreen extends ConsumerWidget {
                 settings,
                 company,
               );
-              await Printing.layoutPdf(
-                onLayout: (PdfPageFormat format) async => pdf.save(),
-                name: 'Inventory_Report',
+              if (!context.mounted) return;
+              await ShareBottomSheet.show(
+                context: context,
+                pdfBytes: await pdf.save(),
+                fileName: 'Inventory_Report',
+                shareText: 'Inventory Report',
+                printPageFormat: PdfPageFormat.a4,
               );
             },
           ),

@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Failure Analysis - POS Audit</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="dashboard-container">
+    <nav class="sidebar">
+      <div class="sidebar-title">POS Audit</div>
+      <ul class="sidebar-nav">
+        <li><a href="index.html">Dashboard Home</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="sync-engine.html">Sync Engine</a></li>
+        <li><a href="conflict-resolution.html">Conflict Resolution</a></li>
+        <li><a href="local-database.html">Local Database</a></li>
+        <li><a href="failure-analysis.html" class="active">Failure Analysis</a></li>
+        <li><a href="findings.html">Audit Findings</a></li>
+        <li><a href="recommendations.html">Recommendations</a></li>
+      </ul>
+    </nav>
+    <main class="main-content">
+      <h1>Failure Scenarios & Resilience Matrix</h1>
+
+      <table>
+        <tr>
+          <th>Scenario</th>
+          <th>Detection</th>
+          <th>Current Behavior</th>
+          <th>Data Risk</th>
+        </tr>
+        <tr>
+          <td>Internet loss during Sale</td>
+          <td>Connection state listener</td>
+          <td>Sale successfully writes locally and stays in <code>SyncQueueBox</code>.</td>
+          <td><span class="badge badge-success">None</span></td>
+        </tr>
+        <tr>
+          <td>Application crash mid-Sale</td>
+          <td>Restart checkout validation</td>
+          <td>The <code>checkoutJournalBox</code> is meant to act as a WAL. Any sale caught partially committed without being removed from the WAL can theoretically trigger recovery, though manual <code>undo</code> stack heavily relies on memory.</td>
+          <td><span class="badge badge-conflict">Low/Medium</span></td>
+        </tr>
+        <tr>
+          <td>Sync Request drops ACK</td>
+          <td>Timeout / Firebase SDK Error</td>
+          <td>Client retries operation. Firestore <code>merge: true</code> with explicit absolute UUIDs makes this completely idempotent. No duplicates generated.</td>
+          <td><span class="badge badge-success">None</span></td>
+        </tr>
+        <tr>
+          <td>Permanent Sync Failure</td>
+          <td>Retry counter hits 5</td>
+          <td>Queue item moved to <code>DEAD</code> state. UI shows failure. Operator can use "retry failed" action.</td>
+          <td><span class="badge badge-success">None</span></td>
+        </tr>
+        <tr>
+          <td>Device stolen offline</td>
+          <td>Physical</td>
+          <td>Local Hive DB is unencrypted. Complete customer ledgers and product catalogs are exposed on-device.</td>
+          <td><span class="badge badge-critical">Critical</span></td>
+        </tr>
+      </table>
+
+      <h2>Authentication Resilience</h2>
+      <p>Because Firebase Auth caches session tokens, the user remains authenticated while offline until the token explicitly expires. There is a risk that if an authentication token expires during a prolonged offline period, the POS terminal could be locked out of syncing (throwing <code>permission-denied</code>) until the user signs back in.</p>
+
+      <div class="finding">
+        <div class="finding-title">Sync Process Crash Recovery</div>
+        <p>If the app crashes while the <code>SyncService</code> is in the middle of uploading a batch, the items may be stuck in the <code>SYNCING</code> state permanently (since it's an in-memory flag mapped to the DB). However, <code>storage_repository.dart</code> contains a <code>resetStuckSyncItems()</code> function which safely reverts <code>SYNCING</code> items back to <code>PENDING</code> on app startup.</p>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

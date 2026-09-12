@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Offline-First POS Audit</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({ startOnLoad: true, theme: 'default' });
+  </script>
+</head>
+<body>
+  <div class="dashboard-container">
+    <nav class="sidebar">
+      <div class="sidebar-title">POS Audit</div>
+      <ul class="sidebar-nav">
+        <li><a href="index.html" class="active">Dashboard Home</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="sync-engine.html">Sync Engine</a></li>
+        <li><a href="conflict-resolution.html">Conflict Resolution</a></li>
+        <li><a href="local-database.html">Local Database</a></li>
+        <li><a href="failure-analysis.html">Failure Analysis</a></li>
+        <li><a href="findings.html">Audit Findings</a></li>
+        <li><a href="recommendations.html">Recommendations</a></li>
+      </ul>
+    </nav>
+    <main class="main-content">
+      <h1>Offline-First POS Audit Dashboard</h1>
+      
+      <div class="grid-cards">
+        <div class="card">
+          <h3>Architecture Type</h3>
+          <div class="value" style="color: var(--sync)">Eventual Consistency</div>
+          <div style="margin-top: 10px;">
+            <span class="badge badge-offline">Offline-First</span>
+            <span class="badge badge-sync">Queue-Driven Sync</span>
+          </div>
+        </div>
+        
+        <div class="card">
+          <h3>Local Storage</h3>
+          <div class="value">Hive CE</div>
+          <div style="margin-top: 10px;">
+            <span class="badge badge-database">NoSQL</span>
+            <span class="badge badge-success">Synchronous</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Central Storage</h3>
+          <div class="value">Firestore</div>
+          <div style="margin-top: 10px;">
+            <span class="badge badge-online">Cloud</span>
+            <span class="badge badge-sync">Batch Commits</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Critical Risks Found</h3>
+          <div class="value" style="color: var(--critical)">1</div>
+          <div style="margin-top: 10px;">
+            <span class="badge badge-critical">Inventory Overselling</span>
+          </div>
+        </div>
+      </div>
+
+      <h2>System Overview</h2>
+      <p>The Point of Sale (POS) system is designed as an offline-first distributed application. The central source of truth operates under an Eventual Consistency model, where local transactions act as the immediate source of truth while the device is offline, and background queueing synchronizes state via Firebase Firestore when an internet connection is available.</p>
+
+      <div class="mermaid">
+        flowchart TD
+          A[POS UI] -->|Read/Write| B[(Hive Local DB)]
+          B -->|Mutation| C[SyncQueueBox]
+          C -->|Background Pull| D[SyncService]
+          D -->|Batch Commit| E[(Firestore Central DB)]
+          E -->|Incremental Pull| D
+          D -->|applyRemote| B
+      </div>
+
+      <h2>Quick Summary</h2>
+      <table>
+        <tr>
+          <th>Component</th>
+          <th>Implementation Details</th>
+        </tr>
+        <tr>
+          <td><strong>Offline-Capable Features</strong></td>
+          <td>Sales, Customers, Inventory (Read/Deduct), Products, Suppliers, Settings, Invoicing</td>
+        </tr>
+        <tr>
+          <td><strong>Online-Only Features</strong></td>
+          <td>Authentication (SignIn/SignUp), Initial Full Pull</td>
+        </tr>
+        <tr>
+          <td><strong>Sync Engine</strong></td>
+          <td>Push: Queue-driven exponential backoff. Pull: Incremental pagination via <code>updatedAt</code></td>
+        </tr>
+        <tr>
+          <td><strong>Conflict Resolution</strong></td>
+          <td>Server-side: Last-Write-Wins (LWW). Client-side: Unsent local changes win over remote pulls.</td>
+        </tr>
+        <tr>
+          <td><strong>Idempotency</strong></td>
+          <td>Firestore <code>SetOptions(merge: true)</code> with UUIDs.</td>
+        </tr>
+      </table>
+
+      <h2>Next Steps</h2>
+      <p>Please navigate through the sidebar to explore deep-dive analysis on the synchronization engine, failure matrices, conflict resolution, and actionable recommendations.</p>
+
+    </main>
+  </div>
+</body>
+</html>
