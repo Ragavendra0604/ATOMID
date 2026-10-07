@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:atomid/data/models/hardware_config_model.dart';
 import 'package:atomid/data/models/supplier_model.dart';
 import 'package:atomid/presentation/features/price_tag/bulk_generator_screen.dart';
 import 'package:atomid/presentation/features/reports/reports_dashboard_screen.dart';
@@ -122,6 +123,9 @@ void main() {
     final normalPhone = responsiveMatrix.firstWhere((v) => v.width == 390);
 
     testWidgets('expanding a product group does not throw', (tester) async {
+      await tester.runAsync(() async {
+        await HardwareConfigModel.load();
+      });
       final error = await renderAt(
         tester,
         harness,
@@ -130,7 +134,13 @@ void main() {
       );
       expect(error, isNull, reason: 'the generator does not open:\n$error');
 
-      await tester.tap(find.text('All products'));
+      final allProductsOption = find.text('All products');
+      expect(
+        allProductsOption,
+        findsOneWidget,
+        reason: 'the generator did not load printer settings',
+      );
+      await tester.tap(allProductsOption);
       await tester.pumpAndSettle();
       expect(
         tester.takeException(),
