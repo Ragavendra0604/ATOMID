@@ -86,6 +86,7 @@ class _ReportsDashboardScreenState extends ConsumerState<ReportsDashboardScreen>
                 settings,
                 company,
               );
+              final pdfBytes = await pdf.save();
               if (!context.mounted) return;
 
               final safeFileNameStr = reportTimeframe.replaceAll(
@@ -94,7 +95,7 @@ class _ReportsDashboardScreenState extends ConsumerState<ReportsDashboardScreen>
               );
               await ShareBottomSheet.show(
                 context: context,
-                pdfBytes: await pdf.save(),
+                pdfBytes: pdfBytes,
                 fileName: 'Sales_GST_Report_$safeFileNameStr',
                 shareText: 'Sales and GST Report ($reportTimeframe)',
                 printPageFormat: PdfPageFormat.a4,

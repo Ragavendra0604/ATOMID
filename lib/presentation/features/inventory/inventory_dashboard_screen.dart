@@ -36,10 +36,11 @@ class InventoryDashboardScreen extends ConsumerWidget {
                 settings,
                 company,
               );
+              final pdfBytes = await pdf.save();
               if (!context.mounted) return;
               await ShareBottomSheet.show(
                 context: context,
-                pdfBytes: await pdf.save(),
+                pdfBytes: pdfBytes,
                 fileName: 'Inventory_Report',
                 shareText: 'Inventory Report',
                 printPageFormat: PdfPageFormat.a4,

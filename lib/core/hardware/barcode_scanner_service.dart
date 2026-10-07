@@ -38,8 +38,9 @@ class BarcodeScannerService extends HardwareDevice {
 
   /// Called by the GlobalBarcodeListener when a rapid keystroke sequence completes
   void processScannedBarcode(String barcode) {
-    if (status != DeviceStatus.connected)
+    if (status != DeviceStatus.connected) {
       return; // Ignore if conceptually disabled
+    }
     final cleanBarcode = barcode.trim();
     if (cleanBarcode.isNotEmpty) {
       _scanController.add(cleanBarcode);
