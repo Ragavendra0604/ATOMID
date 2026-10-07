@@ -77,8 +77,14 @@ class LabelRenderer {
 
     // Barcode graphic gets most of its section, minus room for text below it.
     // Guard against sections so small they'd produce a zero/negative height.
-    final barcodeTextH = math.min(3.0 * PdfPageFormat.mm, barcodeSectionH * 0.30);
-    final barcodeGraphicH = math.max(1.0, barcodeSectionH - barcodeTextH - spacing);
+    final barcodeTextH = math.min(
+      3.0 * PdfPageFormat.mm,
+      barcodeSectionH * 0.30,
+    );
+    final barcodeGraphicH = math.max(
+      1.0,
+      barcodeSectionH - barcodeTextH - spacing,
+    );
 
     return pw.Container(
       width: width,

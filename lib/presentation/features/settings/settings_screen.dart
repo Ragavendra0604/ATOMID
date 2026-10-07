@@ -321,13 +321,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     _link(
                       icon: Icons.print_outlined,
                       title: 'Terminal Hardware Setup',
-                      subtitle: 'Configure barcode scanners, receipt printers, and label printers for this specific terminal.',
+                      subtitle:
+                          'Configure barcode scanners, receipt printers, and label printers for this specific terminal.',
                       onTap: () => _open(const HardwareSettingsScreen()),
                     ),
                     _link(
                       icon: Icons.monitor_heart_outlined,
                       title: 'Hardware Diagnostics',
-                      subtitle: 'Test connection status of configured hardware devices.',
+                      subtitle:
+                          'Test connection status of configured hardware devices.',
                       onTap: () => _open(const HardwareDiagnosticsScreen()),
                     ),
 

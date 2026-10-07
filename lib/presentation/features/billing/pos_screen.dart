@@ -35,11 +35,14 @@ class _PosScreenState extends ConsumerState<PosScreen> {
     super.initState();
     // Listen for physical hardware scanner events globally
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _hardwareScannerSubscription = ref.read(barcodeScannerServiceProvider).onBarcodeScanned.listen((barcode) {
-        if (mounted) {
-          _processSearch(barcode);
-        }
-      });
+      _hardwareScannerSubscription = ref
+          .read(barcodeScannerServiceProvider)
+          .onBarcodeScanned
+          .listen((barcode) {
+            if (mounted) {
+              _processSearch(barcode);
+            }
+          });
     });
   }
 

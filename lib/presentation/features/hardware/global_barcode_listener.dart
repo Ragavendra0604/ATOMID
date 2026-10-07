@@ -13,7 +13,8 @@ class GlobalBarcodeListener extends ConsumerStatefulWidget {
   const GlobalBarcodeListener({super.key, required this.child});
 
   @override
-  ConsumerState<GlobalBarcodeListener> createState() => _GlobalBarcodeListenerState();
+  ConsumerState<GlobalBarcodeListener> createState() =>
+      _GlobalBarcodeListenerState();
 }
 
 class _GlobalBarcodeListenerState extends ConsumerState<GlobalBarcodeListener> {
@@ -22,7 +23,7 @@ class _GlobalBarcodeListenerState extends ConsumerState<GlobalBarcodeListener> {
   DateTime? _lastKeystrokeTime;
 
   // Most hardware scanners send chars < 30ms apart. Humans type much slower.
-  static const int _barcodeMaxCharIntervalMs = 50; 
+  static const int _barcodeMaxCharIntervalMs = 50;
 
   @override
   void dispose() {
@@ -37,8 +38,10 @@ class _GlobalBarcodeListenerState extends ConsumerState<GlobalBarcodeListener> {
 
     // Check if the keystroke sequence timed out (meaning it's just slow human typing)
     if (_lastKeystrokeTime != null) {
-      if (now.difference(_lastKeystrokeTime!).inMilliseconds.abs() > _barcodeMaxCharIntervalMs) {
-        _buffer = ''; // Reset buffer because typing was too slow to be a scanner
+      if (now.difference(_lastKeystrokeTime!).inMilliseconds.abs() >
+          _barcodeMaxCharIntervalMs) {
+        _buffer =
+            ''; // Reset buffer because typing was too slow to be a scanner
       }
     }
 

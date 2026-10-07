@@ -11,8 +11,8 @@ import 'package:atomid/data/models/product_model.dart';
 import 'package:atomid/domain/price_tag_job.dart';
 import 'package:atomid/domain/price_tag_size.dart';
 import 'package:atomid/domain/price_tag_print_mode.dart';
-import 'package:atomid/core/hardware/label_layout_engine.dart' as import_layout_engine;
-import 'package:atomid/core/hardware/label_printer_profile.dart' as import_hardware_profile;
+import 'package:atomid/core/hardware/label_layout_engine.dart'
+    as import_layout_engine;
 import 'package:atomid/presentation/common/share_bottom_sheet.dart';
 import 'package:atomid/data/models/hardware_config_model.dart';
 import 'package:atomid/core/hardware/label_printer_service.dart';
@@ -23,6 +23,9 @@ import 'package:atomid/presentation/providers/app_providers.dart';
 enum _BulkMode {
   /// One product at a time — the original flow.
   singleProduct('This product'),
+
+  /// A few selected products.
+  multipleProducts('Multiple products'),
 
   /// Every product in the catalogue on one continuous run of sheets.
   allProducts('All products');
@@ -44,6 +47,7 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
 
   _BulkMode _mode = _BulkMode.singleProduct;
   Product? _selectedProduct;
+  List<Product> _selectedProducts = [];
   PriceTagSize _tagSize = PriceTagSize.medium;
   PriceTagPrintMode? _printMode;
   HardwareConfigModel? _hardwareConfig;
@@ -67,7 +71,9 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
     if (mounted) {
       setState(() {
         _hardwareConfig = config;
-        _printMode = (config.labelPrinterName != null && config.labelPrinterName!.isNotEmpty)
+        _printMode =
+            (config.labelPrinterName != null &&
+                config.labelPrinterName!.isNotEmpty)
             ? PriceTagPrintMode.lp46Direct
             : PriceTagPrintMode.a4Sheet;
       });
@@ -122,6 +128,18 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
     if (_mode == _BulkMode.singleProduct) {
       return _selectedProduct == null ? const [] : [_selectedProduct!];
     }
+    if (_mode == _BulkMode.multipleProducts) {
+      if (_search.isEmpty) return _selectedProducts;
+      final q = _search.toLowerCase();
+      return _selectedProducts
+          .where(
+            (p) =>
+                p.productName.toLowerCase().contains(q) ||
+                p.color.toLowerCase().contains(q) ||
+                p.productCode.toLowerCase().contains(q),
+          )
+          .toList();
+    }
     final products = ref.read(productsProvider);
     if (_search.isEmpty) return products;
     final q = _search.toLowerCase();
@@ -139,11 +157,14 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
   /// the ones currently visible through the search box.
   List<PriceTagLine> _collectLines() {
     final lines = <PriceTagLine>[];
-    final products = _mode == _BulkMode.singleProduct
-        ? (_selectedProduct == null
-              ? const <Product>[]
-              : <Product>[_selectedProduct!])
-        : ref.read(productsProvider);
+    final products = switch (_mode) {
+      _BulkMode.singleProduct =>
+        _selectedProduct == null
+            ? const <Product>[]
+            : <Product>[_selectedProduct!],
+      _BulkMode.multipleProducts => _selectedProducts,
+      _BulkMode.allProducts => ref.read(productsProvider),
+    };
 
     for (final product in products) {
       for (final variant in product.variants) {
@@ -163,7 +184,10 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
 
   void _fillFromStock() {
     setState(() {
-      for (final product in ref.read(productsProvider)) {
+      final products = _mode == _BulkMode.multipleProducts
+          ? _selectedProducts
+          : ref.read(productsProvider);
+      for (final product in products) {
         for (final variant in product.variants) {
           _controllerFor(product, variant).text = variant.quantity.toString();
         }
@@ -236,15 +260,26 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
     try {
       final name = _mode == _BulkMode.allProducts
           ? 'Bulk_Tags_All_Products'
+          : _mode == _BulkMode.multipleProducts
+          ? 'Bulk_Tags_Multiple_Products'
           : 'Bulk_Tags_${_selectedProduct?.productCode ?? ''}';
 
       if (_printMode == PriceTagPrintMode.lp46Direct) {
         // --- HARDWARE DIRECT PRINTING FLOW ---
         final config = _hardwareConfig ?? await HardwareConfigModel.load();
-        
-        if (config.labelPrinterName == null || config.labelPrinterName!.isEmpty) {
+
+        if (!mounted) {
+          setState(() => _isLoading = false);
+          return;
+        }
+
+        if (config.labelPrinterName == null ||
+            config.labelPrinterName!.isEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('TVS LP 46 DLITE label printer is not configured.'), backgroundColor: Colors.red),
+            const SnackBar(
+              content: Text('TVS LP 46 DLITE label printer is not configured.'),
+              backgroundColor: Colors.red,
+            ),
           );
           return;
         }
@@ -265,14 +300,19 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
         final jobMgr = ref.read(printJobManagerProvider);
         final jobId = 'bulk_tag_${DateTime.now().millisecondsSinceEpoch}';
 
-        if (!jobMgr.startJob(jobId, 'BULK_PRINT', 'LABEL', config.labelPrinterName!)) {
+        if (!jobMgr.startJob(
+          jobId,
+          'BULK_PRINT',
+          'LABEL',
+          config.labelPrinterName!,
+        )) {
           setState(() => _isLoading = false);
           return;
         }
 
         final engine = import_layout_engine.LabelLayoutEngine(profile);
         final success = await printerSvc.printLabel(
-          pdfBytes, 
+          pdfBytes,
           name,
           printerName: config.labelPrinterName,
           format: engine.pdfPageFormat,
@@ -289,7 +329,6 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
           jobMgr.failJob(jobId, printerSvc.statusMessage ?? 'Driver error');
           throw Exception(printerSvc.statusMessage);
         }
-
       } else {
         // --- FALLBACK INTERACTIVE FLOW ---
         final format = _sheetFormat;
@@ -317,6 +356,29 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _showMultiSelectDialog() async {
+    final products = ref.read(productsProvider);
+    final selected = await showDialog<List<Product>>(
+      context: context,
+      builder: (context) {
+        return _MultiSelectProductDialog(
+          products: products,
+          initialSelected: _selectedProducts,
+        );
+      },
+    );
+    if (selected != null) {
+      setState(() {
+        _selectedProducts = selected;
+        for (final product in _selectedProducts) {
+          for (final v in product.variants) {
+            _controllerFor(product, v, initial: v.quantity.toString());
+          }
+        }
+      });
     }
   }
 
@@ -379,7 +441,7 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
       final printerSvc = ref.read(labelPrinterServiceProvider);
       final profile = printerSvc.activeProfile;
       final engine = import_layout_engine.LabelLayoutEngine(profile);
-      
+
       return PdfPreview(
         build: (f) async {
           final lines = _collectLines();
@@ -400,7 +462,8 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
         canChangeOrientation: false,
         canChangePageFormat: false,
         canDebug: false,
-        allowPrinting: false, // Force them to use our controlled print dispatch button
+        allowPrinting:
+            false, // Force them to use our controlled print dispatch button
         allowSharing: false,
       );
     } else {
@@ -470,32 +533,80 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
           const SizedBox(height: 24),
         ],
 
-        if (_mode == _BulkMode.allProducts || _selectedProduct != null) ...[
-          const Text('Print Destination', style: TextStyle(fontWeight: FontWeight.bold)),
+        if (_mode == _BulkMode.multipleProducts) ...[
+          const Text(
+            'Select Products',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _showMultiSelectDialog,
+            icon: const Icon(Icons.add),
+            label: Text('Select Products (${_selectedProducts.length})'),
+          ),
+          if (_selectedProducts.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 8.0),
+              child: Wrap(
+                spacing: 8,
+                children: _selectedProducts.map((p) {
+                  return Chip(
+                    label: Text(p.displayName),
+                    onDeleted: () {
+                      setState(() {
+                        _selectedProducts.remove(p);
+                      });
+                    },
+                  );
+                }).toList(),
+              ),
+            ),
+          const SizedBox(height: 24),
+        ],
+
+        if (_mode == _BulkMode.allProducts ||
+            _mode == _BulkMode.multipleProducts ||
+            _selectedProduct != null) ...[
+          const Text(
+            'Print Destination',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
           const SizedBox(height: 8),
           SegmentedButton<PriceTagPrintMode>(
             segments: const [
-              ButtonSegment(value: PriceTagPrintMode.a4Sheet, label: Text('A4 Sheet Printer')),
-              ButtonSegment(value: PriceTagPrintMode.lp46Direct, label: Text('LP46 Label Printer')),
+              ButtonSegment(
+                value: PriceTagPrintMode.a4Sheet,
+                label: Text('A4 Sheet Printer'),
+              ),
+              ButtonSegment(
+                value: PriceTagPrintMode.lp46Direct,
+                label: Text('LP46 Label Printer'),
+              ),
             ],
             selected: {_printMode!},
             showSelectedIcon: false,
-            onSelectionChanged: (values) => setState(() => _printMode = values.first),
+            onSelectionChanged: (values) =>
+                setState(() => _printMode = values.first),
           ),
           const SizedBox(height: 24),
 
           if (_printMode == PriceTagPrintMode.a4Sheet) ...[
-            const Text('Tag Size', style: TextStyle(fontWeight: FontWeight.bold)),
+            const Text(
+              'Tag Size',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 8),
             SegmentedButton<PriceTagSize>(
               segments: PriceTagSize.values
                   .map(
-                    (size) => ButtonSegment(value: size, label: Text(size.label)),
+                    (size) =>
+                        ButtonSegment(value: size, label: Text(size.label)),
                   )
                   .toList(),
               selected: {_tagSize},
               showSelectedIcon: false,
-              onSelectionChanged: (values) => setState(() => _tagSize = values.first),
+              onSelectionChanged: (values) =>
+                  setState(() => _tagSize = values.first),
             ),
             const SizedBox(height: 6),
             Text(
@@ -507,7 +618,10 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
             ),
             const SizedBox(height: 24),
           ] else ...[
-            const Text('Label Size', style: TextStyle(fontWeight: FontWeight.bold)),
+            const Text(
+              'Label Size',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 8),
             Container(
               width: double.infinity,
@@ -516,26 +630,34 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
                 border: Border.all(color: theme.colorScheme.outlineVariant),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Builder(builder: (context) {
-                final config = _hardwareConfig;
-                if (config?.labelPrinterName == null || config!.labelPrinterName!.isEmpty) {
-                  return const Text(
-                    '⚠️ TVS LP 46 DLITE label printer is not configured.',
-                    style: TextStyle(color: Colors.red, fontWeight: FontWeight.w500),
+              child: Builder(
+                builder: (context) {
+                  final config = _hardwareConfig;
+                  if (config?.labelPrinterName == null ||
+                      config!.labelPrinterName!.isEmpty) {
+                    return const Text(
+                      '⚠️ TVS LP 46 DLITE label printer is not configured.',
+                      style: TextStyle(
+                        color: Colors.red,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    );
+                  }
+                  final profile = ref
+                      .read(labelPrinterServiceProvider)
+                      .activeProfile;
+                  return Text(
+                    'Printer: ${config.labelPrinterName}\n'
+                    'Label: ${profile.labelWidthMm} × ${profile.labelHeightMm} mm\n'
+                    'Media: ${profile.mediaWidthMm} × ${profile.mediaHeightMm} mm\n'
+                    'Columns: ${profile.columns} · Gap: ${profile.horizontalGapMm} mm',
+                    style: TextStyle(
+                      color: theme.colorScheme.onSurface,
+                      fontWeight: FontWeight.w500,
+                    ),
                   );
-                }
-                final profile = ref.read(labelPrinterServiceProvider).activeProfile;
-                return Text(
-                  'Printer: ${config.labelPrinterName}\n'
-                  'Label: ${profile.labelWidthMm} × ${profile.labelHeightMm} mm\n'
-                  'Media: ${profile.mediaWidthMm} × ${profile.mediaHeightMm} mm\n'
-                  'Columns: ${profile.columns} · Gap: ${profile.horizontalGapMm} mm',
-                  style: TextStyle(
-                    color: theme.colorScheme.onSurface,
-                    fontWeight: FontWeight.w500,
-                  ),
-                );
-              }),
+                },
+              ),
             ),
             const SizedBox(height: 24),
           ],
@@ -548,7 +670,8 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
                   style: TextStyle(fontWeight: FontWeight.bold),
                 ),
               ),
-              if (_mode == _BulkMode.allProducts) ...[
+              if (_mode == _BulkMode.allProducts ||
+                  _mode == _BulkMode.multipleProducts) ...[
                 TextButton(
                   onPressed: _fillFromStock,
                   child: const Text('Fill from stock'),
@@ -557,7 +680,8 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
               ],
             ],
           ),
-          if (_mode == _BulkMode.allProducts) ...[
+          if (_mode == _BulkMode.allProducts ||
+              _mode == _BulkMode.multipleProducts) ...[
             const SizedBox(height: 8),
             TextField(
               controller: _searchController,
@@ -579,12 +703,15 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
           ],
           const SizedBox(height: 8),
 
-          if (_mode == _BulkMode.allProducts && products.isEmpty)
+          if ((_mode == _BulkMode.allProducts && products.isEmpty) ||
+              (_mode == _BulkMode.multipleProducts &&
+                  _selectedProducts.isEmpty))
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 16),
-              child: Text('No products yet.'),
+              child: Text('No products selected or available.'),
             )
-          else if (_mode == _BulkMode.allProducts)
+          else if (_mode == _BulkMode.allProducts ||
+              _mode == _BulkMode.multipleProducts)
             ..._activeProducts.map(_buildProductGroup)
           else
             _buildVariantRows(_selectedProduct!),
@@ -716,7 +843,7 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
 
     if (_printMode == PriceTagPrintMode.lp46Direct) {
       final profile = ref.read(labelPrinterServiceProvider).activeProfile;
-      
+
       final rows = (total + 1) ~/ 2;
       return Container(
         width: double.infinity,
@@ -751,5 +878,101 @@ class _BulkGeneratorScreenState extends ConsumerState<BulkGeneratorScreen> {
         ),
       );
     }
+  }
+}
+
+class _MultiSelectProductDialog extends StatefulWidget {
+  final List<Product> products;
+  final List<Product> initialSelected;
+
+  const _MultiSelectProductDialog({
+    required this.products,
+    required this.initialSelected,
+  });
+
+  @override
+  State<_MultiSelectProductDialog> createState() =>
+      _MultiSelectProductDialogState();
+}
+
+class _MultiSelectProductDialogState extends State<_MultiSelectProductDialog> {
+  late Set<Product> _selected;
+  String _search = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _selected = Set.from(widget.initialSelected);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = _search.isEmpty
+        ? widget.products
+        : widget.products
+              .where(
+                (p) =>
+                    p.productName.toLowerCase().contains(
+                      _search.toLowerCase(),
+                    ) ||
+                    p.productCode.toLowerCase().contains(_search.toLowerCase()),
+              )
+              .toList();
+
+    return AlertDialog(
+      title: const Text('Select Products'),
+      content: SizedBox(
+        width: double.maxFinite,
+        height: MediaQuery.of(context).size.height * 0.6,
+        child: Column(
+          children: [
+            TextField(
+              decoration: const InputDecoration(
+                hintText: 'Search...',
+                prefixIcon: Icon(Icons.search),
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              onChanged: (val) => setState(() => _search = val),
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: ListView.builder(
+                itemCount: filtered.length,
+                itemBuilder: (context, index) {
+                  final product = filtered[index];
+                  final isSelected = _selected.contains(product);
+                  return CheckboxListTile(
+                    title: Text(
+                      '${product.displayName} (${product.productCode})',
+                    ),
+                    value: isSelected,
+                    onChanged: (val) {
+                      setState(() {
+                        if (val == true) {
+                          _selected.add(product);
+                        } else {
+                          _selected.remove(product);
+                        }
+                      });
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () => Navigator.pop(context, _selected.toList()),
+          child: const Text('Confirm'),
+        ),
+      ],
+    );
   }
 }

@@ -22,11 +22,13 @@ class _ReportsDashboardScreenState extends ConsumerState<ReportsDashboardScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
   String _selectedTimeframe = 'Today';
+  DateTimeRange? _customDateRange;
   final List<String> _timeframes = [
     'Today',
     'This Week',
     'This Month',
     'All Time',
+    'Custom',
   ];
 
   @override
@@ -42,6 +44,14 @@ class _ReportsDashboardScreenState extends ConsumerState<ReportsDashboardScreen>
   }
 
   List<Sale> _getFilteredSales(List<Sale> allSales) {
+    if (_selectedTimeframe == 'Custom' && _customDateRange != null) {
+      final from = DateWindow.startOfDay(_customDateRange!.start);
+      final until = DateWindow.startOfDay(
+        _customDateRange!.end,
+      ).add(const Duration(days: 1));
+      final window = DateWindow(from: from, until: until);
+      return allSales.where((s) => window.contains(s.date)).toList();
+    }
     final window = DateWindow.forTimeframe(_selectedTimeframe, DateTime.now());
     if (window == null) return allSales;
     return allSales.where((s) => window.contains(s.date)).toList();
@@ -63,18 +73,30 @@ class _ReportsDashboardScreenState extends ConsumerState<ReportsDashboardScreen>
             onPressed: () async {
               final settings = ref.read(settingsProvider);
               final company = ref.read(companyProvider);
+
+              String reportTimeframe = _selectedTimeframe;
+              if (_selectedTimeframe == 'Custom' && _customDateRange != null) {
+                reportTimeframe =
+                    '${Fmt.date(_customDateRange!.start)} to ${Fmt.date(_customDateRange!.end)}';
+              }
+
               final pdf = await ExportService.generateSalesReportPdf(
                 filteredSales,
-                _selectedTimeframe,
+                reportTimeframe,
                 settings,
                 company,
               );
               if (!context.mounted) return;
+
+              final safeFileNameStr = reportTimeframe.replaceAll(
+                RegExp(r'[\\/:*?"<>|]'),
+                '-',
+              );
               await ShareBottomSheet.show(
                 context: context,
                 pdfBytes: await pdf.save(),
-                fileName: 'Sales_GST_Report_$_selectedTimeframe',
-                shareText: 'Sales and GST Report ($_selectedTimeframe)',
+                fileName: 'Sales_GST_Report_$safeFileNameStr',
+                shareText: 'Sales and GST Report ($reportTimeframe)',
                 printPageFormat: PdfPageFormat.a4,
               );
             },
@@ -98,13 +120,39 @@ class _ReportsDashboardScreenState extends ConsumerState<ReportsDashboardScreen>
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: _timeframes.map((tf) {
+                  final bool isCustom = tf == 'Custom';
+                  String labelText = tf;
+                  if (isCustom && _customDateRange != null) {
+                    labelText =
+                        'Custom (${Fmt.date(_customDateRange!.start)} - ${Fmt.date(_customDateRange!.end)})';
+                  }
+
                   return Padding(
                     padding: const EdgeInsets.only(right: 8.0),
                     child: ChoiceChip(
-                      label: Text(tf),
+                      label: Text(labelText),
                       selected: _selectedTimeframe == tf,
-                      onSelected: (selected) {
-                        if (selected) setState(() => _selectedTimeframe = tf);
+                      onSelected: (selected) async {
+                        if (selected) {
+                          if (isCustom) {
+                            final picked = await showDateRangePicker(
+                              context: context,
+                              firstDate: DateTime(2000),
+                              lastDate: DateTime.now().add(
+                                const Duration(days: 365),
+                              ),
+                              initialDateRange: _customDateRange,
+                            );
+                            if (picked != null) {
+                              setState(() {
+                                _customDateRange = picked;
+                                _selectedTimeframe = tf;
+                              });
+                            }
+                          } else {
+                            setState(() => _selectedTimeframe = tf);
+                          }
+                        }
                       },
                     ),
                   );

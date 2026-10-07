@@ -15,6 +15,7 @@ class ExpenseListScreen extends ConsumerStatefulWidget {
 
 class _ExpenseListScreenState extends ConsumerState<ExpenseListScreen> {
   String _selectedPeriod = 'This Month';
+  DateTimeRange? _customDateRange;
 
   @override
   void initState() {
@@ -26,6 +27,14 @@ class _ExpenseListScreenState extends ConsumerState<ExpenseListScreen> {
   }
 
   List<Expense> _filterExpenses(List<Expense> expenses) {
+    if (_selectedPeriod == 'Custom' && _customDateRange != null) {
+      final from = DateWindow.startOfDay(_customDateRange!.start);
+      final until = DateWindow.startOfDay(
+        _customDateRange!.end,
+      ).add(const Duration(days: 1));
+      final window = DateWindow(from: from, until: until);
+      return expenses.where((e) => window.contains(e.date)).toList();
+    }
     final window = DateWindow.forTimeframe(_selectedPeriod, DateTime.now());
     if (window == null) return expenses; // All Time
     return expenses.where((e) => window.contains(e.date)).toList();
@@ -65,7 +74,24 @@ class _ExpenseListScreenState extends ConsumerState<ExpenseListScreen> {
         actions: [
           PopupMenuButton<String>(
             icon: const Icon(Icons.filter_list),
-            onSelected: (val) => setState(() => _selectedPeriod = val),
+            onSelected: (val) async {
+              if (val == 'Custom') {
+                final picked = await showDateRangePicker(
+                  context: context,
+                  firstDate: DateTime(2000),
+                  lastDate: DateTime.now().add(const Duration(days: 365)),
+                  initialDateRange: _customDateRange,
+                );
+                if (picked != null) {
+                  setState(() {
+                    _customDateRange = picked;
+                    _selectedPeriod = val;
+                  });
+                }
+              } else {
+                setState(() => _selectedPeriod = val);
+              }
+            },
             itemBuilder: (context) => [
               const PopupMenuItem(value: 'Today', child: Text('Today')),
               const PopupMenuItem(value: 'This Week', child: Text('This Week')),
@@ -74,6 +100,10 @@ class _ExpenseListScreenState extends ConsumerState<ExpenseListScreen> {
                 child: Text('This Month'),
               ),
               const PopupMenuItem(value: 'All Time', child: Text('All Time')),
+              const PopupMenuItem(
+                value: 'Custom',
+                child: Text('Custom Date Range'),
+              ),
             ],
           ),
         ],
@@ -89,7 +119,7 @@ class _ExpenseListScreenState extends ConsumerState<ExpenseListScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Total Expenses ($_selectedPeriod)',
+                  'Total Expenses (${_selectedPeriod == 'Custom' && _customDateRange != null ? '${Fmt.date(_customDateRange!.start)} - ${Fmt.date(_customDateRange!.end)}' : _selectedPeriod})',
                   style: TextStyle(
                     color: Theme.of(
                       context,

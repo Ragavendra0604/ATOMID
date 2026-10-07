@@ -99,9 +99,12 @@ class _PriceTagScreenState extends ConsumerState<PriceTagScreen> {
                 ElevatedButton.icon(
                   onPressed: () => _printTag(settings.companyName),
                   icon: const Icon(Icons.print),
-                  label: Text(_hardwareConfig?.labelPrinterName != null && _hardwareConfig!.labelPrinterName!.isNotEmpty
-                      ? 'Print to TVS LP 46 DLITE'
-                      : 'Print (OS Dialog)'),
+                  label: Text(
+                    _hardwareConfig?.labelPrinterName != null &&
+                            _hardwareConfig!.labelPrinterName!.isNotEmpty
+                        ? 'Print to TVS LP 46 DLITE'
+                        : 'Print (OS Dialog)',
+                  ),
                 ),
               ],
             ),
@@ -414,23 +417,38 @@ class _PriceTagScreenState extends ConsumerState<PriceTagScreen> {
         _selectedVariant,
         settings,
         company,
-        widthMm: (config.labelPrinterName != null && config.labelPrinterName!.isNotEmpty) ? 50.0 : null,
-        heightMm: (config.labelPrinterName != null && config.labelPrinterName!.isNotEmpty) ? (is50x50 ? 50.0 : 35.0) : null,
+        widthMm:
+            (config.labelPrinterName != null &&
+                config.labelPrinterName!.isNotEmpty)
+            ? 50.0
+            : null,
+        heightMm:
+            (config.labelPrinterName != null &&
+                config.labelPrinterName!.isNotEmpty)
+            ? (is50x50 ? 50.0 : 35.0)
+            : null,
       );
       final pdfBytes = await pdf.save();
 
-      if (config.labelPrinterName != null && config.labelPrinterName!.isNotEmpty) {
+      if (config.labelPrinterName != null &&
+          config.labelPrinterName!.isNotEmpty) {
         // Print silently to configured hardware
         final printerSvc = ref.read(labelPrinterServiceProvider);
-        final jobId = 'tag_${widget.product.id}_${_selectedVariant.size}_${DateTime.now().millisecondsSinceEpoch}';
+        final jobId =
+            'tag_${widget.product.id}_${_selectedVariant.size}_${DateTime.now().millisecondsSinceEpoch}';
         final jobMgr = ref.read(printJobManagerProvider);
 
-        if (!jobMgr.startJob(jobId, widget.product.id, 'LABEL', config.labelPrinterName!)) {
+        if (!jobMgr.startJob(
+          jobId,
+          widget.product.id,
+          'LABEL',
+          config.labelPrinterName!,
+        )) {
           return;
         }
 
         final success = await printerSvc.printLabel(
-          pdfBytes, 
+          pdfBytes,
           'PriceTag_${widget.product.productCode}',
           printerName: config.labelPrinterName,
         );
@@ -439,7 +457,9 @@ class _PriceTagScreenState extends ConsumerState<PriceTagScreen> {
           jobMgr.completeJob(jobId);
           await _logAction('Hardware Tag Printed');
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sent to label printer.')));
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Sent to label printer.')),
+            );
           }
         } else {
           jobMgr.failJob(jobId, printerSvc.statusMessage ?? 'Driver error');

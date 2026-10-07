@@ -12,7 +12,7 @@ void main() {
   group('LP46 Pagination Tests', () {
     final profile = LabelPrinterProfile.profile50x35TwoColumn;
     final engine = LabelLayoutEngine(profile);
-    
+
     // We mock the generic parameters needed for ExportService
     final mockVariant = ProductVariant(
       size: 'XL',
@@ -37,14 +37,28 @@ void main() {
     final settings = SettingsModel();
     final company = CompanyModel(name: 'Test Co', address: '123 Test St');
 
-    Future<void> runTest(int quantity, int expectedRows, int expectedPdfPages, int expectedPopulated, int expectedEmpty) async {
+    Future<void> runTest(
+      int quantity,
+      int expectedRows,
+      int expectedPdfPages,
+      int expectedPopulated,
+      int expectedEmpty,
+    ) async {
       // 1. Math checks
       final totalLabels = quantity;
       final rows = (quantity + 1) ~/ 2;
-      expect(rows, expectedRows, reason: 'Row calculation mismatch for quantity \$quantity');
-      
+      expect(
+        rows,
+        expectedRows,
+        reason: 'Row calculation mismatch for quantity \$quantity',
+      );
+
       final layoutEnginePages = engine.calculateTotalPages(totalLabels);
-      expect(layoutEnginePages, expectedPdfPages, reason: 'Layout Engine pages mismatch for quantity \$quantity');
+      expect(
+        layoutEnginePages,
+        expectedPdfPages,
+        reason: 'Layout Engine pages mismatch for quantity \$quantity',
+      );
 
       final populated = totalLabels;
       expect(populated, expectedPopulated, reason: 'Populated count mismatch');
@@ -53,10 +67,21 @@ void main() {
       expect(empty, expectedEmpty, reason: 'Empty slots mismatch');
 
       // 2. PDF generation checks
-      final job = PriceTagLine(product: mockProduct, variant: mockVariant, quantity: quantity);
-      
+      final job = PriceTagLine(
+        product: mockProduct,
+        variant: mockVariant,
+        quantity: quantity,
+      );
+
       // Because BulkGeneratorScreen expands the list:
-      final tags = List.generate(quantity, (_) => PriceTagLine(product: mockProduct, variant: mockVariant, quantity: 1));
+      final tags = List.generate(
+        quantity,
+        (_) => PriceTagLine(
+          product: mockProduct,
+          variant: mockVariant,
+          quantity: 1,
+        ),
+      );
 
       // 3. To prove ExportService isn't using hardcoded logo:
       // (Renderer logic inside export_service does not reference a logo internally; it depends on the company profile).

@@ -1,6 +1,7 @@
 enum LabelPageModel {
   singleLabel,
   multiColumnMedia,
+
   /// Continuous roll media — page height is calculated dynamically from the
   /// number of labels requested. Used by printers like TVS LP 46 DLITE.
   continuousRoll,

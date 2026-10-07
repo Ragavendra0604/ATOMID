@@ -92,9 +92,7 @@ class AtomidApp extends ConsumerWidget {
       darkTheme: AppTheme.darkTheme,
       themeMode: settings.isDarkMode ? ThemeMode.dark : ThemeMode.light,
       debugShowCheckedModeBanner: false,
-      home: GlobalBarcodeListener(
-        child: AppShell(startup: startup),
-      ),
+      home: GlobalBarcodeListener(child: AppShell(startup: startup)),
     );
   }
 }

@@ -20,22 +20,30 @@ class HardwareDiagnosticsScreen extends ConsumerWidget {
             margin: const EdgeInsets.all(8),
             child: ListTile(
               leading: Icon(
-                device.status.name == 'connected' ? Icons.check_circle : Icons.error,
-                color: device.status.name == 'connected' ? Colors.green : Colors.red,
+                device.status.name == 'connected'
+                    ? Icons.check_circle
+                    : Icons.error,
+                color: device.status.name == 'connected'
+                    ? Colors.green
+                    : Colors.red,
               ),
               title: Text(device.name),
               subtitle: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Model: ${device.model}\nStatus: ${device.status.name}\nConnection: ${device.connectionType.name}'),
+                  Text(
+                    'Model: ${device.model}\nStatus: ${device.status.name}\nConnection: ${device.connectionType.name}',
+                  ),
                   if (device.statusMessage != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 4.0),
                       child: Text(
                         device.statusMessage!,
                         style: TextStyle(
-                          color: device.status.name == 'error' ? Colors.redAccent : Colors.green, 
-                          fontSize: 13
+                          color: device.status.name == 'error'
+                              ? Colors.redAccent
+                              : Colors.green,
+                          fontSize: 13,
                         ),
                       ),
                     ),

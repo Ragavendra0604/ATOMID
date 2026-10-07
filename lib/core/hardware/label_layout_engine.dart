@@ -1,4 +1,3 @@
-
 import 'package:pdf/pdf.dart';
 import 'label_printer_profile.dart';
 
@@ -22,7 +21,8 @@ class LabelLayoutEngine {
       throw Exception('Number of columns must be at least 1.');
     }
 
-    final requiredWidth = profile.leftMarginMm +
+    final requiredWidth =
+        profile.leftMarginMm +
         (profile.columns * profile.labelWidthMm) +
         ((profile.columns - 1) * profile.horizontalGapMm) +
         profile.rightMarginMm;
@@ -66,6 +66,7 @@ class LabelLayoutEngine {
 
   double getColumnOffset(int columnIndex) {
     if (columnIndex < 0 || columnIndex >= profile.columns) return 0;
-    return profile.leftMarginMm + (profile.labelWidthMm + profile.horizontalGapMm) * columnIndex;
+    return profile.leftMarginMm +
+        (profile.labelWidthMm + profile.horizontalGapMm) * columnIndex;
   }
 }

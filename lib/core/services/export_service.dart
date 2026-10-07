@@ -26,10 +26,12 @@ import 'package:atomid/domain/invoice_template.dart';
 import 'package:atomid/domain/price_tag_job.dart';
 import 'package:atomid/domain/price_tag_size.dart';
 
-
-import 'package:atomid/core/hardware/label_printer_profile.dart' as import_hardware_profile;
-import 'package:atomid/core/hardware/label_layout_engine.dart' as import_layout_engine;
-import 'package:atomid/core/hardware/label_renderer.dart' as import_label_renderer;
+import 'package:atomid/core/hardware/label_printer_profile.dart'
+    as import_hardware_profile;
+import 'package:atomid/core/hardware/label_layout_engine.dart'
+    as import_layout_engine;
+import 'package:atomid/core/hardware/label_renderer.dart'
+    as import_label_renderer;
 
 class ExportService {
   static pw.Font? _cachedRegularFont;
@@ -291,8 +293,15 @@ class ExportService {
     final logoImage = await _getCompanyLogo(company);
 
     final pageFormat = (widthMm != null && heightMm != null)
-        ? PdfPageFormat(widthMm * PdfPageFormat.mm, heightMm * PdfPageFormat.mm, marginAll: 2 * PdfPageFormat.mm)
-        : const PdfPageFormat(200 * PdfPageFormat.point, 300 * PdfPageFormat.point);
+        ? PdfPageFormat(
+            widthMm * PdfPageFormat.mm,
+            heightMm * PdfPageFormat.mm,
+            marginAll: 2 * PdfPageFormat.mm,
+          )
+        : const PdfPageFormat(
+            200 * PdfPageFormat.point,
+            300 * PdfPageFormat.point,
+          );
 
     pdf.addPage(
       pw.Page(
@@ -771,7 +780,10 @@ class ExportService {
           theme: _theme,
           build: (pw.Context context) {
             final startIdx = pageIdx * engine.labelsPerPage;
-            final endIdx = (startIdx + engine.labelsPerPage).clamp(0, totalLabels);
+            final endIdx = (startIdx + engine.labelsPerPage).clamp(
+              0,
+              totalLabels,
+            );
             final pageTags = tags.sublist(startIdx, endIdx);
 
             return pw.Stack(
@@ -790,7 +802,6 @@ class ExportService {
     }
     return pdf;
   }
-
 
   static pw.Widget _buildBulkTag({
     required PriceTagLine tag,
@@ -2032,14 +2043,11 @@ class ExportService {
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
           pw.Expanded(
-            child: pw.Text(
-              label, 
-              style: const pw.TextStyle(fontSize: 8),
-            ),
+            child: pw.Text(label, style: const pw.TextStyle(fontSize: 8)),
           ),
           pw.SizedBox(width: 4),
           pw.Text(
-            value, 
+            value,
             style: const pw.TextStyle(fontSize: 8),
             textAlign: pw.TextAlign.right,
           ),

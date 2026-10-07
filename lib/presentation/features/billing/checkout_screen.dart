@@ -70,7 +70,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
           .checkout(_buildRequest());
 
       ref.read(cartProvider.notifier).clearCart();
-      
+
       // Dispatch hardware receipt printing silently
       _dispatchAutoPrint(sale);
 
@@ -103,7 +103,8 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   Future<void> _dispatchAutoPrint(import_sale.Sale sale) async {
     try {
       final config = await HardwareConfigModel.load();
-      if (config.receiptPrinterName == null || config.receiptPrinterName!.isEmpty) {
+      if (config.receiptPrinterName == null ||
+          config.receiptPrinterName!.isEmpty) {
         return; // No hardware printer configured for this terminal
       }
 
@@ -111,7 +112,12 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       final jobMgr = ref.read(printJobManagerProvider);
       final jobId = 'receipt_${sale.id}';
 
-      if (!jobMgr.startJob(jobId, sale.id, 'RECEIPT', config.receiptPrinterName!)) {
+      if (!jobMgr.startJob(
+        jobId,
+        sale.id,
+        'RECEIPT',
+        config.receiptPrinterName!,
+      )) {
         return; // Prevent duplicate hardware print attempt
       }
 
@@ -131,7 +137,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       final pdfBytes = await pdf.save();
 
       final success = await printerSvc.printReceipt(
-        pdfBytes, 
+        pdfBytes,
         'Invoice_${sale.invoiceNumber}',
         printerName: config.receiptPrinterName,
       );

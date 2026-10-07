@@ -8,12 +8,19 @@ class PrintJobManager {
 
   /// Tracks a print job. Returns false if the exact job is already pending or printing,
   /// protecting against accidental duplicate receipt generation.
-  bool startJob(String jobId, String transactionId, String docType, String printerId) {
+  bool startJob(
+    String jobId,
+    String transactionId,
+    String docType,
+    String printerId,
+  ) {
     if (_jobs.containsKey(jobId) && _jobs[jobId]!.status != 'FAILED') {
       return false; // Prevent duplicate active print attempts for the same job
     }
 
-    int previousAttempts = _jobs.containsKey(jobId) ? _jobs[jobId]!.attempts : 0;
+    int previousAttempts = _jobs.containsKey(jobId)
+        ? _jobs[jobId]!.attempts
+        : 0;
 
     _jobs[jobId] = PrintJob(
       jobId: jobId,

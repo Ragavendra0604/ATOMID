@@ -24,7 +24,7 @@ class _HardwareSettingsScreenState extends State<HardwareSettingsScreen> {
   Future<void> _loadConfig() async {
     final config = await HardwareConfigModel.load();
     final printers = await Printing.listPrinters();
-    
+
     if (mounted) {
       setState(() {
         _config = config;
@@ -37,9 +37,9 @@ class _HardwareSettingsScreenState extends State<HardwareSettingsScreen> {
   Future<void> _saveConfig() async {
     await _config.save();
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Hardware settings saved.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Hardware settings saved.')));
     }
   }
 
@@ -63,9 +63,7 @@ class _HardwareSettingsScreenState extends State<HardwareSettingsScreen> {
     printerNames.removeWhere((name) => name.isEmpty);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Terminal Hardware Setup'),
-      ),
+      appBar: AppBar(title: const Text('Terminal Hardware Setup')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -76,7 +74,9 @@ class _HardwareSettingsScreenState extends State<HardwareSettingsScreen> {
           const SizedBox(height: 16),
           SwitchListTile(
             title: const Text('Keyboard HID Barcode Scanner'),
-            subtitle: const Text('Listen for fast keystrokes simulating a barcode scanner.'),
+            subtitle: const Text(
+              'Listen for fast keystrokes simulating a barcode scanner.',
+            ),
             value: _config.scannerEnabled,
             onChanged: (val) {
               setState(() => _config.scannerEnabled = val);
@@ -86,14 +86,26 @@ class _HardwareSettingsScreenState extends State<HardwareSettingsScreen> {
           const Divider(),
           ListTile(
             title: const Text('Receipt Printer'),
-            subtitle: const Text('Select the system printer used for POS receipts (e.g. RETSOL RTP-81).'),
+            subtitle: const Text(
+              'Select the system printer used for POS receipts (e.g. RETSOL RTP-81).',
+            ),
             trailing: DropdownButton<String>(
-              value: _config.receiptPrinterName == null || _config.receiptPrinterName!.isEmpty ? null : _config.receiptPrinterName,
+              value:
+                  _config.receiptPrinterName == null ||
+                      _config.receiptPrinterName!.isEmpty
+                  ? null
+                  : _config.receiptPrinterName,
               hint: const Text('Select Printer'),
               items: [
-                const DropdownMenuItem<String>(value: null, child: Text('None (Use OS Dialog)')),
+                const DropdownMenuItem<String>(
+                  value: null,
+                  child: Text('None (Use OS Dialog)'),
+                ),
                 ...printerNames.map((name) {
-                  return DropdownMenuItem<String>(value: name, child: Text(name));
+                  return DropdownMenuItem<String>(
+                    value: name,
+                    child: Text(name),
+                  );
                 }),
               ],
               onChanged: (val) {
@@ -105,14 +117,26 @@ class _HardwareSettingsScreenState extends State<HardwareSettingsScreen> {
           const Divider(),
           ListTile(
             title: const Text('Label Printer'),
-            subtitle: const Text('Select the system printer used for price tags (e.g. TVS LP 46 DLITE).'),
+            subtitle: const Text(
+              'Select the system printer used for price tags (e.g. TVS LP 46 DLITE).',
+            ),
             trailing: DropdownButton<String>(
-              value: _config.labelPrinterName == null || _config.labelPrinterName!.isEmpty ? null : _config.labelPrinterName,
+              value:
+                  _config.labelPrinterName == null ||
+                      _config.labelPrinterName!.isEmpty
+                  ? null
+                  : _config.labelPrinterName,
               hint: const Text('Select Printer'),
               items: [
-                const DropdownMenuItem<String>(value: null, child: Text('None (Use OS Dialog)')),
+                const DropdownMenuItem<String>(
+                  value: null,
+                  child: Text('None (Use OS Dialog)'),
+                ),
                 ...printerNames.map((name) {
-                  return DropdownMenuItem<String>(value: name, child: Text(name));
+                  return DropdownMenuItem<String>(
+                    value: name,
+                    child: Text(name),
+                  );
                 }),
               ],
               onChanged: (val) {
@@ -128,7 +152,10 @@ class _HardwareSettingsScreenState extends State<HardwareSettingsScreen> {
               value: _config.labelProfileId,
               items: const [
                 DropdownMenuItem(value: '50x35', child: Text('50x35 mm')),
-                DropdownMenuItem(value: '50x35_2up', child: Text('50x35 mm (2 Across)')),
+                DropdownMenuItem(
+                  value: '50x35_2up',
+                  child: Text('50x35 mm (2 Across)'),
+                ),
                 DropdownMenuItem(value: '50x50', child: Text('50x50 mm')),
               ],
               onChanged: (val) {
